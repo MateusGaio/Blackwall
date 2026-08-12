@@ -63,6 +63,11 @@ button:disabled {
   width: 34px;
 }
 
+.brand-mark.profile-avatar {
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .eyebrow {
   color: #a5a5aa;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -790,6 +795,70 @@ button:disabled {
   font-weight: 500;
   letter-spacing: -0.04em;
   margin: 10px 0 0;
+}
+
+.settings-section-heading {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.settings-section-heading h3 {
+  font-size: 1.02rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin: 8px 0 0;
+}
+
+.profile-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-avatar-preview {
+  align-items: center;
+  background: #f2f2f3;
+  border-radius: 50%;
+  color: #101011;
+  display: flex;
+  flex: 0 0 58px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  height: 58px;
+  justify-content: center;
+  overflow: hidden;
+  width: 58px;
+}
+
+.profile-avatar-preview img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.profile-avatar-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-avatar-actions small {
+  color: #77777c;
+  flex-basis: 100%;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.workspace-soul-form {
+  border-top: 1px solid #2d2d31;
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
 }
 
 .provider-list {

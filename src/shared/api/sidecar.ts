@@ -10,6 +10,7 @@ export type ConnectedProvider = {
 };
 
 export type Profile = {
+  avatarData: string | null;
   id: string;
   locale: string;
   name: string;
@@ -203,6 +204,18 @@ export async function bootstrapApp(input: BootstrapInput): Promise<AppState> {
   });
 }
 
+export async function updateProfile(
+  profileId: string,
+  input: { avatarData?: string | null; locale?: string; name?: string; soul?: string },
+): Promise<Profile> {
+  const response = await request<{ profile: Profile }>(`/v1/profiles/${profileId}`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
+  return response.profile;
+}
+
 export async function listProviders(): Promise<ConnectedProvider[]> {
   const response = await request<{ providers: ConnectedProvider[] }>("/v1/providers", {
     method: "GET",
@@ -247,6 +260,15 @@ export async function setWorkspacePermissionMode(
       method: "POST",
     },
   );
+  return response.workspace;
+}
+
+export async function setWorkspaceSoul(workspaceId: string, soul: string): Promise<Workspace> {
+  const response = await request<{ workspace: Workspace }>(`/v1/workspaces/${workspaceId}/soul`, {
+    body: JSON.stringify({ soul }),
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
   return response.workspace;
 }
 

@@ -1,12 +1,15 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type FormEvent, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import { type FolderSelection, pickDirectory } from "../../../platform/runtime";
 import {
   type ConnectedProvider,
   connectProvider,
   createWorkspace,
   deleteProvider,
+  type Profile,
+  setWorkspaceSoul,
   testProvider,
+  updateProfile,
   updateProvider,
   type Workspace,
 } from "../../../shared/api/sidecar";
@@ -16,8 +19,11 @@ type ProviderManagerProps = {
   activeWorkspaceId: string | null;
   onClose: () => void;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
+  onProfileChange: (profile: Profile) => void;
   onSelect: (provider: ConnectedProvider) => void;
+  onWorkspaceChange: (workspace: Workspace) => void;
   onWorkspaceSelected: (workspace: Workspace) => Promise<void>;
+  profile: Profile | null;
   profileId: string | null;
   providers: ConnectedProvider[];
   workspaces: Workspace[];
@@ -43,8 +49,11 @@ export function ProviderManager({
   activeWorkspaceId,
   onClose,
   onProvidersChange,
+  onProfileChange,
   onSelect,
+  onWorkspaceChange,
   onWorkspaceSelected,
+  profile,
   profileId,
   providers,
   workspaces,
@@ -58,6 +67,26 @@ export function ProviderManager({
   const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
+  const [profileName, setProfileName] = useState(profile?.name ?? "");
+  const [profileSoul, setProfileSoul] = useState(profile?.soul ?? "");
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(profile?.avatarData ?? null);
+  const [profileStatus, setProfileStatus] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
+
+  const activeWorkspace =
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+
+  useEffect(() => {
+    setProfileName(profile?.name ?? "");
+    setProfileSoul(profile?.soul ?? "");
+    setProfileAvatar(profile?.avatarData ?? null);
+  }, [profile]);
+
+  useEffect(() => {
+    setWorkspaceSoulDraft(activeWorkspace?.soul ?? "");
+  }, [activeWorkspace]);
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -81,6 +110,69 @@ export function ProviderManager({
     setForm(emptyForm);
     setError("");
     setStatus("");
+  }
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile) return;
+    setIsSavingProfile(true);
+    setProfileError("");
+    setProfileStatus("");
+    try {
+      const saved = await updateProfile(profile.id, {
+        avatarData: profileAvatar,
+        name: profileName,
+        soul: profileSoul,
+      });
+      onProfileChange(saved);
+      setProfileStatus("Perfil salvo neste dispositivo.");
+    } catch (reason) {
+      setProfileError(
+        reason instanceof Error ? reason.message : "Não foi possível salvar o perfil.",
+      );
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
+
+  function chooseProfileAvatar(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
+      setProfileError("Escolha uma imagem PNG, JPEG, WebP ou GIF de até 2 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setProfileAvatar(result);
+        setProfileError("");
+        setProfileStatus("Foto pronta para salvar.");
+      }
+    };
+    reader.onerror = () => setProfileError("Não foi possível ler essa imagem.");
+    reader.readAsDataURL(file);
+  }
+
+  async function saveWorkspaceSoulDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeWorkspace) return;
+    setIsSaving(true);
+    setError("");
+    setWorkspaceStatus("");
+    try {
+      const saved = await setWorkspaceSoul(activeWorkspace.id, workspaceSoul);
+      onWorkspaceChange(saved);
+      setWorkspaceStatus("Soul do workspace salva neste dispositivo.");
+    } catch (reason) {
+      setWorkspaceStatus(
+        reason instanceof Error ? reason.message : "Não foi possível salvar a Soul do workspace.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -173,14 +265,14 @@ export function ProviderManager({
   return (
     <div className="settings-backdrop" role="presentation">
       <section
-        aria-busy={isSaving}
+        aria-busy={isSaving || isSavingProfile}
         aria-label="Configurações de provedores"
         className="settings-panel"
       >
         <header className="settings-panel-header">
           <div>
             <p className="eyebrow">Configurações</p>
-            <h2>Workspace e provedores</h2>
+            <h2>Perfil, workspaces e provedores</h2>
           </div>
           <button
             aria-label="Fechar configurações"
@@ -191,6 +283,67 @@ export function ProviderManager({
             ×
           </button>
         </header>
+        <form className="settings-section profile-settings" onSubmit={saveProfile}>
+          <div className="settings-section-heading">
+            <div>
+              <p className="eyebrow">Perfil</p>
+              <h3>Como você quer ser chamado?</h3>
+            </div>
+            <div className="profile-avatar-preview" aria-hidden="true">
+              {profileAvatar ? <img alt="" src={profileAvatar} /> : <span>BW</span>}
+            </div>
+          </div>
+          <label className="field-label" htmlFor="settings-profile-name">
+            Nome
+            <input
+              id="settings-profile-name"
+              onChange={(event) => setProfileName(event.target.value)}
+              value={profileName}
+            />
+          </label>
+          <div className="profile-avatar-actions">
+            <label className="button button-secondary" htmlFor="settings-profile-avatar">
+              Alterar foto
+              <input
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="sr-only"
+                id="settings-profile-avatar"
+                onChange={chooseProfileAvatar}
+                type="file"
+              />
+            </label>
+            {profileAvatar && (
+              <button className="text-button" onClick={() => setProfileAvatar(null)} type="button">
+                Remover foto
+              </button>
+            )}
+            <small>PNG, JPEG, WebP ou GIF · até 2 MB · fica somente neste dispositivo</small>
+          </div>
+          <label className="field-label" htmlFor="settings-profile-soul">
+            Soul do perfil
+            <textarea
+              id="settings-profile-soul"
+              onChange={(event) => setProfileSoul(event.target.value)}
+              rows={4}
+              value={profileSoul}
+            />
+          </label>
+          <div className="settings-actions">
+            <button
+              className="button button-primary"
+              disabled={isSavingProfile || !profileName.trim() || !profileSoul.trim()}
+              type="submit"
+            >
+              {isSavingProfile ? "Salvando…" : "Salvar perfil"}
+            </button>
+          </div>
+          {profileStatus && <p className="settings-status">{profileStatus}</p>}
+          {profileError && (
+            <p className="form-error" role="alert">
+              {profileError}
+            </p>
+          )}
+        </form>
         <section aria-labelledby="workspace-settings-title" className="settings-section">
           <p className="eyebrow" id="workspace-settings-title">
             Workspaces
@@ -200,7 +353,10 @@ export function ProviderManager({
               <button
                 className={`settings-workspace-row ${workspace.id === activeWorkspaceId ? "is-active" : ""}`}
                 key={workspace.id}
-                onClick={() => void onWorkspaceSelected(workspace)}
+                onClick={() => {
+                  setWorkspaceSoulDraft(workspace.soul);
+                  void onWorkspaceSelected(workspace);
+                }}
                 type="button"
               >
                 <strong>{workspace.name}</strong>
@@ -237,6 +393,26 @@ export function ProviderManager({
               {isSaving ? "Salvando…" : "Adicionar workspace"}
             </button>
           </form>
+          {activeWorkspace && (
+            <form className="workspace-soul-form" onSubmit={saveWorkspaceSoulDraft}>
+              <label className="field-label" htmlFor="settings-workspace-soul">
+                Soul do workspace selecionado
+                <textarea
+                  id="settings-workspace-soul"
+                  onChange={(event) => setWorkspaceSoulDraft(event.target.value)}
+                  rows={4}
+                  value={workspaceSoul}
+                />
+              </label>
+              <button
+                className="button button-secondary"
+                disabled={isSaving || !workspaceSoul.trim()}
+                type="submit"
+              >
+                Salvar Soul
+              </button>
+            </form>
+          )}
           {workspaceStatus && <p className="settings-status">{workspaceStatus}</p>}
         </section>
         <div className="provider-list">

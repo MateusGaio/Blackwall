@@ -56,7 +56,7 @@ describe("persistência local", () => {
     first.close();
     const second = openDatabase(directory);
     expect(second.client.prepare("SELECT COUNT(*) AS count FROM _migrations").get()).toEqual({
-      count: 3,
+      count: 4,
     });
     second.close();
   });
@@ -76,6 +76,58 @@ describe("persistência local", () => {
       }),
     ).rejects.toThrow("não existe");
     database.close();
+  });
+
+  it("atualiza perfil, avatar e Soul do workspace de forma persistente", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-profile-settings-"));
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const state = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Ada",
+      profileSoul: "Soul inicial",
+      workspaceName: "Projeto",
+      workspaceRootPath: workspaceRoot,
+      workspaceSoul: "Soul inicial do workspace",
+    });
+    const profile = store.updateProfile(state.activeProfileId as string, {
+      avatarData: "data:image/png;base64,AAAA",
+      name: "Ada Lovelace",
+      soul: "Construa com clareza.",
+    });
+    expect(() =>
+      store.updateProfile(state.activeProfileId as string, {
+        avatarData: "data:text/plain;base64,AAAA",
+      }),
+    ).toThrow("imagem PNG");
+    const unchangedAvatar = store.updateProfile(state.activeProfileId as string, {
+      name: "Ada Byron Lovelace",
+    });
+    expect(unchangedAvatar?.avatarData).toBe("data:image/png;base64,AAAA");
+    const clearedAvatar = store.updateProfile(state.activeProfileId as string, {
+      avatarData: null,
+    });
+    expect(clearedAvatar?.avatarData).toBeNull();
+    const workspace = store.setWorkspaceSoul(
+      state.activeWorkspaceId as string,
+      "Respeite as convenções do projeto.",
+    );
+    expect(profile?.avatarData).toBe("data:image/png;base64,AAAA");
+    expect(profile?.name).toBe("Ada Lovelace");
+    expect(() => store.setWorkspaceSoul(state.activeWorkspaceId as string, "  ")).toThrow(
+      "Soul do workspace",
+    );
+    expect(workspace?.soul).toBe("Respeite as convenções do projeto.");
+    database.close();
+
+    const restored = openDatabase(directory);
+    const restoredState = createStore(restored).getState();
+    expect(restoredState.profiles[0]?.avatarData).toBeNull();
+    expect(restoredState.workspaces[0]?.soul).toBe("Respeite as convenções do projeto.");
+    restored.close();
   });
 
   it("cria um workspace web privado a partir dos Markdown selecionados", async () => {

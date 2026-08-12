@@ -142,6 +142,18 @@ export function createSidecar(
         writeJson(response, 201, { profile: await store.createProfile(input) });
         return;
       }
+      if (request.method === "PATCH" && /^\/v1\/profiles\/[^/]+$/.test(pathname)) {
+        const input = (await requestBody(request)) as {
+          avatarData?: string | null;
+          locale?: string;
+          name?: string;
+          soul?: string;
+        };
+        writeJson(response, 200, {
+          profile: store.updateProfile(pathname.split("/")[3], input),
+        });
+        return;
+      }
       if (request.method === "GET" && pathname === "/v1/workspaces") {
         const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
           "profileId",
@@ -179,6 +191,13 @@ export function createSidecar(
         const input = (await requestBody(request)) as { mode: PermissionMode };
         writeJson(response, 200, {
           workspace: store.setWorkspacePermissionMode(pathname.split("/")[3], input.mode),
+        });
+        return;
+      }
+      if (request.method === "PATCH" && /^\/v1\/workspaces\/[^/]+\/soul$/.test(pathname)) {
+        const input = (await requestBody(request)) as { soul: string };
+        writeJson(response, 200, {
+          workspace: store.setWorkspaceSoul(pathname.split("/")[3], input.soul),
         });
         return;
       }

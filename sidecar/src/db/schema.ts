@@ -7,6 +7,7 @@ const timestamps = {
 };
 
 export const profiles = sqliteTable("profiles", {
+  avatarData: text("avatar_data"),
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   locale: text("locale").notNull().default("pt-BR"),
