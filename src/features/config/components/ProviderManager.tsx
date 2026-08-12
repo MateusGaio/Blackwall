@@ -6,7 +6,10 @@ import {
   connectProvider,
   createWorkspace,
   deleteProvider,
+  discoverProviderModels,
+  listStoredProviderModels,
   type Profile,
+  type ProviderModel,
   setWorkspaceSoul,
   testProvider,
   updateProfile,
@@ -76,6 +79,8 @@ export function ProviderManager({
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
+  const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
+  const [isListingModels, setIsListingModels] = useState(false);
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
@@ -105,6 +110,7 @@ export function ProviderManager({
     });
     setError("");
     setStatus("");
+    setProviderModels([]);
   }
 
   function reset() {
@@ -112,6 +118,29 @@ export function ProviderManager({
     setForm(emptyForm);
     setError("");
     setStatus("");
+    setProviderModels([]);
+  }
+
+  async function listModels() {
+    setError("");
+    setIsListingModels(true);
+    try {
+      const listed = editingId
+        ? await listStoredProviderModels(editingId)
+        : await discoverProviderModels({
+            apiKey: form.apiKey || undefined,
+            baseUrl: form.baseUrl,
+            name: form.name,
+            type: form.type,
+          });
+      setProviderModels(listed);
+      if (!form.model && listed[0]) updateForm("model", listed[0].id);
+      if (!listed.length) setStatus("Nenhum modelo foi retornado por este provedor.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível listar os modelos.");
+    } finally {
+      setIsListingModels(false);
+    }
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -266,10 +295,20 @@ export function ProviderManager({
 
   return (
     <div className="settings-backdrop" role="presentation">
+      <button
+        aria-label="Fechar configurações"
+        className="settings-backdrop-dismiss"
+        onClick={onClose}
+        type="button"
+      />
       <section
         aria-busy={isSaving || isSavingProfile}
         aria-label="Configurações de provedores"
         className="settings-panel"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
+        tabIndex={-1}
       >
         <header className="settings-panel-header">
           <div>
@@ -473,11 +512,37 @@ export function ProviderManager({
           </label>
           <label className="field-label" htmlFor="settings-provider-model">
             Modelo padrão
-            <input
-              id="settings-provider-model"
-              onChange={(event) => updateForm("model", event.target.value)}
-              value={form.model}
-            />
+            <div className="model-input-row">
+              <input
+                id="settings-provider-model"
+                onChange={(event) => updateForm("model", event.target.value)}
+                value={form.model}
+              />
+              <button
+                className="button button-secondary"
+                disabled={
+                  isListingModels ||
+                  (!editingId && form.type === "openai-compatible" && !form.apiKey.trim())
+                }
+                onClick={() => void listModels()}
+                type="button"
+              >
+                {isListingModels ? "Listando…" : "Listar modelos"}
+              </button>
+            </div>
+            {providerModels.length > 0 && (
+              <select
+                aria-label="Modelos disponíveis"
+                onChange={(event) => updateForm("model", event.target.value)}
+                value={form.model}
+              >
+                {providerModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
           {form.type === "openai-compatible" && (
             <label className="field-label" htmlFor="settings-provider-key">

@@ -492,7 +492,7 @@ export function createSidecar(
             fetch,
             storageDirectory,
           );
-          persistStream(content, result.provider.id, input.model, "complete");
+          persistStream(content, result.provider.id, candidate.model, "complete");
           socket.send(
             JSON.stringify({
               content,

@@ -63,6 +63,11 @@ export default function WorkspaceShell({
   const [showSettings, setShowSettings] = useState(false);
   const [showVault, setShowVault] = useState(Boolean(appState?.activeWorkspaceId));
   const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null);
+  const [sessionMenuPosition, setSessionMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -91,6 +96,7 @@ export default function WorkspaceShell({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
   const messageListRef = useRef<HTMLOListElement | null>(null);
+  const activeSessionIdRef = useRef<string | null>(appState?.activeSessionId ?? null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
   const name = activeProfile?.name.trim() || profileName.trim() || "você";
@@ -103,6 +109,18 @@ export default function WorkspaceShell({
   const recentSessions = state?.recentSessions ?? [];
   const selectedModel =
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
+
+  useEffect(() => {
+    if (
+      !appState ||
+      (appState.activeSessionId === state?.activeSessionId &&
+        appState.activeProfileId === state?.activeProfileId)
+    )
+      return;
+    activeSessionIdRef.current = appState.activeSessionId;
+    setState(appState);
+    setMessages(appState.messages);
+  }, [appState, state?.activeProfileId, state?.activeSessionId]);
 
   useEffect(() => {
     void listProviders()
@@ -121,13 +139,18 @@ export default function WorkspaceShell({
     function closeFloatingMenus(event: globalThis.MouseEvent) {
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (!target.closest("[data-session-menu]")) setOpenSessionMenuId(null);
+      if (!target.closest("[data-session-menu]")) {
+        setOpenSessionMenuId(null);
+        setSessionMenuPosition(null);
+      }
       if (!target.closest("[data-permission-control]")) setPermissionOpen(false);
     }
     function closeWithEscape(event: globalThis.KeyboardEvent) {
       if (event.key !== "Escape") return;
       setOpenSessionMenuId(null);
+      setSessionMenuPosition(null);
       setPermissionOpen(false);
+      setShowSettings(false);
     }
     document.addEventListener("click", closeFloatingMenus);
     document.addEventListener("keydown", closeWithEscape);
@@ -208,11 +231,33 @@ export default function WorkspaceShell({
     }
   }
 
+  async function selectProvider(nextProvider: ConnectedProvider) {
+    setActiveProvider(nextProvider);
+    if (!activeSession) return;
+    try {
+      const session = await setSessionModel(activeSession.id, nextProvider.model, nextProvider.id);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              recentSessions: current.recentSessions.map((item) =>
+                item.id === session.id ? { ...item, ...session } : item,
+              ),
+              sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
+            }
+          : current,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível trocar o provedor.");
+    }
+  }
+
   async function openSession(sessionId: string) {
     setError("");
     setOpenSessionMenuId(null);
     try {
       const nextState = await selectSession(sessionId);
+      activeSessionIdRef.current = sessionId;
       setState(nextState);
       setMessages(nextState.messages);
     } catch (reason) {
@@ -226,6 +271,7 @@ export default function WorkspaceShell({
     setError("");
     try {
       const nextState = await selectWorkspace(workspaceId);
+      activeSessionIdRef.current = nextState.activeSessionId;
       setState(nextState);
       setMessages(nextState.messages);
       if (wasWithoutWorkspace) setShowVault(true);
@@ -331,20 +377,27 @@ export default function WorkspaceShell({
     setIsSending(true);
     setStreamingContent("");
     setStreamingStatus("Consultando…");
+    const requestProvider = activeProvider;
+    const requestModel = selectedModel;
+    const requestWorkspaceId = workspace?.id ?? "default";
+    const requestProfileId = state?.activeProfileId;
     try {
       const stream = await streamMessage(
-        activeProvider.id,
+        requestProvider.id,
         promptMessages,
-        selectedModel,
-        workspace?.id ?? "default",
+        requestModel,
+        requestWorkspaceId,
         {
           onDelta: (delta) => {
+            if (activeSessionIdRef.current !== sessionId) return;
             setStreamingContent((current) => current + delta);
             setStreamingStatus("Gerando…");
           },
-          onRetry: (message) => setStreamingStatus(message),
+          onRetry: (message) => {
+            if (activeSessionIdRef.current === sessionId) setStreamingStatus(message);
+          },
         },
-        state?.activeProfileId ?? undefined,
+        requestProfileId ?? undefined,
         sessionId,
       );
       activeStream.current = stream;
@@ -353,15 +406,15 @@ export default function WorkspaceShell({
       if (assistantContent && !result.persisted) {
         await persistMessage(sessionId, {
           content: assistantContent,
-          model: result.provider?.model ?? selectedModel,
-          providerId: result.provider?.id ?? activeProvider.id,
+          model: result.provider?.model ?? requestModel,
+          providerId: result.provider?.id ?? requestProvider.id,
           role: "assistant",
           status: result.stopped ? "stopped" : "complete",
         });
       }
       const refreshed = await getAppState();
       setState(refreshed);
-      setMessages(refreshed.messages);
+      if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível enviar a mensagem.");
     } finally {
@@ -382,6 +435,7 @@ export default function WorkspaceShell({
       { content, id: crypto.randomUUID(), role: "user" },
     ];
     setMessages(nextMessages);
+    activeSessionIdRef.current = sessionId;
     setDraft("");
     setResourceNotice("");
     await persistMessage(sessionId, { content, role: "user", status: "complete" });
@@ -479,7 +533,9 @@ export default function WorkspaceShell({
   }
 
   return (
-    <main className={`workspace-shell ${showVault && workspace ? "has-vault" : ""}`}>
+    <main
+      className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+    >
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
           {activeProfile?.avatarData ? (
@@ -493,6 +549,16 @@ export default function WorkspaceShell({
             <p className="eyebrow">Perfil</p>
             <strong>{name}</strong>
           </div>
+          <button
+            aria-label={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
+            aria-pressed={sidebarCollapsed}
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            title={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
+            type="button"
+          >
+            {sidebarCollapsed ? "→" : "←"}
+          </button>
         </div>
         <div className="sidebar-section">
           <div className="sidebar-section-heading">
@@ -567,38 +633,22 @@ export default function WorkspaceShell({
                   className="session-more"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setOpenSessionMenuId((current) => (current === session.id ? null : session.id));
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const nextId = openSessionMenuId === session.id ? null : session.id;
+                    setOpenSessionMenuId(nextId);
+                    setSessionMenuPosition(
+                      nextId
+                        ? {
+                            left: Math.max(8, rect.right - 142),
+                            top: Math.min(window.innerHeight - 92, rect.bottom + 4),
+                          }
+                        : null,
+                    );
                   }}
                   type="button"
                 >
                   …
                 </button>
-                {openSessionMenuId === session.id && (
-                  <div className="session-menu" role="menu">
-                    <button
-                      onClick={() => {
-                        setOpenSessionMenuId(null);
-                        setRenameDraft(session.title);
-                        setSessionToRename({ id: session.id, title: session.title });
-                      }}
-                      role="menuitem"
-                      type="button"
-                    >
-                      Renomear
-                    </button>
-                    <button
-                      className="session-menu-danger"
-                      onClick={() => {
-                        setOpenSessionMenuId(null);
-                        setSessionToDelete({ id: session.id, title: session.title });
-                      }}
-                      role="menuitem"
-                      type="button"
-                    >
-                      Excluir
-                    </button>
-                  </div>
-                )}
               </div>
             ))}
           </nav>
@@ -608,6 +658,42 @@ export default function WorkspaceShell({
             Configurações
           </button>
         </div>
+        {openSessionMenuId && sessionMenuPosition && (
+          <div
+            className="session-menu session-menu-floating"
+            role="menu"
+            style={{ left: sessionMenuPosition.left, top: sessionMenuPosition.top }}
+          >
+            <button
+              onClick={() => {
+                const session = recentSessions.find((item) => item.id === openSessionMenuId);
+                if (!session) return;
+                setOpenSessionMenuId(null);
+                setSessionMenuPosition(null);
+                setRenameDraft(session.title);
+                setSessionToRename({ id: session.id, title: session.title });
+              }}
+              role="menuitem"
+              type="button"
+            >
+              Renomear
+            </button>
+            <button
+              className="session-menu-danger"
+              onClick={() => {
+                const session = recentSessions.find((item) => item.id === openSessionMenuId);
+                if (!session) return;
+                setOpenSessionMenuId(null);
+                setSessionMenuPosition(null);
+                setSessionToDelete({ id: session.id, title: session.title });
+              }}
+              role="menuitem"
+              type="button"
+            >
+              Excluir
+            </button>
+          </div>
+        )}
       </aside>
 
       <section className="workspace-main">
@@ -899,7 +985,7 @@ export default function WorkspaceShell({
             );
           }}
           onSignOut={onSignOut}
-          onSelect={(next) => setActiveProvider(next)}
+          onSelect={(next) => void selectProvider(next)}
           onWorkspaceChange={(updated) => {
             setState((current) =>
               current
