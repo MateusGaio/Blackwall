@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { currentRuntime } from "../platform/runtime";
+import type { ConnectedProvider } from "../shared/api/sidecar";
 import {
   clampOnboardingStep,
   detectInitialLocale,
@@ -9,6 +10,10 @@ import {
 } from "./onboarding";
 
 const WorkspaceShell = lazy(async () => import("./WorkspaceShell"));
+const ProviderSetup = lazy(async () => {
+  const module = await import("../features/config/components/ProviderSetup");
+  return { default: module.ProviderSetup };
+});
 
 function LoadingSkeleton() {
   return (
@@ -28,6 +33,7 @@ type OnboardingPanelProps = {
   runtime: "desktop" | "web";
   onLocaleChange: (locale: "pt-BR" | "en") => void;
   onProfileNameChange: (name: string) => void;
+  onProviderConnected: (provider: ConnectedProvider) => void;
   onAdvance: (animate: boolean) => void;
   onBack: (animate: boolean) => void;
 };
@@ -40,6 +46,7 @@ function OnboardingPanel({
   runtime,
   onLocaleChange,
   onProfileNameChange,
+  onProviderConnected,
   onAdvance,
   onBack,
 }: OnboardingPanelProps) {
@@ -127,10 +134,9 @@ function OnboardingPanel({
             </div>
           )}
           {step.id === "provider" && (
-            <div className="info-panel">
-              <strong>Chaves ficam somente no seu dispositivo.</strong>
-              <p>A conexão segura de provedores será ativada no próximo estágio da fundação.</p>
-            </div>
+            <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
+              <ProviderSetup onConnected={onProviderConnected} />
+            </Suspense>
           )}
           {step.id === "vault" && (
             <div className="info-panel">
@@ -151,14 +157,16 @@ function OnboardingPanel({
             >
               Voltar
             </button>
-            <button
-              className="button button-primary"
-              disabled={isExiting || (step.id === "profile" && profileName.trim().length === 0)}
-              onClick={(event) => onAdvance(event.detail !== 0)}
-              type="button"
-            >
-              {isLastStep ? "Entrar no Blackwall" : "Continuar"}
-            </button>
+            {step.id !== "provider" && (
+              <button
+                className="button button-primary"
+                disabled={isExiting || (step.id === "profile" && profileName.trim().length === 0)}
+                onClick={(event) => onAdvance(event.detail !== 0)}
+                type="button"
+              >
+                {isLastStep ? "Entrar no Blackwall" : "Continuar"}
+              </button>
+            )}
           </footer>
         </div>
         <p className="stage-status">
@@ -178,6 +186,7 @@ export function App() {
     detectInitialLocale(navigator.language),
   );
   const [profileName, setProfileName] = useState("");
+  const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
 
   useEffect(() => {
@@ -210,11 +219,16 @@ export function App() {
     navigate(stepIndex + 1, animate);
   }
 
+  function providerConnected(connectedProvider: ConnectedProvider) {
+    setProvider(connectedProvider);
+    navigate(stepIndex + 1, true);
+  }
+
   if (!isReady) return <LoadingSkeleton />;
   if (isComplete) {
     return (
       <Suspense fallback={<LoadingSkeleton />}>
-        <WorkspaceShell profileName={profileName} />
+        <WorkspaceShell profileName={profileName} provider={provider} />
       </Suspense>
     );
   }
@@ -227,6 +241,7 @@ export function App() {
       onBack={(animate) => navigate(stepIndex - 1, animate)}
       onLocaleChange={setLocale}
       onProfileNameChange={setProfileName}
+      onProviderConnected={providerConnected}
       profileName={profileName}
       step={currentStep}
       runtime={runtime}
