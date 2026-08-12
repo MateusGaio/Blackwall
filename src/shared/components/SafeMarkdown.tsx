@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type ReactNode, useState } from "react";
+import { isValidElement, type ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -15,7 +15,13 @@ type SafeMarkdownProps = {
 
 function CodeBlock({ children }: { children: ReactNode }) {
   const [copied, setCopied] = useState(false);
-  const text = String(children).replace(/\n$/, "");
+  const textContent = (node: ReactNode): string => {
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(textContent).join("");
+    if (isValidElement<{ children?: ReactNode }>(node)) return textContent(node.props.children);
+    return "";
+  };
+  const text = textContent(children).replace(/\n$/, "");
   return (
     <div className="code-block">
       <button
