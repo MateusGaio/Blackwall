@@ -179,18 +179,78 @@ export async function persistMessage(
   return response.message;
 }
 
-export async function sendMessage(
+type StreamResult = {
+  content: string;
+  provider: ConnectedProvider | null;
+  stopped?: boolean;
+};
+
+type StreamHandlers = {
+  onDelta: (delta: string) => void;
+  onRetry?: (message: string) => void;
+};
+
+type ActiveStream = {
+  done: Promise<StreamResult>;
+  stop: () => void;
+};
+
+export async function streamMessage(
   providerId: string,
   messages: ChatMessage[],
-  model?: string,
-): Promise<{ content: string; provider: ConnectedProvider }> {
-  return request("/v1/chat/completions", {
-    body: JSON.stringify({
-      messages: messages.map(({ content, role }) => ({ content, role })),
-      model,
-      providerId,
-    }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
+  model: string | undefined,
+  workspaceId: string,
+  handlers: StreamHandlers,
+): Promise<ActiveStream> {
+  const baseUrl = await sidecarUrl();
+  if (!baseUrl) throw new Error("O sidecar local não está disponível.");
+  const socket = new WebSocket(baseUrl.replace(/^http/, "ws"));
+  const requestId = crypto.randomUUID();
+  let content = "";
+  let resolveDone: (result: StreamResult) => void = () => undefined;
+  let rejectDone: (reason: Error) => void = () => undefined;
+  const done = new Promise<StreamResult>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
   });
+  const active: ActiveStream = {
+    done,
+    stop: () => socket.send(JSON.stringify({ requestId, type: "chat.stop" })),
+  };
+  socket.addEventListener("open", () => {
+    socket.send(
+      JSON.stringify({ messages, model, providerId, requestId, type: "chat.start", workspaceId }),
+    );
+  });
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data)) as {
+      content?: string;
+      delta?: string;
+      message?: string;
+      provider?: ConnectedProvider;
+      type?: string;
+    };
+    if (message.type === "chat.delta" && message.delta) {
+      content += message.delta;
+      handlers.onDelta(message.delta);
+    }
+    if (message.type === "chat.retrying")
+      handlers.onRetry?.(message.message ?? "Tentando novamente…");
+    if (message.type === "chat.completed") {
+      resolveDone({ content: message.content ?? content, provider: message.provider ?? null });
+      socket.close();
+    }
+    if (message.type === "chat.stopped") {
+      resolveDone({ content, provider: null, stopped: true });
+      socket.close();
+    }
+    if (message.type === "chat.failed") {
+      rejectDone(new Error(message.message ?? "Não foi possível obter resposta."));
+      socket.close();
+    }
+  });
+  socket.addEventListener("error", () =>
+    rejectDone(new Error("A conexão local foi interrompida.")),
+  );
+  return active;
 }

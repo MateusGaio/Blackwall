@@ -560,6 +560,20 @@ button:disabled {
   padding: 0 4px;
 }
 
+.message-streaming {
+  min-height: 1.6em;
+}
+
+.streaming-cursor {
+  background: #f2f2f3;
+  display: inline-block;
+  height: 1em;
+  margin-left: 4px;
+  transform: translateY(2px);
+  width: 2px;
+  animation: cursor-blink 900ms steps(2, jump-none) infinite;
+}
+
 .composer {
   align-items: end;
   background: #141416;
@@ -624,6 +638,12 @@ button:disabled {
     filter: blur(0);
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
   }
 }
 @keyframes card-exit {

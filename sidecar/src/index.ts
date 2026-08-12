@@ -14,6 +14,7 @@ import {
   saveProvider,
   validateProvider,
 } from "./providers.js";
+import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
 const allowedOrigins = new Set([
@@ -196,8 +197,125 @@ export function createSidecar(
   server.once("close", () => database.close());
 
   const socketServer = new WebSocketServer({ server });
+  const activeRequests = new Map<string, AbortController>();
+  const queues = new Map<string, Promise<void>>();
+
+  async function executeChat(
+    socket: import("ws").WebSocket,
+    input: {
+      messages: ChatMessage[];
+      model?: string;
+      providerId: string;
+      requestId: string;
+    },
+  ) {
+    const controller = new AbortController();
+    activeRequests.set(input.requestId, controller);
+    const providers = await listProviders();
+    const providerIds = [input.providerId, ...providers.map((provider) => provider.id)]
+      .filter((id, index, ids) => ids.indexOf(id) === index)
+      .slice(0, 8);
+    try {
+      for (const providerId of providerIds) {
+        if (controller.signal.aborted) return;
+        socket.send(
+          JSON.stringify({ providerId, requestId: input.requestId, type: "chat.started" }),
+        );
+        let content = "";
+        try {
+          const result = await streamChatMessage(
+            providerId,
+            input.messages,
+            input.model,
+            (delta) => {
+              content += delta;
+              socket.send(
+                JSON.stringify({
+                  delta,
+                  requestId: input.requestId,
+                  type: "chat.delta",
+                }),
+              );
+            },
+            controller.signal,
+          );
+          socket.send(
+            JSON.stringify({
+              content,
+              provider: result.provider,
+              requestId: input.requestId,
+              type: "chat.completed",
+            }),
+          );
+          return;
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          if (!isRetryableProviderError(error) || providerId === providerIds.at(-1)) {
+            const message = error instanceof Error ? error.message : "Falha no provedor.";
+            socket.send(
+              JSON.stringify({ message, requestId: input.requestId, type: "chat.failed" }),
+            );
+            return;
+          }
+          socket.send(
+            JSON.stringify({
+              message: "Tentando o próximo provedor…",
+              providerId,
+              requestId: input.requestId,
+              type: "chat.retrying",
+            }),
+          );
+        }
+      }
+    } finally {
+      activeRequests.delete(input.requestId);
+    }
+  }
+
+  function enqueueChat(
+    socket: import("ws").WebSocket,
+    input: {
+      messages: ChatMessage[];
+      model?: string;
+      providerId: string;
+      requestId: string;
+      workspaceId?: string;
+    },
+  ) {
+    const workspaceId = input.workspaceId ?? "default";
+    const previous = queues.get(workspaceId) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(() => executeChat(socket, input));
+    queues.set(workspaceId, current);
+    void current.finally(() => {
+      if (queues.get(workspaceId) === current) queues.delete(workspaceId);
+    });
+    socket.send(JSON.stringify({ requestId: input.requestId, type: "queue.updated", workspaceId }));
+  }
+
   socketServer.on("connection", (socket) => {
     socket.send(JSON.stringify({ topic: "system:ready", ...healthPayload() }));
+    socket.on("message", (raw) => {
+      let input: { requestId?: string; type?: string; [key: string]: unknown };
+      try {
+        input = JSON.parse(String(raw)) as typeof input;
+      } catch {
+        socket.send(
+          JSON.stringify({ message: "Comando WebSocket inválido.", type: "chat.failed" }),
+        );
+        return;
+      }
+      if (input.type === "chat.stop" && input.requestId) {
+        activeRequests.get(input.requestId)?.abort();
+        socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
+        return;
+      }
+      if (input.type === "chat.start" && input.requestId && typeof input.providerId === "string") {
+        enqueueChat(socket, input as never);
+      }
+    });
+    socket.on("close", () => {
+      for (const controller of activeRequests.values()) controller.abort();
+    });
   });
 
   return new Promise((resolve) => {

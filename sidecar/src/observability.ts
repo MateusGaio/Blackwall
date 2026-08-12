@@ -17,3 +17,16 @@ export function withInstrumentation<T>(name: string, work: () => T): T {
     }
   });
 }
+
+export async function withAsyncInstrumentation<T>(
+  name: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  return tracer.startActiveSpan(name, async (span) => {
+    try {
+      return await work();
+    } finally {
+      span.end();
+    }
+  });
+}

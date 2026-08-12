@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   type AppState,
   type ChatMessage,
@@ -10,8 +10,8 @@ import {
   type ProviderModel,
   persistMessage,
   selectSession,
-  sendMessage,
   setSessionModel,
+  streamMessage,
 } from "../shared/api/sidecar";
 import { isSubmitShortcut } from "./composer";
 
@@ -29,6 +29,9 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [isSending, setIsSending] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [models, setModels] = useState<ProviderModel[]>([]);
+  const [streamingContent, setStreamingContent] = useState("");
+  const [streamingStatus, setStreamingStatus] = useState("");
+  const activeStream = useRef<{ stop: () => void } | null>(null);
 
   const name = profileName.trim() || "você";
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
@@ -104,29 +107,55 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     setDraft("");
     setError("");
     setIsSending(true);
+    setStreamingContent("");
+    setStreamingStatus("Consultando…");
     try {
       await persistMessage(sessionId, { content, role: "user", status: "complete" });
-      const result = await sendMessage(provider.id, nextMessages, selectedModel);
-      const assistantMessage = {
-        content: result.content,
-        id: crypto.randomUUID(),
-        role: "assistant" as const,
-      };
-      await persistMessage(sessionId, {
-        content: assistantMessage.content,
-        model: result.provider.model,
-        providerId: result.provider.id,
-        role: assistantMessage.role,
-        status: "complete",
-      });
-      setMessages((current) => [...current, assistantMessage]);
+      const stream = await streamMessage(
+        provider.id,
+        nextMessages,
+        selectedModel,
+        workspace?.id ?? "default",
+        {
+          onDelta: (delta) => {
+            setStreamingContent((current) => current + delta);
+            setStreamingStatus("Gerando…");
+          },
+          onRetry: (message) => setStreamingStatus(message),
+        },
+      );
+      activeStream.current = stream;
+      const result = await stream.done;
+      const assistantContent = result.content.trim();
+      if (assistantContent) {
+        const assistantMessage = {
+          content: assistantContent,
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+        };
+        await persistMessage(sessionId, {
+          content: assistantMessage.content,
+          model: result.provider?.model ?? selectedModel,
+          providerId: result.provider?.id ?? provider.id,
+          role: assistantMessage.role,
+          status: result.stopped ? "stopped" : "complete",
+        });
+        setMessages((current) => [...current, assistantMessage]);
+      }
       const refreshed = await getAppState();
       setState(refreshed);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível enviar a mensagem.");
     } finally {
+      activeStream.current = null;
+      setStreamingContent("");
+      setStreamingStatus("");
       setIsSending(false);
     }
+  }
+
+  function stopGeneration() {
+    activeStream.current?.stop();
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -241,7 +270,10 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
                 </li>
               ))}
               {isSending && (
-                <li className="message message-pending">Consultando {provider?.name}…</li>
+                <li className="message message-assistant message-streaming">
+                  {streamingContent || streamingStatus}
+                  <span aria-hidden="true" className="streaming-cursor" />
+                </li>
               )}
             </ol>
           )}
@@ -255,13 +287,19 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
               rows={1}
               value={draft}
             />
-            <button
-              className="button button-primary"
-              disabled={!draft.trim() || !provider || !activeSession || isSending}
-              type="submit"
-            >
-              Enviar
-            </button>
+            {isSending ? (
+              <button className="button button-secondary" onClick={stopGeneration} type="button">
+                Parar
+              </button>
+            ) : (
+              <button
+                className="button button-primary"
+                disabled={!draft.trim() || !provider || !activeSession}
+                type="submit"
+              >
+                Enviar
+              </button>
+            )}
           </form>
           {error && (
             <p className="form-error chat-error" role="alert">
