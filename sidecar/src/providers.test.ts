@@ -8,6 +8,7 @@ import {
   listProviderModels,
   normalizeBaseUrl,
   OpenAICompatibleProvider,
+  type ProviderConnectionError,
   ProviderHttpError,
   providerApiKey,
   removeProvider,
@@ -98,6 +99,52 @@ describe("providers", () => {
       ),
     ).resolves.toEqual([{ capabilities: [], id: "qwen2.5-coder:7b", name: "qwen2.5-coder:7b" }]);
     expect(request).toHaveBeenCalledWith("http://127.0.0.1:11434/api/tags", expect.anything());
+  });
+
+  it("normaliza endpoints Ollama com sufixo de API e explica falhas de conexão", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ models: [] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+    await expect(
+      listProviderModels(
+        {
+          baseUrl: "http://localhost:11434/api/v1",
+          name: "Ollama",
+          type: "ollama",
+        },
+        request,
+      ),
+    ).resolves.toEqual([]);
+    expect(request).toHaveBeenCalledWith("http://localhost:11434/api/tags", expect.anything());
+
+    const unavailable = vi
+      .fn()
+      .mockRejectedValue(new TypeError("fetch failed")) as unknown as typeof fetch;
+    await expect(
+      listProviderModels(
+        {
+          baseUrl: "http://localhost:11434/api/v1",
+          name: "Ollama",
+          type: "ollama",
+        },
+        unavailable,
+      ),
+    ).rejects.toMatchObject({
+      name: "ProviderConnectionError",
+      retryable: true,
+    } satisfies Partial<ProviderConnectionError>);
+    await expect(
+      listProviderModels(
+        {
+          baseUrl: "http://localhost:11434/api/v1",
+          name: "Ollama",
+          type: "ollama",
+        },
+        unavailable,
+      ),
+    ).rejects.toThrow("Verifique se o Ollama está em execução");
   });
 
   it("edita e remove um provedor sem colocar segredos no cadastro", async () => {

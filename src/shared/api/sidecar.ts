@@ -120,7 +120,14 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   if (!baseUrl) {
     throw new Error("Abra o Blackwall pelo app desktop para conectar um provedor local.");
   }
-  const response = await fetch(`${baseUrl}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, init);
+  } catch {
+    throw new Error(
+      "Não foi possível acessar o serviço local do Blackwall. Reinicie o app e tente novamente.",
+    );
+  }
   const body = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? "Não foi possível concluir a ação local.");
   return body;

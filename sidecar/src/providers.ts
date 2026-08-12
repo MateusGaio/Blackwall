@@ -67,6 +67,23 @@ export class ProviderHttpError extends Error {
   }
 }
 
+export class ProviderConnectionError extends Error {
+  readonly retryable = true;
+
+  constructor(kind: ProviderKind, baseUrl: string, operation: string) {
+    const url = new URL(baseUrl);
+    const target = `${url.hostname}${url.port ? `:${url.port}` : ""}`;
+    const providerName = kind === "ollama" ? "Ollama" : "o provedor";
+    super(
+      `Não foi possível ${operation} em ${providerName} (${target}). ` +
+        (kind === "ollama"
+          ? "Verifique se o Ollama está em execução e se o endpoint está correto."
+          : "Verifique a rede e o endpoint configurado."),
+    );
+    this.name = "ProviderConnectionError";
+  }
+}
+
 function providerHttpMessage(status: number, operation: string): string {
   if (status === 401) return "A chave foi recusada (HTTP 401). Revise a chave do provedor.";
   if (status === 403) return "O provedor bloqueou o acesso (HTTP 403). Revise as permissões.";
@@ -91,6 +108,20 @@ abstract class BaseProviderAdapter implements ProviderAdapter {
     return this.provider.apiKey?.trim()
       ? { authorization: `Bearer ${this.provider.apiKey.trim()}` }
       : {};
+  }
+
+  protected async request(
+    path: string,
+    request: FetchLike,
+    init: RequestInit,
+    operation: string,
+  ): Promise<Response> {
+    try {
+      return await request(this.endpoint(path), init);
+    } catch (error) {
+      if (error instanceof ProviderConnectionError) throw error;
+      throw new ProviderConnectionError(this.kind, this.provider.baseUrl, operation);
+    }
   }
 
   protected async checked(
@@ -119,14 +150,14 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
     if (!this.provider.name.trim() || !this.provider.model.trim() || !this.provider.apiKey?.trim())
       throw new Error("Informe nome, modelo e chave de API para continuar.");
     await this.checked(
-      await request(this.endpoint("/models"), { headers: this.headers() }),
+      await this.request("/models", request, { headers: this.headers() }, "validar o provedor"),
       "validar o provedor",
     );
   }
 
   async listModels(request: FetchLike = fetch) {
     const response = await this.checked(
-      await request(this.endpoint("/models"), { headers: this.headers() }),
+      await this.request("/models", request, { headers: this.headers() }, "listar os modelos"),
       "listar os modelos",
     );
     const body = (await response.json()) as { data?: Array<{ id?: string; name?: string }> };
@@ -152,18 +183,26 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
 class OllamaProvider extends BaseProviderAdapter {
   readonly kind = "ollama" as const;
 
+  protected endpoint(path: string) {
+    const baseUrl = normalizeBaseUrl(this.provider.baseUrl).replace(
+      /\/(?:api|v1)(?:\/(?:api|v1))*$/i,
+      "",
+    );
+    return `${baseUrl}${path}`;
+  }
+
   async validate(request: FetchLike = fetch) {
     if (!this.provider.name.trim() || !this.provider.model.trim())
       throw new Error("Informe nome e modelo para continuar.");
     await this.checked(
-      await request(this.endpoint("/api/tags"), { headers: this.headers() }),
+      await this.request("/api/tags", request, { headers: this.headers() }, "validar o provedor"),
       "validar o provedor",
     );
   }
 
   async listModels(request: FetchLike = fetch) {
     const response = await this.checked(
-      await request(this.endpoint("/api/tags"), { headers: this.headers() }),
+      await this.request("/api/tags", request, { headers: this.headers() }, "listar os modelos"),
       "listar os modelos",
     );
     const body = (await response.json()) as {
