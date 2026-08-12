@@ -454,6 +454,10 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     setCompletionError("");
     setIsCompleting(true);
     try {
+      const workspaceMode =
+        startWithoutWorkspace || (!workspaceRootPath.trim() && !folderSelection)
+          ? "none"
+          : "workspace";
       const state = await bootstrapApp({
         locale,
         permissionMode: "ask",
@@ -462,7 +466,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
         workspaceName,
         workspaceRootPath,
         workspaceFiles: folderSelection?.files,
-        workspaceMode: startWithoutWorkspace ? "none" : "workspace",
+        workspaceMode,
         workspaceSoul,
       });
       setAppState(state);
@@ -480,8 +484,8 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     profileName,
     soul,
     startWithoutWorkspace,
-    workspaceName,
     workspaceRootPath,
+    workspaceName,
     workspaceSoul,
   ]);
 

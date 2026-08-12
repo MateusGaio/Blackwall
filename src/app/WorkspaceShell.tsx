@@ -9,14 +9,12 @@ import {
   useState,
 } from "react";
 import { ProviderManager } from "../features/config/components/ProviderManager";
-import { pickDirectory } from "../platform/runtime";
 import {
   type AppState,
   type Attachment,
   type ChatMessage,
   type ConnectedProvider,
   createSession,
-  createWorkspace,
   deleteSession,
   getAppState,
   listProviders,
@@ -64,6 +62,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [streamingStatus, setStreamingStatus] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  const [resourceNotice, setResourceNotice] = useState("");
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
 
@@ -166,28 +165,21 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     }
   }
 
-  async function newWorkspace() {
-    const profileId = state?.activeProfileId;
-    if (!profileId) return;
-    const name = window.prompt("Nome do novo workspace")?.trim();
-    if (!name) return;
-    const folder = await pickDirectory();
-    if (!folder) return;
-    try {
-      const created = await createWorkspace({
-        name,
-        profileId,
-        rootPath: folder.path ?? "",
-        soul: "Preserve o contexto e as convenções deste workspace.",
-        workspaceFiles: folder.files,
-      });
-      const session = await createSession(created.id);
-      const nextState = await selectSession(session.id);
-      setState(nextState);
-      setMessages(nextState.messages);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível criar o workspace.");
+  function newWorkspace() {
+    setResourceNotice("");
+    setShowSettings(true);
+  }
+
+  async function activateWorkspace(created: NonNullable<typeof workspace>) {
+    if (state?.workspaces.some((item) => item.id === created.id)) {
+      await openWorkspace(created.id);
+      return;
     }
+    const session = await createSession(created.id);
+    const nextState = await selectSession(session.id);
+    setState(nextState);
+    setMessages(nextState.messages);
+    setResourceNotice("");
   }
 
   async function rename(sessionId: string, currentTitle: string) {
@@ -252,6 +244,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     setMessages(nextMessages);
     setDraft("");
     setError("");
+    setResourceNotice("");
     setIsSending(true);
     setStreamingContent("");
     setStreamingStatus("Consultando…");
@@ -496,16 +489,23 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
                 </select>
               </label>
             )}
-            {workspace && (
-              <button
-                aria-pressed={showVault}
-                className={`header-toggle ${showVault ? "is-active" : ""}`}
-                onClick={() => setShowVault((current) => !current)}
-                type="button"
-              >
-                Vault
-              </button>
-            )}
+            <button
+              aria-pressed={Boolean(workspace && showVault)}
+              className={`header-toggle ${showVault && workspace ? "is-active" : ""}`}
+              onClick={() => {
+                if (!workspace) {
+                  setResourceNotice(
+                    "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
+                  );
+                  return;
+                }
+                setResourceNotice("");
+                setShowVault((current) => !current);
+              }}
+              type="button"
+            >
+              Vault
+            </button>
           </div>
         </header>
         <section className="chat-shell" aria-label="Conversa">
@@ -598,6 +598,14 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             )}
           </form>
           {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
+          {resourceNotice && (
+            <div className="resource-gate" role="alert">
+              <span>{resourceNotice}</span>
+              <button className="text-button" onClick={newWorkspace} type="button">
+                Adicionar workspace nas configurações
+              </button>
+            </div>
+          )}
           {error && (
             <p className="form-error chat-error" role="alert">
               {error}
@@ -612,6 +620,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
       )}
       {showSettings && (
         <ProviderManager
+          activeWorkspaceId={state?.activeWorkspaceId ?? null}
           onClose={() => setShowSettings(false)}
           onProvidersChange={(next) => {
             setProviders(next);
@@ -622,7 +631,10 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             );
           }}
           onSelect={(next) => setActiveProvider(next)}
+          onWorkspaceSelected={activateWorkspace}
+          profileId={state?.activeProfileId ?? null}
           providers={providers}
+          workspaces={state?.workspaces ?? []}
         />
       )}
       {paletteOpen && (

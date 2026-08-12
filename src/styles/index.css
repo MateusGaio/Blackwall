@@ -744,6 +744,80 @@ button:disabled {
   padding-top: 20px;
 }
 
+.settings-section {
+  border-bottom: 1px solid #2d2d31;
+  margin-bottom: 24px;
+  padding-bottom: 22px;
+}
+
+.settings-workspace-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 18px;
+}
+
+.settings-workspace-row {
+  background: transparent;
+  border: 1px solid #2d2d31;
+  color: #e5e5e7;
+  display: block;
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.settings-workspace-row.is-active {
+  border-color: #a6a6ab;
+}
+
+.settings-workspace-row:hover,
+.settings-workspace-row:focus-visible {
+  border-color: #77777c;
+  outline: none;
+}
+
+.settings-workspace-row strong,
+.settings-workspace-row span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-workspace-row strong {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.settings-workspace-row span {
+  color: #77777c;
+  font-size: 0.68rem;
+  margin-top: 4px;
+}
+
+.workspace-create-form {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-folder-button {
+  min-height: 58px;
+  width: 100%;
+}
+
+.resource-gate {
+  align-items: center;
+  border: 1px solid #4b4b51;
+  color: #c8c8cc;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: space-between;
+  margin: 12px auto 0;
+  max-width: 760px;
+  padding: 10px 12px;
+}
+
 .settings-actions {
   align-items: center;
   display: flex;
