@@ -44,7 +44,7 @@ export const sessions = sqliteTable("sessions", {
   ...timestamps,
 });
 
-const providers = sqliteTable("providers", {
+export const providers = sqliteTable("providers", {
   id: text("id").primaryKey(),
   type: text("type").notNull().default("openai-compatible"),
   name: text("name").notNull(),
@@ -53,7 +53,7 @@ const providers = sqliteTable("providers", {
   ...timestamps,
 });
 
-const models = sqliteTable(
+export const models = sqliteTable(
   "models",
   {
     id: text("id").primaryKey(),
@@ -71,7 +71,7 @@ const models = sqliteTable(
   }),
 );
 
-const routerEntries = sqliteTable("router_entries", {
+export const routerEntries = sqliteTable("router_entries", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()

@@ -12,8 +12,13 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
   },
   webServer: {
-    command: "BLACKWALL_E2E=1 BLACKWALL_E2E_MOCK=1 npm run dev -- --host 127.0.0.1 --port 1421",
-    env: { BLACKWALL_E2E: "1", BLACKWALL_E2E_MOCK: "1" },
+    command:
+      "BLACKWALL_E2E=1 BLACKWALL_E2E_MOCK=1 BLACKWALL_SIDECAR_PORT=1422 npm run dev -- --host 127.0.0.1 --port 1421",
+    env: {
+      BLACKWALL_E2E: "1",
+      BLACKWALL_E2E_MOCK: "1",
+      BLACKWALL_SIDECAR_PORT: "1422",
+    },
     port: 1421,
     reuseExistingServer: false,
   },

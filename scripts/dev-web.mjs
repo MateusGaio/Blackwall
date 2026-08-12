@@ -14,7 +14,8 @@ const dataDirectory = ownsDataDirectory
   ? await mkdtemp(join(tmpdir(), "blackwall-e2e-"))
   : process.env.BLACKWALL_DATA_DIR;
 if (dataDirectory) process.env.BLACKWALL_DATA_DIR = dataDirectory;
-const { port, server } = await createSidecar();
+const sidecarPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 0);
+const { port, server } = await createSidecar(sidecarPort);
 const sidecarUrl = `http://${SIDECAR_HOST}:${port}`;
 
 async function waitForHealth(url, timeoutMs = 10_000) {

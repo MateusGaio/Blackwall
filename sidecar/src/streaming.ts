@@ -1,24 +1,28 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { withAsyncInstrumentation } from "./observability.js";
-import { getProvider, type Provider, providerApiKey } from "./providers.js";
+import {
+  createProviderAdapter,
+  getProvider,
+  type Provider,
+  ProviderHttpError,
+  providerApiKey,
+  providerDataDirectory,
+} from "./providers.js";
 
 type StreamMessage = { content: string; role: "assistant" | "system" | "user" };
 type StreamDelta = (content: string) => void;
 type FetchLike = typeof fetch;
 
-class ProviderRequestError extends Error {
-  readonly status: number;
-
+export class ProviderRequestError extends ProviderHttpError {
   constructor(status: number) {
-    super(`O provedor respondeu com HTTP ${status}.`);
+    super(status, "obter uma resposta");
     this.name = "ProviderRequestError";
-    this.status = status;
   }
 }
 
 export function isRetryableProviderError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) {
-    return error.status === 408 || error.status === 429 || error.status >= 500;
+    return error.retryable;
   }
   return error instanceof TypeError || (error instanceof Error && error.name === "AbortError");
 }
@@ -63,9 +67,10 @@ export async function streamChatMessage(
   onDelta: StreamDelta,
   signal: AbortSignal,
   request: FetchLike = fetch,
+  dataDirectory = providerDataDirectory(),
 ): Promise<{ provider: Provider }> {
-  const provider = await getProvider(providerId);
-  const apiKey = await providerApiKey(providerId);
+  const provider = await getProvider(providerId, dataDirectory);
+  const apiKey = await providerApiKey(providerId, dataDirectory);
   const model = modelOverride?.trim() || provider.model;
   const ollama = provider.type === "ollama";
   if (process.env.BLACKWALL_E2E_MOCK === "1") {
@@ -73,16 +78,16 @@ export async function streamChatMessage(
     onDelta("de teste.");
     return { provider };
   }
+  const adapter = createProviderAdapter({
+    apiKey,
+    baseUrl: provider.baseUrl,
+    model,
+    name: provider.name,
+    type: provider.type,
+  });
+  const requestInit = adapter.chatRequest(model, messages, signal);
   const response = await withAsyncInstrumentation("provider.chat.stream", () =>
-    request(ollama ? `${provider.baseUrl}/api/chat` : `${provider.baseUrl}/chat/completions`, {
-      body: JSON.stringify({ messages, model, stream: true }),
-      headers: {
-        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-        "content-type": "application/json",
-      },
-      method: "POST",
-      signal,
-    }),
+    request(requestInit.endpoint, requestInit),
   );
   if (!response.ok) throw new ProviderRequestError(response.status);
   if (!response.body) throw new Error("O provedor não abriu um canal de streaming.");

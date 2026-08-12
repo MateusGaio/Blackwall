@@ -4,12 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  OpenAICompatibleProvider,
+  ProviderHttpError,
   getProvider,
   listProviderModels,
   normalizeBaseUrl,
   providerApiKey,
   removeProvider,
+  routeCandidates,
   saveProvider,
+  syncProviderModels,
   validateProvider,
 } from "./providers.js";
 
@@ -121,5 +125,64 @@ describe("providers", () => {
     await expect(providerApiKey(provider.id, directory)).resolves.toBe("keep-me-encrypted");
     await expect(removeProvider(provider.id, directory)).resolves.toEqual({ id: provider.id });
     await expect(getProvider(provider.id, directory)).rejects.toThrow("não existe");
+  });
+
+  it("usa adaptadores e mapeia erros de configuração sem torná-los elegíveis para fallback", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 404 })) as unknown as typeof fetch;
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.example.com/v1",
+      model: "model",
+      name: "Example",
+    });
+    await expect(adapter.validate(request)).rejects.toMatchObject({
+      name: "ProviderHttpError",
+      status: 404,
+      retryable: false,
+    });
+    await expect(adapter.validate(request)).rejects.toThrow("endpoint não foi encontrado");
+    expect(adapter.chatRequest("model", [{ role: "user", content: "Oi" }]).endpoint).toBe(
+      "https://api.example.com/v1/chat/completions",
+    );
+    expect(new ProviderHttpError(429).retryable).toBe(true);
+  });
+
+  it("sincroniza modelos no SQLite e preserva a ordem configurada da rota", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-models-"));
+    directories.push(directory);
+    const provider = await saveProvider(
+      {
+        apiKey: "sync-key",
+        baseUrl: "https://api.example.com/v1",
+        model: "first",
+        name: "Example",
+      },
+      directory,
+    );
+    const request = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: "first" }, { id: "second" }] }), {
+        status: 200,
+      }),
+    ) as unknown as typeof fetch;
+    await expect(
+      syncProviderModels(
+        provider.id,
+        {
+          apiKey: "sync-key",
+          baseUrl: provider.baseUrl,
+          model: provider.model,
+          name: provider.name,
+        },
+        directory,
+        request,
+      ),
+    ).resolves.toHaveLength(2);
+    const route = routeCandidates({ model: "first", providerId: provider.id }, [
+      { modelId: "fallback-b", position: 2, providerId: "b" },
+      { modelId: "fallback-a", position: 1, providerId: "a" },
+    ]);
+    expect(route.map((candidate) => candidate.providerId)).toEqual([provider.id, "a", "b"]);
   });
 });
