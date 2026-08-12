@@ -31,6 +31,7 @@ import {
   streamMessage,
   uploadAttachment,
 } from "../shared/api/sidecar";
+import { ConfirmDialog } from "../shared/components/ConfirmDialog";
 import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 
@@ -67,6 +68,9 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
   const [permissionError, setPermissionError] = useState("");
+  const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
 
@@ -247,7 +251,6 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   }
 
   async function remove(sessionId: string) {
-    if (!window.confirm("Excluir esta sessão e seu histórico?")) return;
     try {
       await deleteSession(sessionId);
       const refreshed = await getAppState();
@@ -506,7 +509,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
                       className="session-menu-danger"
                       onClick={() => {
                         setOpenSessionMenuId(null);
-                        void remove(session.id);
+                        setSessionToDelete({ id: session.id, title: session.title });
                       }}
                       role="menuitem"
                       type="button"
@@ -750,6 +753,19 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           profileId={state?.activeProfileId ?? null}
           providers={providers}
           workspaces={state?.workspaces ?? []}
+        />
+      )}
+      {sessionToDelete && (
+        <ConfirmDialog
+          confirmLabel="Excluir sessão"
+          description="As mensagens desta conversa serão removidas deste dispositivo."
+          onCancel={() => setSessionToDelete(null)}
+          onConfirm={() => {
+            const session = sessionToDelete;
+            setSessionToDelete(null);
+            void remove(session.id);
+          }}
+          title={`Excluir ${sessionToDelete.title}?`}
         />
       )}
       {paletteOpen && (

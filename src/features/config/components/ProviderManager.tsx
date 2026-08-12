@@ -10,6 +10,7 @@ import {
   updateProvider,
   type Workspace,
 } from "../../../shared/api/sidecar";
+import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 
 type ProviderManagerProps = {
   activeWorkspaceId: string | null;
@@ -56,6 +57,7 @@ export function ProviderManager({
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("");
+  const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -123,7 +125,6 @@ export function ProviderManager({
   }
 
   async function remove(provider: ConnectedProvider) {
-    if (!window.confirm(`Remover o provedor ${provider.name}?`)) return;
     try {
       await deleteProvider(provider.id);
       const next = providers.filter((item) => item.id !== provider.id);
@@ -253,7 +254,7 @@ export function ProviderManager({
                 </button>
                 <button
                   className="text-button danger"
-                  onClick={() => void remove(provider)}
+                  onClick={() => setProviderToRemove(provider)}
                   type="button"
                 >
                   Remover
@@ -343,6 +344,19 @@ export function ProviderManager({
           )}
         </form>
       </section>
+      {providerToRemove && (
+        <ConfirmDialog
+          confirmLabel="Remover provedor"
+          description={`A configuração de ${providerToRemove.name} será removida deste dispositivo.`}
+          onCancel={() => setProviderToRemove(null)}
+          onConfirm={() => {
+            const provider = providerToRemove;
+            setProviderToRemove(null);
+            void remove(provider);
+          }}
+          title={`Remover ${providerToRemove.name}?`}
+        />
+      )}
     </div>
   );
 }
