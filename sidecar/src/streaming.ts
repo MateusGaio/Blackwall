@@ -2,7 +2,7 @@
 import { withAsyncInstrumentation } from "./observability.js";
 import { getProvider, type Provider, providerApiKey } from "./providers.js";
 
-type StreamMessage = { content: string; role: "assistant" | "user" };
+type StreamMessage = { content: string; role: "assistant" | "system" | "user" };
 type StreamDelta = (content: string) => void;
 type FetchLike = typeof fetch;
 

@@ -2,6 +2,12 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
+import {
+  type AttachmentInput,
+  removeAttachment,
+  saveAttachment,
+  searchAttachments,
+} from "./attachments.js";
 import { type ChatMessage, sendChatMessage } from "./chat.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
@@ -44,7 +50,7 @@ function allowOrigin(
   if (origin && allowedOrigins.has(origin))
     response.setHeader("access-control-allow-origin", origin);
   response.setHeader("access-control-allow-headers", "content-type");
-  response.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+  response.setHeader("access-control-allow-methods", "DELETE, GET, POST, OPTIONS");
 }
 
 function requestBody(request: import("node:http").IncomingMessage): Promise<unknown> {
@@ -85,6 +91,28 @@ export function createSidecar(
       if (request.method === "POST" && pathname === "/v1/bootstrap") {
         const input = (await requestBody(request)) as BootstrapInput;
         writeJson(response, 200, await store.bootstrap(input));
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/attachments") {
+        const input = (await requestBody(request)) as AttachmentInput;
+        writeJson(response, 201, { attachment: await saveAttachment(input, storageDirectory) });
+        return;
+      }
+      if (request.method === "GET" && pathname === "/v1/attachments/search") {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const workspaceId = url.searchParams.get("workspaceId");
+        const query = url.searchParams.get("q");
+        if (!workspaceId || !query)
+          throw new Error("Informe workspace e busca para pesquisar anexos.");
+        writeJson(response, 200, {
+          results: await searchAttachments(workspaceId, query, storageDirectory),
+        });
+        return;
+      }
+      if (request.method === "DELETE" && /^\/v1\/attachments\/[^/]+$/.test(pathname)) {
+        writeJson(response, 200, {
+          attachment: await removeAttachment(pathname.split("/")[3], storageDirectory),
+        });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/profiles") {

@@ -66,7 +66,21 @@ type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
   apiKey?: string;
   type?: ConnectedProvider["type"];
 };
-export type ChatMessage = { content: string; id: string; role: "assistant" | "user" };
+export type ChatMessage = { content: string; id: string; role: "assistant" | "system" | "user" };
+
+export type Attachment = {
+  byteSize: number;
+  filename: string;
+  id: string;
+  status: string;
+};
+
+type AttachmentSearchResult = {
+  attachmentId: string;
+  chunkIndex: number;
+  content: string;
+  filename: string;
+};
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
   const baseUrl = await sidecarUrl();
@@ -177,6 +191,50 @@ export async function persistMessage(
     method: "POST",
   });
   return response.message;
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+export async function uploadAttachment(
+  file: File,
+  workspaceId: string,
+  sessionId?: string,
+): Promise<Attachment> {
+  const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+  const response = await request<{ attachment: Attachment }>("/v1/attachments", {
+    body: JSON.stringify({
+      contentBase64,
+      filename: file.name,
+      mimeType: file.type || "text/plain",
+      sessionId: sessionId ?? null,
+      workspaceId,
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  return response.attachment;
+}
+
+export async function searchAttachments(
+  workspaceId: string,
+  query: string,
+): Promise<AttachmentSearchResult[]> {
+  const response = await request<{ results: AttachmentSearchResult[] }>(
+    `/v1/attachments/search?workspaceId=${encodeURIComponent(workspaceId)}&q=${encodeURIComponent(query)}`,
+    { method: "GET" },
+  );
+  return response.results;
+}
+
+export async function removeAttachment(attachmentId: string): Promise<void> {
+  await request(`/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
 }
 
 type StreamResult = {

@@ -2,6 +2,7 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   type AppState,
+  type Attachment,
   type ChatMessage,
   type ConnectedProvider,
   createSession,
@@ -9,9 +10,12 @@ import {
   listStoredProviderModels,
   type ProviderModel,
   persistMessage,
+  removeAttachment,
+  searchAttachments,
   selectSession,
   setSessionModel,
   streamMessage,
+  uploadAttachment,
 } from "../shared/api/sidecar";
 import { isSubmitShortcut } from "./composer";
 
@@ -31,6 +35,9 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingStatus, setStreamingStatus] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentStatus, setAttachmentStatus] = useState("");
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
 
   const name = profileName.trim() || "você";
@@ -111,9 +118,21 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     setStreamingStatus("Consultando…");
     try {
       await persistMessage(sessionId, { content, role: "user", status: "complete" });
+      const relevantAttachments = workspace
+        ? await searchAttachments(workspace.id, content.slice(0, 160)).catch(() => [])
+        : [];
+      const contextMessage: ChatMessage | null = relevantAttachments.length
+        ? {
+            content: `Trechos relevantes dos anexos locais:\n${relevantAttachments
+              .map((item) => `[${item.filename}]\n${item.content}`)
+              .join("\n\n")}`,
+            id: crypto.randomUUID(),
+            role: "system",
+          }
+        : null;
       const stream = await streamMessage(
         provider.id,
-        nextMessages,
+        contextMessage ? [...nextMessages, contextMessage] : nextMessages,
         selectedModel,
         workspace?.id ?? "default",
         {
@@ -156,6 +175,30 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
 
   function stopGeneration() {
     activeStream.current?.stop();
+  }
+
+  async function attachFile(file: File) {
+    if (!workspace || !activeSession) return;
+    setAttachmentStatus(`Indexando ${file.name}…`);
+    setError("");
+    try {
+      const attachment = await uploadAttachment(file, workspace.id, activeSession.id);
+      setAttachments((current) => [...current, attachment]);
+      setAttachmentStatus(`${attachment.filename} indexado localmente.`);
+    } catch (reason) {
+      setAttachmentStatus("");
+      setError(reason instanceof Error ? reason.message : "Não foi possível indexar o anexo.");
+    }
+  }
+
+  async function detachFile(attachment: Attachment) {
+    try {
+      await removeAttachment(attachment.id);
+      setAttachments((current) => current.filter((item) => item.id !== attachment.id));
+      setAttachmentStatus(`${attachment.filename} removido.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível remover o anexo.");
+    }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -277,7 +320,43 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
               )}
             </ol>
           )}
+          {attachments.length > 0 && (
+            <ul className="attachment-list" aria-label="Anexos indexados">
+              {attachments.map((attachment) => (
+                <li className="attachment-chip" key={attachment.id}>
+                  <span>{attachment.filename}</span>
+                  <button
+                    aria-label={`Remover ${attachment.filename}`}
+                    onClick={() => void detachFile(attachment)}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <form className="composer" onSubmit={submit}>
+            <input
+              accept=".c,.cpp,.css,.csv,.go,.h,.html,.java,.js,.json,.jsx,.md,.pdf,.py,.rs,.sh,.sql,.toml,.ts,.tsx,.txt,.yaml,.yml"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void attachFile(file);
+              }}
+              ref={fileInput}
+              type="file"
+            />
+            <button
+              aria-label="Anexar arquivo"
+              className="composer-attach"
+              disabled={!activeSession || !workspace || isSending}
+              onClick={() => fileInput.current?.click()}
+              type="button"
+            >
+              +
+            </button>
             <textarea
               aria-label="Mensagem"
               disabled={!provider || !activeSession || isSending}
@@ -301,6 +380,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
               </button>
             )}
           </form>
+          {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
           {error && (
             <p className="form-error chat-error" role="alert">
               {error}

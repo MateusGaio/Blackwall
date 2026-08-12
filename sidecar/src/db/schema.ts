@@ -98,7 +98,7 @@ export const messages = sqliteTable("messages", {
   ...timestamps,
 });
 
-const attachments = sqliteTable("attachments", {
+export const attachments = sqliteTable("attachments", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
