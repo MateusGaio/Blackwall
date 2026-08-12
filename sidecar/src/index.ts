@@ -100,6 +100,15 @@ export function createSidecar(
         writeJson(response, 200, await store.bootstrap(input));
         return;
       }
+      if (request.method === "POST" && pathname === "/v1/profile/select") {
+        const input = (await requestBody(request)) as { profileId: string };
+        writeJson(response, 200, store.selectProfile(input.profileId));
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/profile/sign-out") {
+        writeJson(response, 200, store.signOutProfile());
+        return;
+      }
       if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/vault$/.test(pathname)) {
         const workspaceId = pathname.split("/")[3];
         const workspace = database.db

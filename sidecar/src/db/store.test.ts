@@ -130,6 +130,29 @@ describe("persistência local", () => {
     restored.close();
   });
 
+  it("permite trocar de perfil e sair sem apagar os perfis salvos", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-profile-switch-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const first = await store.createProfile({ locale: "pt-BR", name: "Ada", soul: "Primeira" });
+    const firstSession = store.createSession({ profileId: first.id });
+    const second = await store.createProfile({ locale: "en", name: "Grace", soul: "Second" });
+    store.createSession({ profileId: second.id });
+    const selected = store.selectProfile(first.id);
+    expect(selected.activeProfileId).toBe(first.id);
+    expect(selected.activeSessionId).toBe(firstSession.id);
+    expect(selected.profiles).toHaveLength(2);
+    const signedOut = store.signOutProfile();
+    expect(signedOut.activeProfileId).toBeNull();
+    expect(signedOut.activeWorkspaceId).toBeNull();
+    expect(signedOut.activeSessionId).toBeNull();
+    expect(signedOut.profiles.map((profile) => profile.name)).toEqual(
+      expect.arrayContaining(["Grace", "Ada"]),
+    );
+    database.close();
+  });
+
   it("cria um workspace web privado a partir dos Markdown selecionados", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-web-workspace-"));
     directories.push(directory);

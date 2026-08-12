@@ -196,6 +196,21 @@ export async function getAppState(): Promise<AppState> {
   return request("/v1/state", { method: "GET" });
 }
 
+export async function selectProfile(profileId: string): Promise<AppState> {
+  return request("/v1/profile/select", {
+    body: JSON.stringify({ profileId }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function signOutProfile(): Promise<AppState> {
+  return request("/v1/profile/sign-out", {
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
 export async function bootstrapApp(input: BootstrapInput): Promise<AppState> {
   return request("/v1/bootstrap", {
     body: JSON.stringify(input),

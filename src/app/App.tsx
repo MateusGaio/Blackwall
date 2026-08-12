@@ -8,6 +8,9 @@ import {
   type ConnectedProvider,
   getAppState,
   listProviders,
+  type Profile,
+  selectProfile,
+  signOutProfile,
 } from "../shared/api/sidecar";
 import {
   clampOnboardingStep,
@@ -28,6 +31,86 @@ function LoadingSkeleton() {
       <div className="loading-mark skeleton" />
       <div className="loading-line skeleton" />
       <div className="loading-card skeleton" />
+    </main>
+  );
+}
+
+type ProfileChooserProps = {
+  isSelecting: boolean;
+  locale: "pt-BR" | "en";
+  onCreate: () => void;
+  onSelect: (profileId: string) => void;
+  profiles: Profile[];
+};
+
+function ProfileChooser({
+  isSelecting,
+  locale,
+  onCreate,
+  onSelect,
+  profiles,
+}: ProfileChooserProps) {
+  const isEnglish = locale === "en";
+  return (
+    <main className="app-shell profile-chooser-shell">
+      <aside className="brand-column" aria-label="Blackwall">
+        <div>
+          <span className="brand-mark" aria-hidden="true">
+            BW
+          </span>
+          <p className="eyebrow">Blackwall / local-first</p>
+        </div>
+        <p className="brand-note">
+          {isEnglish
+            ? "Private by default. Your context stays on your computer."
+            : "Privado por padrão. Seu contexto continua no seu computador."}
+        </p>
+      </aside>
+      <section className="onboarding-area profile-chooser-area" aria-label="Escolha de perfil">
+        <div className="profile-chooser-card">
+          <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
+          <h1>{isEnglish ? "Who is using Blackwall?" : "Quem está usando o Blackwall?"}</h1>
+          <p className="profile-chooser-intro">
+            {isEnglish
+              ? "Choose a saved profile or create a new one. Your conversations remain local."
+              : "Escolha um perfil salvo ou crie um novo. Suas conversas permanecem locais."}
+          </p>
+          <ul className="profile-choice-list">
+            {profiles.map((profile) => (
+              <li key={profile.id}>
+                <button
+                  className="profile-choice"
+                  disabled={isSelecting}
+                  onClick={() => onSelect(profile.id)}
+                  type="button"
+                >
+                  <span className="profile-choice-avatar" aria-hidden="true">
+                    {profile.avatarData ? (
+                      <img alt="" src={profile.avatarData} />
+                    ) : (
+                      profile.name.slice(0, 2).toUpperCase()
+                    )}
+                  </span>
+                  <span className="profile-choice-copy">
+                    <strong>{profile.name}</strong>
+                    <small>{profile.soul.split("\n")[0].slice(0, 80)}</small>
+                  </span>
+                  <span className="profile-choice-arrow" aria-hidden="true">
+                    →
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            className="button button-primary profile-create-button"
+            onClick={onCreate}
+            type="button"
+          >
+            {isEnglish ? "Create new profile" : "Criar novo perfil"}
+          </button>
+        </div>
+      </section>
     </main>
   );
 }
@@ -363,19 +446,21 @@ export function App() {
   const [isCompleting, setIsCompleting] = useState(false);
   const [completionError, setCompletionError] = useState("");
   const [appState, setAppState] = useState<AppState | null>(null);
+  const [availableProfiles, setAvailableProfiles] = useState<Profile[]>([]);
+  const [showProfileChooser, setShowProfileChooser] = useState(false);
+  const [isSelectingProfile, setIsSelectingProfile] = useState(false);
   const [locale, setLocale] = useState<"pt-BR" | "en">(() =>
     detectInitialLocale(navigator.language),
   );
   const [profileName, setProfileName] = useState("");
-  const [soul, setSoul] = useState(
-    `Você é Blackwall, uma parceira técnica local-first para construir software com clareza e autonomia.
+  const defaultProfileSoul = `Você é Blackwall, uma parceira técnica local-first para construir software com clareza e autonomia.
 
 Trabalhe de forma prática: entenda o objetivo, proponha um plano curto, execute em etapas e valide o resultado. Priorize código simples, seguro, testável e fácil de manter. Explique decisões e riscos de forma direta; não invente resultados, arquivos, comandos ou integrações.
 
 Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como dados locais e sensíveis. Nunca exponha segredos e não envie telemetria ou conteúdo para fora sem opt-in explícito.
 
-Ao lidar com código, leia o contexto relevante antes de editar, preserve alterações existentes, escreva ou atualize testes quando aplicável e informe com clareza o que foi verificado. Quando faltar uma decisão material, apresente a dúvida e as consequências antes de assumir.`,
-  );
+    Ao lidar com código, leia o contexto relevante antes de editar, preserve alterações existentes, escreva ou atualize testes quando aplicável e informe com clareza o que foi verificado. Quando faltar uma decisão material, apresente a dúvida e as consequências antes de assumir.`;
+  const [soul, setSoul] = useState(defaultProfileSoul);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [folderSelection, setFolderSelection] = useState<FolderSelection | null>(null);
@@ -393,7 +478,15 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     const frame = window.requestAnimationFrame(() => setIsReady(true));
     void getAppState()
       .then(async (state) => {
-        if (cancelled || !state.activeSessionId || !state.activeProfileId) return;
+        if (cancelled) return;
+        setAvailableProfiles(state.profiles);
+        if (!state.activeSessionId || !state.activeProfileId) {
+          if (state.profiles.length > 0) {
+            setAppState(state);
+            setShowProfileChooser(true);
+          }
+          return;
+        }
         const profile = state.profiles.find((item) => item.id === state.activeProfileId);
         const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
         if (!profile) return;
@@ -411,6 +504,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
             providers[0] ??
             null,
         );
+        setShowProfileChooser(false);
         setIsComplete(true);
       })
       .catch(() => undefined);
@@ -450,6 +544,75 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     navigate(stepIndex + 1, true);
   }
 
+  function resetOnboarding() {
+    setStepIndex(0);
+    setIsExiting(false);
+    setCompletionError("");
+    setProfileName("");
+    setSoul(defaultProfileSoul);
+    setWorkspaceName("");
+    setWorkspaceRootPath("");
+    setFolderSelection(null);
+    setStartWithoutWorkspace(false);
+    setWorkspaceSoul(defaultProfileSoul);
+    setProvider(null);
+  }
+
+  function startNewProfile() {
+    resetOnboarding();
+    setAppState(null);
+    setShowProfileChooser(false);
+  }
+
+  async function chooseProfile(profileId: string) {
+    setIsSelectingProfile(true);
+    setCompletionError("");
+    try {
+      const state = await selectProfile(profileId);
+      const profile = state.profiles.find((item) => item.id === profileId);
+      if (!profile) throw new Error("O perfil selecionado não existe.");
+      const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
+      const providers = await listProviders();
+      const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
+      setAppState(state);
+      setAvailableProfiles(state.profiles);
+      setProfileName(profile.name);
+      setLocale(profile.locale === "en" ? "en" : "pt-BR");
+      setWorkspaceName(workspace?.name ?? "");
+      setWorkspaceRootPath(workspace?.rootPath ?? "");
+      setWorkspaceSoul(workspace?.soul ?? profile.soul);
+      setStartWithoutWorkspace(!workspace);
+      setProvider(
+        providers.find((item) => item.id === activeSession?.selectedProviderId) ??
+          providers[0] ??
+          null,
+      );
+      setShowProfileChooser(false);
+      setIsComplete(true);
+    } catch (reason) {
+      setCompletionError(
+        reason instanceof Error ? reason.message : "Não foi possível abrir esse perfil.",
+      );
+    } finally {
+      setIsSelectingProfile(false);
+    }
+  }
+
+  async function exitProfile() {
+    try {
+      const state = await signOutProfile();
+      setAvailableProfiles(state.profiles);
+      setAppState(state);
+      resetOnboarding();
+      setIsComplete(false);
+      setShowProfileChooser(state.profiles.length > 0);
+    } catch (reason) {
+      setCompletionError(
+        reason instanceof Error ? reason.message : "Não foi possível sair do perfil.",
+      );
+    }
+  }
+
   const completeOnboarding = useCallback(async () => {
     setCompletionError("");
     setIsCompleting(true);
@@ -470,6 +633,8 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
         workspaceSoul,
       });
       setAppState(state);
+      setAvailableProfiles(state.profiles);
+      setShowProfileChooser(false);
       setIsComplete(true);
     } catch (reason) {
       setCompletionError(
@@ -525,10 +690,26 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
   ]);
 
   if (!isReady) return <LoadingSkeleton />;
+  if (showProfileChooser) {
+    return (
+      <ProfileChooser
+        isSelecting={isSelectingProfile}
+        locale={locale}
+        onCreate={startNewProfile}
+        onSelect={(profileId) => void chooseProfile(profileId)}
+        profiles={availableProfiles}
+      />
+    );
+  }
   if (isComplete) {
     return (
       <Suspense fallback={<LoadingSkeleton />}>
-        <WorkspaceShell appState={appState} profileName={profileName} provider={provider} />
+        <WorkspaceShell
+          appState={appState}
+          onSignOut={exitProfile}
+          profileName={profileName}
+          provider={provider}
+        />
       </Suspense>
     );
   }

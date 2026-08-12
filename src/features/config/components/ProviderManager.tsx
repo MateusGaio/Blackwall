@@ -20,6 +20,7 @@ type ProviderManagerProps = {
   onClose: () => void;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
   onProfileChange: (profile: Profile) => void;
+  onSignOut: () => Promise<void>;
   onSelect: (provider: ConnectedProvider) => void;
   onWorkspaceChange: (workspace: Workspace) => void;
   onWorkspaceSelected: (workspace: Workspace) => Promise<void>;
@@ -50,6 +51,7 @@ export function ProviderManager({
   onClose,
   onProvidersChange,
   onProfileChange,
+  onSignOut,
   onSelect,
   onWorkspaceChange,
   onWorkspaceSelected,
@@ -335,6 +337,9 @@ export function ProviderManager({
               type="submit"
             >
               {isSavingProfile ? "Salvando…" : "Salvar perfil"}
+            </button>
+            <button className="text-button danger" onClick={() => void onSignOut()} type="button">
+              Sair do perfil
             </button>
           </div>
           {profileStatus && <p className="settings-status">{profileStatus}</p>}
