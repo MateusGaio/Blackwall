@@ -49,6 +49,7 @@ export async function validateProvider(
   input: ProviderInput,
   request: FetchLike = fetch,
 ): Promise<void> {
+  if (process.env.BLACKWALL_E2E_MOCK === "1") return;
   const type = input.type ?? "openai-compatible";
   if (!input.name.trim() || !input.model.trim() || (type !== "ollama" && !input.apiKey?.trim())) {
     throw new Error("Informe nome, modelo e chave de API para continuar.");

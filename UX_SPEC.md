@@ -85,12 +85,15 @@ Todo perfil e todo workspace precisa ter uma Soul ativa — não é opcional dei
 ## 8. Onboarding (primeira execução)
 
 Fluxo passo a passo obrigatório antes da primeira tela "normal":
-1. Boas-vindas + escolha de idioma (detectado do SO, editável).
-2. Criar o primeiro Perfil.
-3. Explicação rápida de Soul (já vem com a padrão ativa — o usuário pode pular a customização).
-4. Conectar ao menos um provedor de API (com link direto para onde pegar uma chave gratuita de cada provedor sugerido).
-5. Tela com 2-3 **notas de exemplo** já no Vault, mostrando como o grafo funciona.
-6. Um guia curto de "como usar" acessível a qualquer momento depois, via command palette.
+1. Idioma (detectado do SO, editável).
+2. Perfil e Soul do perfil (a Soul padrão é elaborada para desenvolvimento local-first).
+3. Nome do workspace.
+4. Pasta raiz obrigatória (seletor nativo no desktop ou caminho absoluto validado no web dev).
+5. Soul do workspace.
+6. Provedor OpenAI-compatible ou Ollama detectado/configurado.
+7. Entrada no chat com estado local persistente.
+
+Vault e notas de exemplo entram na Fase 2. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
 
 ---
 

@@ -1,6 +1,6 @@
 # Blackwall — Architecture Plan
 
-**Status:** Proposed
+**Status:** Fase 1 implementada em branches sequenciais; Fases 2–3 permanecem planejadas
 **Deciders:** Mateus (owner), agentes de IA contribuintes (Codex e outros)
 
 ---
@@ -211,13 +211,14 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 - Templates de Issue e PR configurados.
 
 ### Fase 1 — MVP funcional
-- Perfis + Workspaces + Souls (combináveis: Soul do perfil + Soul do workspace).
-- SQLite para sessões/histórico, com "voltar em sessões anteriores".
-- Conexão com APIs (chave própria do usuário + endpoint custom compatível com OpenAI).
-- Roteador de fallback sequencial configurável.
-- Tema OLED preto/cinza/branco funcionando, com skeleton/lazy/animações desde o primeiro componente.
-- Sentry + OTel básico habilitado (opt-in).
-- Suite de testes unitários cobrindo roteador e persistência; primeiro fluxo E2E no Playwright.
+- Perfis, workspaces obrigatoriamente vinculados a pastas e Souls combináveis.
+- SQLite em WAL com migração idempotente para sessões, mensagens, provedores, modelos, anexos e aprovações.
+- APIs OpenAI-compatible e Ollama, múltiplos provedores, seletor de modelos e fallback para erros transitórios.
+- Streaming WebSocket, parada preservando parcial, fila FIFO por workspace e título automático da sessão.
+- Anexos locais com extração de texto, PDF pesquisável e índice SQLite FTS5.
+- Ferramentas locais com validação de caminhos reais e modos `ask`, `automatic` e `read-only`.
+- Tema OLED, skeleton de carregamento, lazy loading, progresso, animações e `prefers-reduced-motion`.
+- OTel permanece sem exporter e desligado por padrão; não há conteúdo de conversas em telemetria.
 
 ### Fase 2 — Vault, RAG e MCP
 - Aba de Vault com grafo real do Obsidian, visualizador de markdown, notas.

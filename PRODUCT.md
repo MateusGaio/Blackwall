@@ -18,8 +18,10 @@ Blackwall é um harness de IA desktop, local-first, open source e gratuito para 
 4. **Sem lock-in de notas.** O Vault usa arquivos `.md` e `[[wikilinks]]` compatíveis com Obsidian.
 5. **Foco no trabalho.** A interface prioriza legibilidade, velocidade e controle, com tema OLED monocromático.
 
-## MVP
+## MVP (Fase 1)
 
-O primeiro lançamento entrega perfis e workspaces, uma Soul padrão combinável, chat com streaming, persistência de sessão local, provedor compatível com OpenAI e fallback sequencial configurável.
+O MVP entrega perfis e workspaces vinculados a uma pasta real, Souls combináveis, onboarding persistente, sidebar de sessões, chat com streaming WebSocket e histórico local em SQLite/WAL. O usuário pode configurar múltiplos endpoints OpenAI-compatible e Ollama, trocar modelos no chat, usar fallback para falhas transitórias, indexar anexos textuais/PDF com SQLite FTS5 e escolher os modos de permissão `ask`, `automatic` e `read-only`.
+
+As chaves ficam exclusivamente em `secrets.enc`; prompts, respostas e telemetria não saem do dispositivo por padrão. A versão web de desenvolvimento usa o mesmo sidecar local; a versão desktop sobe o sidecar junto do Tauri.
 
 Vault/RAG/MCP vêm na segunda fase; orquestração de agentes e LoRA/QLoRA são capacidades avançadas da terceira fase.

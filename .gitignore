@@ -9,4 +9,6 @@ src-tauri/target/
 .env.*
 !.env.example
 .agents/
+.playwright-data/
+test-results/
 skills-lock.json

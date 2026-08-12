@@ -68,6 +68,11 @@ export async function streamChatMessage(
   const apiKey = await providerApiKey(providerId);
   const model = modelOverride?.trim() || provider.model;
   const ollama = provider.type === "ollama";
+  if (process.env.BLACKWALL_E2E_MOCK === "1") {
+    onDelta("Resposta ");
+    onDelta("de teste.");
+    return { provider };
+  }
   const response = await withAsyncInstrumentation("provider.chat.stream", () =>
     request(ollama ? `${provider.baseUrl}/api/chat` : `${provider.baseUrl}/chat/completions`, {
       body: JSON.stringify({ messages, model, stream: true }),

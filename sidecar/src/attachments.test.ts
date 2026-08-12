@@ -16,6 +16,12 @@ afterEach(async () => {
 });
 
 describe("indexador local de anexos", () => {
+  it("ignora buscas vazias sem abrir o índice", async () => {
+    await expect(searchAttachments("workspace", "", "/tmp/blackwall-no-index")).resolves.toEqual(
+      [],
+    );
+  });
+
   it("salva, pesquisa após reabrir o banco e remove um anexo", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-attachments-"));
     const workspaceRoot = join(directory, "workspace");
