@@ -187,6 +187,11 @@ export function createSidecar(
         writeJson(response, 200, { sessions: store.listSessions(workspaceId) });
         return;
       }
+      if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/sessions\/recent$/.test(pathname)) {
+        const profileId = pathname.split("/")[3];
+        writeJson(response, 200, { sessions: store.listRecentSessions(profileId, 30) });
+        return;
+      }
       if (request.method === "POST" && pathname === "/v1/sessions") {
         const input = (await requestBody(request)) as {
           title?: string;
@@ -303,7 +308,6 @@ export function createSidecar(
       writeJson(response, 400, { error: message });
     }
   });
-
   server.once("close", () => database.close());
 
   const socketServer = new WebSocketServer({ server });

@@ -40,11 +40,16 @@ export type VaultGraph = {
 
 export type Session = {
   id: string;
+  profileId: string | null;
   selectedModel: string | null;
   selectedProviderId: string | null;
   title: string;
   updatedAt: number;
   workspaceId: string | null;
+};
+
+export type SessionSummary = Session & {
+  workspaceName: string | null;
 };
 
 export type StoredMessage = ChatMessage & {
@@ -61,6 +66,7 @@ export type AppState = {
   activeWorkspaceId: string | null;
   messages: StoredMessage[];
   profiles: Profile[];
+  recentSessions: SessionSummary[];
   sessions: Session[];
   workspaces: Workspace[];
 };

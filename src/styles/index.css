@@ -538,56 +538,24 @@ button:disabled {
   overflow-y: auto;
 }
 
+.session-row {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+  position: relative;
+}
+
 .session-item {
   background: transparent;
   border: 0;
   border-radius: 6px;
   color: #a5a5aa;
-  overflow: hidden;
-  padding: 9px 10px;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-row {
-  align-items: center;
   display: flex;
-  min-width: 0;
-}
-
-.session-row .session-item {
-  flex: 1;
-  min-width: 0;
-}
-
-.session-more,
-.session-delete {
-  background: transparent;
-  border: 0;
-  color: #65656b;
-  font-size: 0.72rem;
-  opacity: 0;
-  padding: 7px 3px;
-}
-
-.session-row:hover .session-more,
-.session-row:hover .session-delete,
-.session-more:focus-visible,
-.session-delete:focus-visible {
-  opacity: 1;
-}
-
-.session-more:hover,
-.session-more:focus-visible {
-  color: #f2f2f3;
-  outline: none;
-}
-
-.session-delete:hover,
-.session-delete:focus-visible {
-  color: #f08c8c;
-  outline: none;
+  gap: 9px;
+  overflow: hidden;
+  padding: 8px 9px;
+  text-align: left;
+  width: 100%;
 }
 
 .session-item:hover,
@@ -598,6 +566,116 @@ button:disabled {
   outline: none;
 }
 
+.session-icon {
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  flex: 0 0 12px;
+  height: 12px;
+  margin-top: 3px;
+  opacity: 0.7;
+  position: relative;
+  width: 12px;
+}
+
+.session-icon::after {
+  background: currentColor;
+  bottom: -3px;
+  content: "";
+  height: 4px;
+  left: 1px;
+  opacity: 0.7;
+  position: absolute;
+  transform: rotate(-35deg);
+  width: 4px;
+}
+
+.session-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.session-copy strong,
+.session-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-copy strong {
+  font-size: 0.78rem;
+  font-weight: 450;
+}
+
+.session-copy small {
+  color: #6f6f75;
+  font-size: 0.64rem;
+}
+
+.session-more {
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #707077;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0;
+  padding: 6px 5px;
+  position: absolute;
+  right: 2px;
+  top: 7px;
+}
+
+.session-row:hover .session-more,
+.session-more:focus-visible,
+.session-more[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.session-more:hover,
+.session-more:focus-visible {
+  background: #2a2a2e;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.session-menu {
+  animation: card-enter 120ms ease-out both;
+  background: #1a1a1d;
+  border: 1px solid #39393e;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 32%);
+  display: grid;
+  gap: 2px;
+  min-width: 130px;
+  padding: 4px;
+  position: absolute;
+  right: 4px;
+  top: calc(100% - 1px);
+  z-index: 4;
+}
+
+.session-menu button {
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #cfcfd2;
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.session-menu button:hover,
+.session-menu button:focus-visible {
+  background: #2a2a2e;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.session-menu .session-menu-danger:hover,
+.session-menu .session-menu-danger:focus-visible {
+  color: #f08c8c;
+}
+
 .sidebar-settings {
   border-top: 1px solid #252527;
   color: #89898e;
@@ -606,21 +684,6 @@ button:disabled {
   gap: 8px;
   margin-top: auto;
   padding: 16px 0 0;
-}
-
-.sidebar-settings select {
-  background: #141416;
-  border: 1px solid #353539;
-  color: #cfcfd2;
-  font-size: 0.72rem;
-  padding: 7px 8px;
-  width: 100%;
-}
-
-.sidebar-settings select:hover,
-.sidebar-settings select:focus-visible {
-  border-color: #a6a6ab;
-  outline: none;
 }
 
 .sidebar-settings:focus-within {
@@ -1233,6 +1296,93 @@ button:disabled {
   outline: none;
 }
 
+.permission-control {
+  position: relative;
+}
+
+.composer-permission {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #77777c;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  padding: 7px;
+  width: 34px;
+}
+
+.composer-permission svg {
+  fill: none;
+  height: 18px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  width: 18px;
+}
+
+.composer-permission:hover,
+.composer-permission:focus-visible,
+.composer-permission[aria-expanded="true"] {
+  background: #202024;
+  border-color: #353539;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.permission-popover {
+  animation: card-enter 120ms ease-out both;
+  background: #1a1a1d;
+  border: 1px solid #39393e;
+  border-radius: 9px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 34%);
+  display: grid;
+  gap: 3px;
+  min-width: 190px;
+  padding: 7px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 5;
+}
+
+.permission-popover p {
+  color: #77777c;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  margin: 3px 7px 5px;
+  text-transform: uppercase;
+}
+
+.permission-popover button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #b6b6bb;
+  display: flex;
+  font-size: 0.74rem;
+  justify-content: space-between;
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.permission-popover button:hover,
+.permission-popover button:focus-visible,
+.permission-popover button.is-selected {
+  background: #28282c;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.permission-error {
+  color: #ef9a9a;
+  font-size: 0.67rem;
+  padding: 4px 7px 2px;
+}
+
 .attachment-list {
   display: flex;
   flex-wrap: wrap;
@@ -1301,12 +1451,6 @@ button:disabled {
   text-align: center;
   width: 100%;
 }
-.greeting-mark {
-  color: #d28a65;
-  font-size: 1.65rem;
-  line-height: 1;
-  margin: 0 0 12px;
-}
 .empty-state h1 {
   font-size: clamp(1.9rem, 3vw, 2.7rem);
   font-weight: 500;
@@ -1318,6 +1462,25 @@ button:disabled {
   color: #89898e;
   line-height: 1.6;
   margin: 14px auto 0;
+}
+
+.chat-shell.is-empty {
+  align-content: center;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  justify-content: center;
+  padding-bottom: clamp(56px, 12vh, 136px);
+}
+
+.chat-shell.is-empty .empty-state {
+  flex: 0 0 auto;
+}
+
+.chat-shell.is-empty .composer {
+  margin-inline: auto;
+  max-width: 680px;
+  width: 100%;
 }
 
 @keyframes card-enter {
