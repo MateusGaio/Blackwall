@@ -74,6 +74,8 @@ Como backend padrão de erro/crash: **Sentry** (tem tier gratuito generoso para 
 - Anonimizada (sem conteúdo de prompts/respostas, só métricas de erro/performance);
 - Documentada claramente no PRODUCT.md e nas configurações.
 
+**Implementação atual:** `@opentelemetry/api` permanece sem exporter por padrão. Um exporter HTTP só é ativado quando o usuário configura explicitamente `BLACKWALL_TELEMETRY=sentry|datadog|newrelic` e `BLACKWALL_TELEMETRY_ENDPOINT`. O payload contém apenas nome do evento, duração, sucesso, serviço e timestamp; prompts, respostas, chaves e caminhos nunca são enviados. Os endpoints podem ser gateways OTLP do provedor escolhido.
+
 ### ADR-07: Qualidade de código
 
 | Categoria | Ferramenta | Papel |
@@ -83,6 +85,8 @@ Como backend padrão de erro/crash: **Sentry** (tem tier gratuito generoso para 
 | Contrato de arquitetura ("arch-contract") | **dependency-cruiser** + `eslint-plugin-boundaries` | Define e valida regras de import entre camadas (ex: UI não pode importar direto do sidecar de IA) |
 | Padrão de commit | **commitlint** (Conventional Commits) | Garante histórico legível e permite gerar changelog automático |
 | Teste de mutação | **Stryker Mutator** | Valida se os testes realmente pegam bugs (roda em job agendado, não bloqueia todo PR — é lento) |
+
+O contrato arquitetural executável é o script `npm run arch-contract`, atualmente implementado com `dependency-cruiser`; ele bloqueia importações diretas da UI para o sidecar. O Stryker roda semanalmente e sob demanda no workflow `Mutation testing`, publicando o relatório como artefato sem bloquear PRs.
 
 ### ADR-08: Testes
 

@@ -24,4 +24,6 @@ O MVP entrega perfis e workspaces vinculados a uma pasta real, além de um modo 
 
 As chaves ficam exclusivamente em `secrets.enc`; prompts, respostas e telemetria não saem do dispositivo por padrão. A versão web de desenvolvimento usa o mesmo sidecar local; a versão desktop sobe o sidecar junto do Tauri.
 
+Observabilidade é opt-in: Sentry, Datadog e New Relic podem receber somente metadados técnicos por um endpoint configurado pelo usuário. Sem configuração explícita, nenhum exporter é iniciado.
+
 RAG semântico/LanceDB e MCP vêm na segunda fase; edição avançada do Vault, orquestração de agentes e LoRA/QLoRA são capacidades posteriores.

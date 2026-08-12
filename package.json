@@ -18,7 +18,9 @@
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "depcruise": "depcruise --config .dependency-cruiser.cjs src sidecar",
-    "check": "npm run lint && npm run knip && npm run depcruise && npm test",
+    "arch-contract": "npm run depcruise",
+    "mutation": "stryker run",
+    "check": "npm run lint && npm run knip && npm run arch-contract && npm test",
     "prepare": "husky"
   },
   "dependencies": {
@@ -39,6 +41,8 @@
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@playwright/test": "^1.62.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@tailwindcss/vite": "^4.1.13",
     "@tauri-apps/cli": "^2.9.5",
     "@types/better-sqlite3": "^9.6.0",

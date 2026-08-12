@@ -1,0 +1,25 @@
+# MIT License — Copyright (c) 2026 Mateus Gaio
+name: Mutation testing
+
+on:
+  schedule:
+    - cron: "30 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  stryker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run mutation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stryker-report
+          path: reports/mutation/
+          if-no-files-found: ignore
