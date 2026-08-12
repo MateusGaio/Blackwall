@@ -1,8 +1,10 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import {
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
   lazy,
+  type PointerEvent as ReactPointerEvent,
   Suspense,
   useEffect,
   useRef,
@@ -40,9 +42,12 @@ import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 import {
   readBooleanPreference,
+  readNumberPreference,
   sidebarCollapsedPreference,
   vaultCollapsedPreference,
+  vaultPanelWidthPreference,
   writeBooleanPreference,
+  writeNumberPreference,
 } from "./panel-preferences";
 import { activeSoulMeta } from "./soul";
 
@@ -53,6 +58,10 @@ const VaultPanel = lazy(async () => {
 
 type SidebarFocusTarget = "recent" | "settings" | "workspace";
 type VaultTab = "files" | "graph";
+
+const minimumVaultWidth = 300;
+const maximumVaultWidth = 680;
+const defaultVaultWidth = 360;
 
 function CompactIcon({
   kind,
@@ -108,6 +117,16 @@ export default function WorkspaceShell({
     readBooleanPreference(vaultCollapsedPreference),
   );
   const [vaultTab, setVaultTab] = useState<VaultTab>("files");
+  const [vaultWidth, setVaultWidth] = useState(() =>
+    Math.min(
+      maximumVaultWidth,
+      Math.max(
+        minimumVaultWidth,
+        readNumberPreference(vaultPanelWidthPreference, defaultVaultWidth),
+      ),
+    ),
+  );
+  const [isResizingVault, setIsResizingVault] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -140,6 +159,7 @@ export default function WorkspaceShell({
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspacePickerRef = useRef<HTMLSelectElement | null>(null);
   const activeSessionIdRef = useRef<string | null>(appState?.activeSessionId ?? null);
+  const vaultResizeRef = useRef<{ startWidth: number; startX: number } | null>(null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
   const name = activeProfile?.name.trim() || profileName.trim() || "você";
@@ -173,6 +193,10 @@ export default function WorkspaceShell({
   useEffect(() => {
     writeBooleanPreference(vaultCollapsedPreference, vaultCollapsed);
   }, [vaultCollapsed]);
+
+  useEffect(() => {
+    writeNumberPreference(vaultPanelWidthPreference, vaultWidth);
+  }, [vaultWidth]);
 
   useEffect(() => {
     void listProviders()
@@ -375,6 +399,33 @@ export default function WorkspaceShell({
       if (target === "recent") recentSessionsRef.current?.focus();
       if (target === "settings") settingsButtonRef.current?.focus();
     });
+  }
+
+  function boundedVaultWidth(width: number) {
+    const viewportMaximum = Math.max(
+      minimumVaultWidth,
+      Math.min(maximumVaultWidth, window.innerWidth - (sidebarCollapsed ? 420 : 580)),
+    );
+    return Math.min(viewportMaximum, Math.max(minimumVaultWidth, width));
+  }
+
+  function startVaultResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (vaultCollapsed) return;
+    event.preventDefault();
+    vaultResizeRef.current = { startWidth: vaultWidth, startX: event.clientX };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsResizingVault(true);
+  }
+
+  function resizeVault(event: ReactPointerEvent<HTMLDivElement>) {
+    const resize = vaultResizeRef.current;
+    if (!resize) return;
+    setVaultWidth(boundedVaultWidth(resize.startWidth + resize.startX - event.clientX));
+  }
+
+  function finishVaultResize() {
+    vaultResizeRef.current = null;
+    setIsResizingVault(false);
   }
 
   async function activateWorkspace(created: NonNullable<typeof workspace>) {
@@ -613,6 +664,7 @@ export default function WorkspaceShell({
   return (
     <main
       className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
+      style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
     >
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
@@ -1082,45 +1134,72 @@ export default function WorkspaceShell({
           )}
         </section>
       </section>
-      {showVault &&
-        workspace &&
-        (vaultCollapsed ? (
-          <aside aria-label="Vault recolhido" className="vault-rail">
-            <button
-              aria-label="Abrir arquivos do Vault"
-              onClick={() => {
-                setVaultTab("files");
-                setVaultCollapsed(false);
+      {showVault && workspace && (
+        <div className={`vault-slot ${isResizingVault ? "is-resizing" : ""}`}>
+          {!vaultCollapsed && (
+            <hr
+              aria-label="Redimensionar painel do Vault"
+              aria-orientation="vertical"
+              aria-valuemax={maximumVaultWidth}
+              aria-valuemin={minimumVaultWidth}
+              aria-valuenow={vaultWidth}
+              className="vault-resize-handle"
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  setVaultWidth((current) => boundedVaultWidth(current + 24));
+                }
+                if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  setVaultWidth((current) => boundedVaultWidth(current - 24));
+                }
               }}
-              title="Arquivos"
-              type="button"
-            >
-              <CompactIcon kind="files" />
-            </button>
-            <button
-              aria-label="Abrir grafo do Vault"
-              onClick={() => {
-                setVaultTab("graph");
-                setVaultCollapsed(false);
-              }}
-              title="Grafo"
-              type="button"
-            >
-              <CompactIcon kind="graph" />
-            </button>
-          </aside>
-        ) : (
-          <Suspense
-            fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}
-          >
-            <VaultPanel
-              onCollapse={() => setVaultCollapsed(true)}
-              onTabChange={setVaultTab}
-              tab={vaultTab}
-              workspaceId={workspace.id}
+              onPointerCancel={finishVaultResize}
+              onPointerDown={startVaultResize}
+              onPointerMove={resizeVault}
+              onPointerUp={finishVaultResize}
+              tabIndex={0}
             />
-          </Suspense>
-        ))}
+          )}
+          {vaultCollapsed ? (
+            <aside aria-label="Vault recolhido" className="vault-rail">
+              <button
+                aria-label="Abrir arquivos do Vault"
+                onClick={() => {
+                  setVaultTab("files");
+                  setVaultCollapsed(false);
+                }}
+                title="Arquivos"
+                type="button"
+              >
+                <CompactIcon kind="files" />
+              </button>
+              <button
+                aria-label="Abrir grafo do Vault"
+                onClick={() => {
+                  setVaultTab("graph");
+                  setVaultCollapsed(false);
+                }}
+                title="Grafo"
+                type="button"
+              >
+                <CompactIcon kind="graph" />
+              </button>
+            </aside>
+          ) : (
+            <Suspense
+              fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}
+            >
+              <VaultPanel
+                onCollapse={() => setVaultCollapsed(true)}
+                onTabChange={setVaultTab}
+                tab={vaultTab}
+                workspaceId={workspace.id}
+              />
+            </Suspense>
+          )}
+        </div>
+      )}
       {showSettings && (
         <ProviderManager
           activeWorkspaceId={state?.activeWorkspaceId ?? null}

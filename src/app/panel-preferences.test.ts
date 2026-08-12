@@ -2,8 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readBooleanPreference,
+  readNumberPreference,
   sidebarCollapsedPreference,
+  vaultPanelWidthPreference,
   writeBooleanPreference,
+  writeNumberPreference,
 } from "./panel-preferences";
 
 describe("panel preferences", () => {
@@ -36,5 +39,17 @@ describe("panel preferences", () => {
     });
 
     expect(readBooleanPreference(sidebarCollapsedPreference)).toBe(false);
+  });
+
+  it("persists the preferred Vault panel width", () => {
+    writeNumberPreference(vaultPanelWidthPreference, 420);
+
+    expect(readNumberPreference(vaultPanelWidthPreference, 360)).toBe(420);
+  });
+
+  it("uses the fallback for an invalid stored width", () => {
+    values.set(vaultPanelWidthPreference, "not-a-number");
+
+    expect(readNumberPreference(vaultPanelWidthPreference, 360)).toBe(360);
   });
 });

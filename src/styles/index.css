@@ -595,7 +595,7 @@ button:disabled {
 }
 
 .workspace-shell.has-vault {
-  grid-template-columns: 240px minmax(0, 1fr) 280px;
+  grid-template-columns: 240px minmax(0, 1fr) var(--vault-width, 360px);
 }
 
 .workspace-shell.sidebar-collapsed:not(.has-vault) {
@@ -603,7 +603,7 @@ button:disabled {
 }
 
 .workspace-shell.sidebar-collapsed.has-vault {
-  grid-template-columns: 56px minmax(0, 1fr) 280px;
+  grid-template-columns: 56px minmax(0, 1fr) var(--vault-width, 360px);
 }
 
 .workspace-shell.has-vault.vault-collapsed {
@@ -1516,6 +1516,44 @@ button:disabled {
   flex-direction: column;
   min-width: 0;
   padding: 24px 18px 18px;
+}
+
+.vault-slot {
+  min-width: 0;
+  position: relative;
+}
+
+.vault-slot.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.vault-resize-handle {
+  border: 0;
+  cursor: col-resize;
+  inset: 0 auto 0 -5px;
+  margin: 0;
+  position: absolute;
+  touch-action: none;
+  width: 10px;
+  z-index: 8;
+}
+
+.vault-resize-handle::after {
+  background: transparent;
+  content: "";
+  inset: 0 4px;
+  position: absolute;
+  transition: background-color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.vault-resize-handle:hover::after,
+.vault-resize-handle:focus-visible::after {
+  background: #a6a6ab;
+}
+
+.vault-resize-handle:focus-visible {
+  outline: none;
 }
 
 .vault-rail {
