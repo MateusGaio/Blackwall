@@ -1,6 +1,6 @@
 # Blackwall — Architecture Plan
 
-**Status:** Fase 1 implementada em branches sequenciais; Fases 2–3 permanecem planejadas
+**Status:** Fase 1 em conclusão, com as etapas finais de qualidade, empacotamento e aceite em execução; Fases 2–3 permanecem planejadas
 **Deciders:** Mateus (owner), agentes de IA contribuintes (Codex e outros)
 
 ---
