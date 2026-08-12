@@ -1132,6 +1132,10 @@ button:disabled {
   margin-top: 4px;
 }
 
+.settings-sign-out {
+  margin-left: auto;
+}
+
 .settings-status {
   color: #9ecb9e;
   font-size: 0.76rem;

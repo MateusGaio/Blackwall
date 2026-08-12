@@ -338,9 +338,6 @@ export function ProviderManager({
             >
               {isSavingProfile ? "Salvando…" : "Salvar perfil"}
             </button>
-            <button className="text-button danger" onClick={() => void onSignOut()} type="button">
-              Sair do perfil
-            </button>
           </div>
           {profileStatus && <p className="settings-status">{profileStatus}</p>}
           {profileError && (
@@ -516,6 +513,13 @@ export function ProviderManager({
                 Cancelar
               </button>
             )}
+            <button
+              className="text-button danger settings-sign-out"
+              onClick={() => void onSignOut()}
+              type="button"
+            >
+              Sair do perfil
+            </button>
           </div>
           {status && <p className="settings-status">{status}</p>}
           {error && (
