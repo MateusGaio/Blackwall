@@ -85,7 +85,6 @@ export default function WorkspaceShell({ profileName, provider }: WorkspaceShell
         <form className="composer" onSubmit={submit}>
           <textarea
             aria-label="Mensagem"
-            aria-describedby="composer-shortcut"
             disabled={!provider || isSending}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleComposerKeyDown}
@@ -101,9 +100,6 @@ export default function WorkspaceShell({ profileName, provider }: WorkspaceShell
             Enviar
           </button>
         </form>
-        <p className="composer-shortcut" id="composer-shortcut">
-          Enter envia · Shift + Enter adiciona uma linha
-        </p>
         {error && (
           <p className="form-error chat-error" role="alert">
             {error}
