@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -19,7 +21,10 @@ jobs:
       - run: npm run check
       - run: npm run test:coverage
       - run: npm run build
-      - run: npx commitlint --from "${{ github.event.pull_request.base.sha || 'HEAD~1' }}" --to HEAD --verbose
+      - name: Validate commit messages
+        run: |
+          git fetch origin main --no-tags
+          npx commitlint --from "$(git merge-base origin/main HEAD)" --to HEAD --verbose
       - uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
@@ -41,4 +46,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
       - run: cargo check --manifest-path src-tauri/Cargo.toml
