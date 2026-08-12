@@ -376,8 +376,9 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
         setWorkspaceRootPath(workspace.rootPath);
         setWorkspaceSoul(workspace.soul);
         const providers = await listProviders();
+        const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
         setProvider(
-          providers.find((item) => item.id === state.sessions[0]?.selectedProviderId) ??
+          providers.find((item) => item.id === activeSession?.selectedProviderId) ??
             providers[0] ??
             null,
         );

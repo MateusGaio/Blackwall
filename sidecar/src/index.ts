@@ -360,6 +360,9 @@ export function createSidecar(
               type: "chat.retrying",
             }),
           );
+          await new Promise((resolve) =>
+            setTimeout(resolve, 120 * (providerIds.indexOf(providerId) + 1)),
+          );
         }
       }
     } finally {
