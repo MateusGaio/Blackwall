@@ -1,8 +1,8 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSidecar, SIDECAR_HOST } from "../sidecar/dist/index.js";
 
