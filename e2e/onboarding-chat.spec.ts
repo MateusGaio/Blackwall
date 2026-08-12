@@ -31,7 +31,7 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
     await continueButton.click();
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
-      .getByLabel(/Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
+      .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
       .fill("http://127.0.0.1:17999/v1");
     await page.getByLabel(/Modelo|Model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
