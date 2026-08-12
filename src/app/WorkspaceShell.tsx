@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { type ChatMessage, type ConnectedProvider, sendMessage } from "../shared/api/sidecar";
+import { isSubmitShortcut } from "./composer";
 
 type WorkspaceShellProps = {
   profileName: string;
@@ -39,6 +40,21 @@ export default function WorkspaceShell({ profileName, provider }: WorkspaceShell
     }
   }
 
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      !isSubmitShortcut({
+        isComposing: event.nativeEvent.isComposing,
+        key: event.key,
+        shiftKey: event.shiftKey,
+      })
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   return (
     <main className="workspace-shell">
       <header>
@@ -69,8 +85,10 @@ export default function WorkspaceShell({ profileName, provider }: WorkspaceShell
         <form className="composer" onSubmit={submit}>
           <textarea
             aria-label="Mensagem"
+            aria-describedby="composer-shortcut"
             disabled={!provider || isSending}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             placeholder="Envie uma mensagem…"
             rows={1}
             value={draft}
@@ -83,6 +101,9 @@ export default function WorkspaceShell({ profileName, provider }: WorkspaceShell
             Enviar
           </button>
         </form>
+        <p className="composer-shortcut" id="composer-shortcut">
+          Enter envia · Shift + Enter adiciona uma linha
+        </p>
         {error && (
           <p className="form-error chat-error" role="alert">
             {error}

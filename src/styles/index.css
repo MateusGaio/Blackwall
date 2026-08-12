@@ -394,6 +394,13 @@ button:disabled {
   resize: none;
 }
 
+.composer-shortcut {
+  color: #89898e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  margin: 8px 0 0;
+}
+
 .chat-error {
   margin-top: 10px;
 }
