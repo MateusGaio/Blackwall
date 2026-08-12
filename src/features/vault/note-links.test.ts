@@ -13,6 +13,7 @@ describe("Vault note links", () => {
   it("resolves relative links and omitted Markdown extensions", () => {
     expect(resolveVaultLink("docs/index.md", "setup", files)).toBe("docs/setup.md");
     expect(resolveVaultLink("docs/index.md", "./setup.md#install", files)).toBe("docs/setup.md");
+    expect(resolveVaultLink("docs/index.md", "docs/setup", files)).toBe("docs/setup.md");
   });
 
   it("resolves a unique basename and blocks unsafe or unknown links", () => {

@@ -29,6 +29,14 @@ export function resolveVaultLink(
   if (!raw || raw.startsWith("/") || raw.startsWith("\\") || /^[a-z][a-z\d+.-]*:/i.test(raw)) {
     return null;
   }
+  const rootRelative = normalizePath(raw);
+  const direct = rootRelative ? files.find((file) => file.path === rootRelative) : undefined;
+  if (direct) return direct.path;
+  const rootStem = rootRelative?.replace(/\.(?:md|markdown)$/i, "");
+  const directStem = files.filter(
+    (file) => file.path.replace(/\.(?:md|markdown)$/i, "") === rootStem,
+  );
+  if (directStem.length === 1) return directStem[0].path;
   const currentDirectory = currentPath?.split("/").slice(0, -1).join("/") ?? "";
   const normalized = normalizePath(currentDirectory ? `${currentDirectory}/${raw}` : raw);
   if (!normalized) return null;
