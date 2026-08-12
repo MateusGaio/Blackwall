@@ -1,18 +1,25 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { type FormEvent, useState } from "react";
+import { type FolderSelection, pickDirectory } from "../../../platform/runtime";
 import {
   type ConnectedProvider,
   connectProvider,
+  createWorkspace,
   deleteProvider,
   testProvider,
   updateProvider,
+  type Workspace,
 } from "../../../shared/api/sidecar";
 
 type ProviderManagerProps = {
+  activeWorkspaceId: string | null;
   onClose: () => void;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
   onSelect: (provider: ConnectedProvider) => void;
+  onWorkspaceSelected: (workspace: Workspace) => Promise<void>;
+  profileId: string | null;
   providers: ConnectedProvider[];
+  workspaces: Workspace[];
 };
 
 type ProviderForm = {
@@ -32,16 +39,23 @@ const emptyForm: ProviderForm = {
 };
 
 export function ProviderManager({
+  activeWorkspaceId,
   onClose,
   onProvidersChange,
   onSelect,
+  onWorkspaceSelected,
+  profileId,
   providers,
+  workspaces,
 }: ProviderManagerProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
+  const [workspaceStatus, setWorkspaceStatus] = useState("");
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -120,6 +134,41 @@ export function ProviderManager({
     }
   }
 
+  async function chooseWorkspaceFolder() {
+    const selected = await pickDirectory();
+    if (!selected) return;
+    setWorkspaceFolder(selected);
+    setWorkspaceName((current) => current || selected.name);
+    setWorkspaceStatus("");
+  }
+
+  async function submitWorkspace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profileId || !workspaceName.trim() || !workspaceFolder) return;
+    setIsSaving(true);
+    setWorkspaceStatus("");
+    setError("");
+    try {
+      const created = await createWorkspace({
+        name: workspaceName.trim(),
+        profileId,
+        rootPath: workspaceFolder.path ?? "",
+        soul: "Preserve o contexto e as convenções deste workspace.",
+        workspaceFiles: workspaceFolder.files,
+      });
+      await onWorkspaceSelected(created);
+      setWorkspaceName("");
+      setWorkspaceFolder(null);
+      setWorkspaceStatus(`Workspace ${created.name} adicionado.`);
+    } catch (reason) {
+      setWorkspaceStatus(
+        reason instanceof Error ? reason.message : "Não foi possível criar o workspace.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <div className="settings-backdrop" role="presentation">
       <section
@@ -130,7 +179,7 @@ export function ProviderManager({
         <header className="settings-panel-header">
           <div>
             <p className="eyebrow">Configurações</p>
-            <h2>Provedores e modelos</h2>
+            <h2>Workspace e provedores</h2>
           </div>
           <button
             aria-label="Fechar configurações"
@@ -141,6 +190,54 @@ export function ProviderManager({
             ×
           </button>
         </header>
+        <section aria-labelledby="workspace-settings-title" className="settings-section">
+          <p className="eyebrow" id="workspace-settings-title">
+            Workspaces
+          </p>
+          <div className="settings-workspace-list">
+            {workspaces.map((workspace) => (
+              <button
+                className={`settings-workspace-row ${workspace.id === activeWorkspaceId ? "is-active" : ""}`}
+                key={workspace.id}
+                onClick={() => void onWorkspaceSelected(workspace)}
+                type="button"
+              >
+                <strong>{workspace.name}</strong>
+                <span>{workspace.rootPath}</span>
+              </button>
+            ))}
+            {workspaces.length === 0 && (
+              <p className="settings-empty">Nenhum workspace com pasta selecionada.</p>
+            )}
+          </div>
+          <form className="workspace-create-form" onSubmit={submitWorkspace}>
+            <label className="field-label" htmlFor="settings-workspace-name">
+              Nome do workspace
+              <input
+                id="settings-workspace-name"
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                placeholder="Meu projeto"
+                value={workspaceName}
+              />
+            </label>
+            <button
+              className="folder-select-button settings-folder-button"
+              onClick={() => void chooseWorkspaceFolder()}
+              type="button"
+            >
+              <strong>{workspaceFolder?.name ?? "Escolher pasta"}</strong>
+              <small>Selecione uma pasta para habilitar Vault, grafo e ferramentas.</small>
+            </button>
+            <button
+              className="button button-primary"
+              disabled={isSaving || !workspaceName.trim() || !workspaceFolder}
+              type="submit"
+            >
+              {isSaving ? "Salvando…" : "Adicionar workspace"}
+            </button>
+          </form>
+          {workspaceStatus && <p className="settings-status">{workspaceStatus}</p>}
+        </section>
         <div className="provider-list">
           {providers.map((provider) => (
             <article className="provider-row" key={provider.id}>

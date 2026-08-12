@@ -94,7 +94,7 @@ Fluxo passo a passo obrigatório antes da primeira tela "normal":
 7. Provedor OpenAI-compatible ou Ollama detectado/configurado.
 8. Vault e entrada no chat com estado local persistente; os Markdown da pasta já aparecem no Vault e no grafo lateral.
 
-O Vault lê os Markdown selecionados/escaneados na pasta. No modo sem workspace, o chat funciona sem arquivos, Vault ou ferramentas de filesystem; o usuário pode adicionar um workspace pela sidebar a qualquer momento. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
+O Vault lê os Markdown selecionados/escaneados na pasta. No modo sem workspace, o chat e as sessões continuam funcionando sem arquivos, Vault ou ferramentas de filesystem. O botão de Vault permanece visível para explicar o bloqueio: "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace." O aviso oferece a ação "Adicionar workspace nas configurações". A área de configurações lista os workspaces do perfil e permite criar outro escolhendo uma pasta; depois da criação, o novo workspace e uma sessão ficam ativos. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
 
 ---
 
