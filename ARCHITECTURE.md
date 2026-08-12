@@ -211,12 +211,12 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 - Templates de Issue e PR configurados.
 
 ### Fase 1 — MVP funcional
-- Perfis, workspaces obrigatoriamente vinculados a pastas e Souls combináveis.
+- Perfis, workspaces vinculados a pastas quando criados, sessões sem workspace e Souls combináveis.
 - SQLite em WAL com migração idempotente para sessões, mensagens, provedores, modelos, anexos e aprovações.
 - APIs OpenAI-compatible e Ollama, múltiplos provedores, seletor de modelos e fallback para erros transitórios.
 - Streaming WebSocket, parada preservando parcial, fila FIFO por workspace e título automático da sessão.
 - Anexos locais com extração de texto, PDF pesquisável e índice SQLite FTS5.
-- Seletor de diretório nativo no desktop e no navegador web dev; Markdown da pasta é persistido localmente no web dev e exposto por um Vault textual com grafo de links.
+- Seletor de diretório nativo no desktop e no navegador web dev; Markdown da pasta é persistido localmente no web dev e exposto por um Vault textual com grafo de links. Sessões sem workspace usam `sessions.workspace_id = NULL` e não habilitam filesystem, anexos ou Vault.
 - Ferramentas locais com validação de caminhos reais e modos `ask`, `automatic` e `read-only`.
 - Tema OLED, skeleton de carregamento, lazy loading, progresso, animações e `prefers-reduced-motion`.
 - OTel permanece sem exporter e desligado por padrão; não há conteúdo de conversas em telemetria.

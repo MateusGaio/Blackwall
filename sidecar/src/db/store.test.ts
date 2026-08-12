@@ -56,7 +56,7 @@ describe("persistência local", () => {
     first.close();
     const second = openDatabase(directory);
     expect(second.client.prepare("SELECT COUNT(*) AS count FROM _migrations").get()).toEqual({
-      count: 1,
+      count: 2,
     });
     second.close();
   });
@@ -101,5 +101,36 @@ describe("persistência local", () => {
       "[[Segundo]]",
     );
     database.close();
+  });
+
+  it("permite iniciar sem workspace e mantém a sessão persistente", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-no-workspace-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database, directory);
+    const state = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Ada",
+      profileSoul: "Profile",
+      workspaceName: "",
+      workspaceRootPath: "",
+      workspaceSoul: "",
+      workspaceMode: "none",
+    });
+    expect(state.activeWorkspaceId).toBeNull();
+    expect(state.activeSessionId).toBeTruthy();
+    expect(state.sessions[0]?.workspaceId).toBeNull();
+    store.appendMessage({
+      content: "conversa sem pasta",
+      role: "user",
+      sessionId: state.activeSessionId as string,
+    });
+    database.close();
+
+    const restored = openDatabase(directory);
+    const restoredState = createStore(restored).getState();
+    expect(restoredState.activeWorkspaceId).toBeNull();
+    expect(restoredState.messages[0]?.content).toBe("conversa sem pasta");
+    restored.close();
   });
 });

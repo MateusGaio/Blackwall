@@ -44,7 +44,7 @@ export type Session = {
   selectedProviderId: string | null;
   title: string;
   updatedAt: number;
-  workspaceId: string;
+  workspaceId: string | null;
 };
 
 export type StoredMessage = ChatMessage & {
@@ -79,6 +79,7 @@ type BootstrapInput = {
   workspaceRootPath: string;
   workspaceSoul: string;
   workspaceFiles?: WorkspaceFile[];
+  workspaceMode?: "none" | "workspace";
 };
 
 type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
@@ -203,7 +204,7 @@ export async function listProviders(): Promise<ConnectedProvider[]> {
   return response.providers;
 }
 
-export async function createSession(workspaceId: string, title?: string): Promise<Session> {
+export async function createSession(workspaceId: string | null, title?: string): Promise<Session> {
   const response = await request<{ session: Session }>("/v1/sessions", {
     body: JSON.stringify({ title, workspaceId }),
     headers: { "content-type": "application/json" },
@@ -358,6 +359,7 @@ export async function streamMessage(
   model: string | undefined,
   workspaceId: string,
   handlers: StreamHandlers,
+  profileId?: string,
 ): Promise<ActiveStream> {
   const baseUrl = await sidecarUrl();
   if (!baseUrl) throw new Error("O sidecar local não está disponível.");
@@ -376,7 +378,15 @@ export async function streamMessage(
   };
   socket.addEventListener("open", () => {
     socket.send(
-      JSON.stringify({ messages, model, providerId, requestId, type: "chat.start", workspaceId }),
+      JSON.stringify({
+        messages,
+        model,
+        profileId,
+        providerId,
+        requestId,
+        type: "chat.start",
+        workspaceId: workspaceId === "default" ? undefined : workspaceId,
+      }),
     );
   });
   socket.addEventListener("message", (event) => {

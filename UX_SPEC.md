@@ -89,12 +89,12 @@ Fluxo passo a passo obrigatório antes da primeira tela "normal":
 2. Perfil (a Soul padrão é elaborada para desenvolvimento local-first).
 3. Soul do perfil.
 4. Nome do workspace.
-5. Pasta raiz obrigatória (seletor nativo no desktop ou explorador de diretório do navegador no web dev).
+5. Pasta raiz opcional (seletor nativo no desktop ou explorador de diretório do navegador no web dev), com a alternativa explícita de iniciar sem workspace.
 6. Soul do workspace.
 7. Provedor OpenAI-compatible ou Ollama detectado/configurado.
 8. Vault e entrada no chat com estado local persistente; os Markdown da pasta já aparecem no Vault e no grafo lateral.
 
-O Vault lê os Markdown selecionados/escaneados na pasta. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
+O Vault lê os Markdown selecionados/escaneados na pasta. No modo sem workspace, o chat funciona sem arquivos, Vault ou ferramentas de filesystem; o usuário pode adicionar um workspace pela sidebar a qualquer momento. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
 
 ---
 

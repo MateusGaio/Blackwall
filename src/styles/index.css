@@ -508,6 +508,25 @@ button:disabled {
   white-space: nowrap;
 }
 
+.workspace-empty {
+  background: #141416;
+  border: 1px solid #2e2e31;
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+}
+
+.workspace-empty strong {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.workspace-empty span {
+  color: #77777c;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
 .sidebar-sessions {
   min-height: 0;
 }

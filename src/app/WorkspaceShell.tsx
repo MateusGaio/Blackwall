@@ -153,11 +153,11 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   }
 
   async function newSession() {
-    if (!workspace || isCreatingSession) return;
+    if (!state?.activeProfileId || isCreatingSession) return;
     setIsCreatingSession(true);
     setError("");
     try {
-      const session = await createSession(workspace.id);
+      const session = await createSession(workspace?.id ?? null);
       await openSession(session.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível criar a sessão.");
@@ -281,6 +281,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           },
           onRetry: (message) => setStreamingStatus(message),
         },
+        state?.activeProfileId ?? undefined,
       );
       activeStream.current = stream;
       const result = await stream.done;
@@ -396,6 +397,15 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
               <span>{workspace.rootPath}</span>
             </label>
           )}
+          {!workspace && (
+            <div className="workspace-empty">
+              <strong>Sem workspace</strong>
+              <span>Conversa sem contexto de arquivos.</span>
+              <button className="sidebar-config" onClick={() => void newWorkspace()} type="button">
+                Adicionar workspace
+              </button>
+            </div>
+          )}
         </div>
         <div className="sidebar-section sidebar-sessions">
           <div className="sidebar-section-heading">
@@ -403,7 +413,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             <button
               aria-label="Nova sessão"
               className="icon-button"
-              disabled={isCreatingSession || !workspace}
+              disabled={isCreatingSession || !state?.activeProfileId}
               onClick={() => void newSession()}
               type="button"
             >
@@ -466,7 +476,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
       <section className="workspace-main">
         <header className="workspace-header">
           <div>
-            <p className="eyebrow">{workspace?.name ?? "Workspace"}</p>
+            <p className="eyebrow">{workspace?.name ?? "Sem workspace"}</p>
             <p className="workspace-session-title">{activeSession?.title ?? "Nova conversa"}</p>
           </div>
           <div className="chat-controls">
@@ -502,8 +512,15 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           {messages.length === 0 ? (
             <div className="empty-state">
               <p className="eyebrow">Pronto, {name}</p>
-              <h1>Nenhuma conversa por ora — envie uma mensagem para começar.</h1>
-              <p>As respostas serão enviadas por {activeProvider?.name ?? "seu provedor local"}.</p>
+              <h1>
+                Nenhuma conversa por ora — envie uma mensagem para começar
+                {workspace ? "." : ", mesmo sem workspace."}
+              </h1>
+              <p>
+                {workspace
+                  ? `As respostas serão enviadas por ${activeProvider?.name ?? "seu provedor local"}.`
+                  : "Você está no modo sem workspace. Adicione uma pasta quando quiser usar arquivos e o Vault."}
+              </p>
             </div>
           ) : (
             <ol className="message-list">
