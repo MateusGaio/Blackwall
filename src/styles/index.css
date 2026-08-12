@@ -541,6 +541,7 @@ button:disabled {
 .session-item {
   background: transparent;
   border: 0;
+  border-radius: 6px;
   color: #a5a5aa;
   overflow: hidden;
   padding: 9px 10px;
@@ -1296,18 +1297,27 @@ button:disabled {
 .empty-state {
   align-self: center;
   margin: 0 auto;
-  max-width: 570px;
+  max-width: 620px;
+  text-align: center;
   width: 100%;
 }
+.greeting-mark {
+  color: #d28a65;
+  font-size: 1.65rem;
+  line-height: 1;
+  margin: 0 0 12px;
+}
 .empty-state h1 {
-  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-size: clamp(1.9rem, 3vw, 2.7rem);
   font-weight: 500;
   letter-spacing: -0.05em;
   line-height: 1.02;
+  margin: 0;
 }
 .empty-state > p:last-child {
   color: #89898e;
   line-height: 1.6;
+  margin: 14px auto 0;
 }
 
 @keyframes card-enter {

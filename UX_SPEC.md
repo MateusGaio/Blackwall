@@ -51,7 +51,7 @@ Regra geral: nenhuma tela em branco sem explicação do próximo passo.
 
 | Contexto | Texto |
 |---|---|
-| Sem sessões no workspace | "Nenhuma conversa por ora — envie uma mensagem para começar." |
+| Sem mensagens na sessão | Saudação curta contextual ao horário local, seguida do compositor central; o texto secundário orienta o próximo passo. |
 | Vault sem notas | "Nenhuma nota por ora — crie uma nota ou peça para a IA salvar algo importante da conversa." |
 | Workspace sem Soul configurada | Não deveria acontecer — Soul é **obrigatória** (ver seção 7), mas todo workspace nasce com a **Soul padrão** pré-configurada automaticamente, então esse estado vazio nunca é exposto ao usuário. |
 | Página de Agentes sem swarm disparado ainda | "Nenhum agente em execução — dispare um swarm a partir do chat ou pelo botão abaixo." |
