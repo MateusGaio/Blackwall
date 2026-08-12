@@ -38,11 +38,39 @@ import { ConfirmDialog } from "../shared/components/ConfirmDialog";
 import { SafeMarkdown } from "../shared/components/SafeMarkdown";
 import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
+import {
+  readBooleanPreference,
+  sidebarCollapsedPreference,
+  vaultCollapsedPreference,
+  writeBooleanPreference,
+} from "./panel-preferences";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
   return { default: module.VaultPanel };
 });
+
+type SidebarFocusTarget = "recent" | "settings" | "workspace";
+type VaultTab = "files" | "graph";
+
+function CompactIcon({ kind }: { kind: "files" | "graph" | "recent" | "settings" | "workspace" }) {
+  const paths = {
+    files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
+    graph: (
+      <path d="m7 6 5 3 5-3M7 18l5-3 5 3M12 9v6M5 5h4v4H5V5Zm10 0h4v4h-4V5ZM5 15h4v4H5v-4Zm10 0h4v4h-4v-4Z" />
+    ),
+    recent: <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.5 2" />,
+    settings: (
+      <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
+    ),
+    workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
+  } as const;
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      {paths[kind]}
+    </svg>
+  );
+}
 
 type WorkspaceShellProps = {
   appState: AppState | null;
@@ -67,7 +95,13 @@ export default function WorkspaceShell({
     left: number;
     top: number;
   } | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    readBooleanPreference(sidebarCollapsedPreference),
+  );
+  const [vaultCollapsed, setVaultCollapsed] = useState(() =>
+    readBooleanPreference(vaultCollapsedPreference),
+  );
+  const [vaultTab, setVaultTab] = useState<VaultTab>("files");
   const [permissionOpen, setPermissionOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -96,6 +130,9 @@ export default function WorkspaceShell({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
   const messageListRef = useRef<HTMLOListElement | null>(null);
+  const recentSessionsRef = useRef<HTMLElement | null>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const workspacePickerRef = useRef<HTMLSelectElement | null>(null);
   const activeSessionIdRef = useRef<string | null>(appState?.activeSessionId ?? null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
@@ -121,6 +158,14 @@ export default function WorkspaceShell({
     setState(appState);
     setMessages(appState.messages);
   }, [appState, state?.activeProfileId, state?.activeSessionId]);
+
+  useEffect(() => {
+    writeBooleanPreference(sidebarCollapsedPreference, sidebarCollapsed);
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    writeBooleanPreference(vaultCollapsedPreference, vaultCollapsed);
+  }, [vaultCollapsed]);
 
   useEffect(() => {
     void listProviders()
@@ -313,6 +358,16 @@ export default function WorkspaceShell({
   function newWorkspace() {
     setResourceNotice("");
     setShowSettings(true);
+  }
+
+  function expandSidebar(target?: SidebarFocusTarget) {
+    setSidebarCollapsed(false);
+    if (!target) return;
+    requestAnimationFrame(() => {
+      if (target === "workspace") workspacePickerRef.current?.focus();
+      if (target === "recent") recentSessionsRef.current?.focus();
+      if (target === "settings") settingsButtonRef.current?.focus();
+    });
   }
 
   async function activateWorkspace(created: NonNullable<typeof workspace>) {
@@ -550,17 +605,24 @@ export default function WorkspaceShell({
 
   return (
     <main
-      className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+      className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
     >
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
-          {activeProfile?.avatarData ? (
-            <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
-          ) : (
-            <span className="brand-mark" aria-hidden="true">
-              BW
-            </span>
-          )}
+          <button
+            aria-label={sidebarCollapsed ? "Mostrar sidebar" : "Blackwall"}
+            className="sidebar-brand-button"
+            onClick={() => (sidebarCollapsed ? expandSidebar() : undefined)}
+            type="button"
+          >
+            {activeProfile?.avatarData && !sidebarCollapsed ? (
+              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
+            ) : (
+              <span className="brand-mark" aria-hidden="true">
+                BW
+              </span>
+            )}
+          </button>
           <div>
             <p className="eyebrow">Perfil</p>
             <strong>{name}</strong>
@@ -576,6 +638,35 @@ export default function WorkspaceShell({
             {sidebarCollapsed ? "→" : "←"}
           </button>
         </div>
+        {sidebarCollapsed && (
+          <nav aria-label="Atalhos da sidebar" className="sidebar-rail">
+            <button
+              aria-label="Abrir workspaces"
+              onClick={() => expandSidebar("workspace")}
+              title="Workspaces"
+              type="button"
+            >
+              <CompactIcon kind="workspace" />
+            </button>
+            <button
+              aria-label="Abrir sessões recentes"
+              onClick={() => expandSidebar("recent")}
+              title="Recentes"
+              type="button"
+            >
+              <CompactIcon kind="recent" />
+            </button>
+            <button
+              aria-label="Abrir configurações"
+              className="sidebar-rail-settings"
+              onClick={() => expandSidebar("settings")}
+              title="Configurações"
+              type="button"
+            >
+              <CompactIcon kind="settings" />
+            </button>
+          </nav>
+        )}
         <div className="sidebar-section">
           <div className="sidebar-section-heading">
             <p className="eyebrow">Workspaces</p>
@@ -594,6 +685,7 @@ export default function WorkspaceShell({
               <select
                 aria-label="Workspace atual"
                 onChange={(event) => void openWorkspace(event.target.value)}
+                ref={workspacePickerRef}
                 value={workspace.id}
               >
                 {state?.workspaces.map((item) => (
@@ -628,7 +720,7 @@ export default function WorkspaceShell({
               +
             </button>
           </div>
-          <nav aria-label="Sessões recentes">
+          <nav aria-label="Sessões recentes" ref={recentSessionsRef} tabIndex={-1}>
             {recentSessions.map((session) => (
               <div className="session-row" data-session-menu key={session.id}>
                 <button
@@ -670,7 +762,12 @@ export default function WorkspaceShell({
           </nav>
         </div>
         <div className="sidebar-settings">
-          <button className="sidebar-config" onClick={() => setShowSettings(true)} type="button">
+          <button
+            className="sidebar-config"
+            onClick={() => setShowSettings(true)}
+            ref={settingsButtonRef}
+            type="button"
+          >
             Configurações
           </button>
         </div>
@@ -746,7 +843,10 @@ export default function WorkspaceShell({
                   return;
                 }
                 setResourceNotice("");
-                setShowVault((current) => !current);
+                setShowVault((current) => {
+                  if (!current) setVaultCollapsed(false);
+                  return !current;
+                });
               }}
               type="button"
             >
@@ -971,11 +1071,45 @@ export default function WorkspaceShell({
           )}
         </section>
       </section>
-      {showVault && workspace && (
-        <Suspense fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}>
-          <VaultPanel onClose={() => setShowVault(false)} workspaceId={workspace.id} />
-        </Suspense>
-      )}
+      {showVault &&
+        workspace &&
+        (vaultCollapsed ? (
+          <aside aria-label="Vault recolhido" className="vault-rail">
+            <button
+              aria-label="Abrir arquivos do Vault"
+              onClick={() => {
+                setVaultTab("files");
+                setVaultCollapsed(false);
+              }}
+              title="Arquivos"
+              type="button"
+            >
+              <CompactIcon kind="files" />
+            </button>
+            <button
+              aria-label="Abrir grafo do Vault"
+              onClick={() => {
+                setVaultTab("graph");
+                setVaultCollapsed(false);
+              }}
+              title="Grafo"
+              type="button"
+            >
+              <CompactIcon kind="graph" />
+            </button>
+          </aside>
+        ) : (
+          <Suspense
+            fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}
+          >
+            <VaultPanel
+              onCollapse={() => setVaultCollapsed(true)}
+              onTabChange={setVaultTab}
+              tab={vaultTab}
+              workspaceId={workspace.id}
+            />
+          </Suspense>
+        ))}
       {showSettings && (
         <ProviderManager
           activeWorkspaceId={state?.activeWorkspaceId ?? null}

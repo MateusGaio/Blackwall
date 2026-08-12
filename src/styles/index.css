@@ -591,19 +591,27 @@ button:disabled {
   height: 100vh;
   min-height: 0;
   overflow: hidden;
+  transition: grid-template-columns 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .workspace-shell.has-vault {
   grid-template-columns: 240px minmax(0, 1fr) 280px;
 }
 
-.workspace-shell.sidebar-collapsed,
-.workspace-shell.sidebar-collapsed.has-vault {
-  grid-template-columns: 56px minmax(0, 1fr) 0;
-}
-
 .workspace-shell.sidebar-collapsed:not(.has-vault) {
   grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.workspace-shell.sidebar-collapsed.has-vault {
+  grid-template-columns: 56px minmax(0, 1fr) 280px;
+}
+
+.workspace-shell.has-vault.vault-collapsed {
+  grid-template-columns: 240px minmax(0, 1fr) 56px;
+}
+
+.workspace-shell.sidebar-collapsed.has-vault.vault-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
 }
 
 .workspace-sidebar {
@@ -637,6 +645,18 @@ button:disabled {
   border-color: #353539;
   color: #f2f2f3;
   outline: none;
+}
+
+.sidebar-brand-button {
+  background: transparent;
+  border: 0;
+  display: inline-flex;
+  padding: 0;
+}
+
+.sidebar-brand-button:focus-visible {
+  outline: 1px solid #a6a6ab;
+  outline-offset: 3px;
 }
 
 .sidebar-heading,
@@ -933,6 +953,58 @@ button:disabled {
 
 .sidebar-settings:focus-within {
   color: #f2f2f3;
+}
+
+.sidebar-rail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 22px;
+  width: 100%;
+}
+
+.sidebar-rail button,
+.vault-rail button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #89898e;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  width: 100%;
+}
+
+.sidebar-rail button:hover,
+.sidebar-rail button:focus-visible,
+.vault-rail button:hover,
+.vault-rail button:focus-visible {
+  background: #1a1a1d;
+  border-color: #353539;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.sidebar-rail svg,
+.vault-rail svg {
+  fill: none;
+  height: 17px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+  width: 17px;
+}
+
+.sidebar-rail-settings {
+  margin-top: auto;
 }
 
 .sidebar-config {
@@ -1410,6 +1482,14 @@ button:disabled {
   flex-direction: column;
   min-width: 0;
   padding: 24px 18px 18px;
+}
+
+.vault-rail {
+  border-left: 1px solid #252527;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 9px;
 }
 
 .vault-loading-panel {

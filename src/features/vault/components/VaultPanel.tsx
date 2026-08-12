@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
 
 type VaultPanelProps = {
-  onClose: () => void;
+  onCollapse: () => void;
+  onTabChange: (tab: VaultTab) => void;
+  tab: VaultTab;
   workspaceId: string;
 };
 
@@ -63,10 +65,9 @@ function GraphView({ graph }: { graph: VaultGraph }) {
   );
 }
 
-export function VaultPanel({ onClose, workspaceId }: VaultPanelProps) {
+export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultPanelProps) {
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<VaultTab>("files");
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +93,13 @@ export function VaultPanel({ onClose, workspaceId }: VaultPanelProps) {
           <p className="eyebrow">Conhecimento local</p>
           <strong>Vault</strong>
         </div>
-        <button aria-label="Fechar Vault" className="icon-button" onClick={onClose} type="button">
+        <button
+          aria-label="Recolher Vault"
+          className="icon-button"
+          onClick={onCollapse}
+          title="Recolher Vault"
+          type="button"
+        >
           ×
         </button>
       </header>
@@ -100,7 +107,7 @@ export function VaultPanel({ onClose, workspaceId }: VaultPanelProps) {
         <button
           aria-selected={tab === "files"}
           className={tab === "files" ? "is-active" : ""}
-          onClick={() => setTab("files")}
+          onClick={() => onTabChange("files")}
           role="tab"
           type="button"
         >
@@ -109,7 +116,7 @@ export function VaultPanel({ onClose, workspaceId }: VaultPanelProps) {
         <button
           aria-selected={tab === "graph"}
           className={tab === "graph" ? "is-active" : ""}
-          onClick={() => setTab("graph")}
+          onClick={() => onTabChange("graph")}
           role="tab"
           type="button"
         >
