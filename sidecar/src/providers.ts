@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./db/database.js";
-import { withInstrumentation } from "./observability.js";
+import { withAsyncInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret, removeSecret } from "./secrets.js";
 
 export type ProviderInput = {
@@ -207,7 +207,7 @@ export async function validateProvider(
   request: FetchLike = fetch,
 ): Promise<void> {
   if (process.env.BLACKWALL_E2E_MOCK === "1") return;
-  await withInstrumentation("provider.validate", () =>
+  await withAsyncInstrumentation("provider.validate", () =>
     createProviderAdapter(input).validate(request),
   );
 }
@@ -321,7 +321,7 @@ export async function listProviderModels(
   provider: ProviderInput,
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
-  return withInstrumentation("provider.models", () =>
+  return withAsyncInstrumentation("provider.models", () =>
     createProviderAdapter(provider).listModels(request),
   );
 }
