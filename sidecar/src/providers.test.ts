@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getProvider,
+  listProviderModels,
   normalizeBaseUrl,
   providerApiKey,
   saveProvider,
@@ -66,5 +67,31 @@ describe("providers", () => {
         request,
       ),
     ).rejects.toThrow("chave foi recusada");
+  });
+
+  it("valida e lista modelos de um Ollama local sem chave", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ models: [{ name: "qwen2.5-coder:7b" }] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+    await expect(
+      validateProvider(
+        {
+          baseUrl: "http://127.0.0.1:11434",
+          model: "qwen2.5-coder:7b",
+          name: "Ollama",
+          type: "ollama",
+        },
+        request,
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      listProviderModels(
+        { baseUrl: "http://127.0.0.1:11434", name: "Ollama", type: "ollama" },
+        request,
+      ),
+    ).resolves.toEqual([{ capabilities: [], id: "qwen2.5-coder:7b", name: "qwen2.5-coder:7b" }]);
+    expect(request).toHaveBeenCalledWith("http://127.0.0.1:11434/api/tags", expect.anything());
   });
 });
