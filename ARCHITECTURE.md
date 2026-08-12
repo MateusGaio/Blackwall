@@ -216,12 +216,13 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 - APIs OpenAI-compatible e Ollama, múltiplos provedores, seletor de modelos e fallback para erros transitórios.
 - Streaming WebSocket, parada preservando parcial, fila FIFO por workspace e título automático da sessão.
 - Anexos locais com extração de texto, PDF pesquisável e índice SQLite FTS5.
+- Seletor de diretório nativo no desktop e no navegador web dev; Markdown da pasta é persistido localmente no web dev e exposto por um Vault textual com grafo de links.
 - Ferramentas locais com validação de caminhos reais e modos `ask`, `automatic` e `read-only`.
 - Tema OLED, skeleton de carregamento, lazy loading, progresso, animações e `prefers-reduced-motion`.
 - OTel permanece sem exporter e desligado por padrão; não há conteúdo de conversas em telemetria.
 
-### Fase 2 — Vault, RAG e MCP
-- Aba de Vault com grafo real do Obsidian, visualizador de markdown, notas.
+### Fase 2 — RAG e MCP
+- Edição de notas, atualização em tempo real por watcher e recursos avançados do Vault.
 - Autodetecção de "crie uma nota sobre isso" no chat + comando `/nota`.
 - RAG com LanceDB, embeddings locais (Ollama) ou API, configurável.
 - MCP client (consumir servidores externos) e MCP server (expor o Blackwall).

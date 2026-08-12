@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -75,6 +75,31 @@ describe("persistência local", () => {
         soul: "Workspace",
       }),
     ).rejects.toThrow("não existe");
+    database.close();
+  });
+
+  it("cria um workspace web privado a partir dos Markdown selecionados", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-web-workspace-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database, directory);
+    const state = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Ada",
+      profileSoul: "Profile",
+      workspaceName: "Notas",
+      workspaceRootPath: "",
+      workspaceSoul: "Workspace",
+      workspaceFiles: [
+        { content: "# Início\n\n[[Segundo]]", relativePath: "Início.md" },
+        { content: "# Segundo", relativePath: "Segundo.md" },
+      ],
+    });
+    const rootPath = state.workspaces[0]?.rootPath;
+    expect(rootPath).toContain("web-workspaces");
+    await expect(readFile(join(rootPath as string, "Início.md"), "utf8")).resolves.toContain(
+      "[[Segundo]]",
+    );
     database.close();
   });
 });

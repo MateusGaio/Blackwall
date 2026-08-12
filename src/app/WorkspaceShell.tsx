@@ -1,6 +1,15 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { ProviderManager } from "../features/config/components/ProviderManager";
+import { pickDirectory } from "../platform/runtime";
 import {
   type AppState,
   type Attachment,
@@ -26,6 +35,11 @@ import {
 } from "../shared/api/sidecar";
 import { isSubmitShortcut } from "./composer";
 
+const VaultPanel = lazy(async () => {
+  const module = await import("../features/vault/components/VaultPanel");
+  return { default: module.VaultPanel };
+});
+
 type WorkspaceShellProps = {
   appState: AppState | null;
   profileName: string;
@@ -37,6 +51,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
+  const [showVault, setShowVault] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
@@ -155,14 +170,16 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     const profileId = state?.activeProfileId;
     if (!profileId) return;
     const name = window.prompt("Nome do novo workspace")?.trim();
-    const rootPath = window.prompt("Caminho absoluto da pasta")?.trim();
-    if (!name || !rootPath) return;
+    if (!name) return;
+    const folder = await pickDirectory();
+    if (!folder) return;
     try {
       const created = await createWorkspace({
         name,
         profileId,
-        rootPath,
+        rootPath: folder.path ?? "",
         soul: "Preserve o contexto e as convenções deste workspace.",
+        workspaceFiles: folder.files,
       });
       const session = await createSession(created.id);
       const nextState = await selectSession(session.id);
@@ -339,7 +356,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   }
 
   return (
-    <main className="workspace-shell">
+    <main className={`workspace-shell ${showVault ? "has-vault" : ""}`}>
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
           <span className="brand-mark" aria-hidden="true">
@@ -469,6 +486,16 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
                 </select>
               </label>
             )}
+            {workspace && (
+              <button
+                aria-pressed={showVault}
+                className={`header-toggle ${showVault ? "is-active" : ""}`}
+                onClick={() => setShowVault((current) => !current)}
+                type="button"
+              >
+                Vault
+              </button>
+            )}
           </div>
         </header>
         <section className="chat-shell" aria-label="Conversa">
@@ -561,6 +588,11 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           )}
         </section>
       </section>
+      {showVault && workspace && (
+        <Suspense fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}>
+          <VaultPanel onClose={() => setShowVault(false)} workspaceId={workspace.id} />
+        </Suspense>
+      )}
       {showSettings && (
         <ProviderManager
           onClose={() => setShowSettings(false)}

@@ -33,7 +33,7 @@ npm run check
 - SQLite em WAL para perfis, workspaces, sessões, mensagens, provedores, modelos, anexos e aprovações.
 - `secrets.enc` + `secrets.key` para chaves de provedor; nunca são gravadas no SQLite ou nos logs.
 - FTS5 para indexação textual local de Markdown, código, dados e PDFs pesquisáveis.
-- Vault Markdown, RAG semântico/LanceDB, MCP, agentes e LoRA permanecem no roadmap das fases seguintes.
+- Vault Markdown local com leitura de notas e grafo de `[[wikilinks]]`; RAG semântico/LanceDB, MCP, agentes e LoRA permanecem no roadmap das fases seguintes.
 
 Consulte `PRODUCT.md` e os documentos de arquitetura e UX no harness antes de contribuir.
 
