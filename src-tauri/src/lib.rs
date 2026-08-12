@@ -38,6 +38,7 @@ pub fn run() {
         .expect("não foi possível iniciar o sidecar do Blackwall; instale Node.js para desenvolvimento");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(RuntimeConfig {
             sidecar_url: format!("http://127.0.0.1:{port}"),
         })

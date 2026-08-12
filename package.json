@@ -22,6 +22,7 @@
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
     "i18next": "^25.5.2",

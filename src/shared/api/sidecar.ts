@@ -8,6 +8,59 @@ export type ConnectedProvider = {
   name: string;
 };
 
+export type Profile = {
+  id: string;
+  locale: string;
+  name: string;
+  soul: string;
+};
+
+export type Workspace = {
+  id: string;
+  name: string;
+  permissionMode: "ask" | "automatic" | "read-only";
+  profileId: string;
+  rootPath: string;
+  soul: string;
+};
+
+export type Session = {
+  id: string;
+  selectedModel: string | null;
+  selectedProviderId: string | null;
+  title: string;
+  updatedAt: number;
+  workspaceId: string;
+};
+
+export type StoredMessage = ChatMessage & {
+  createdAt: number;
+  model: string | null;
+  providerId: string | null;
+  sequence: number;
+  status: string;
+};
+
+export type AppState = {
+  activeProfileId: string | null;
+  activeSessionId: string | null;
+  activeWorkspaceId: string | null;
+  messages: StoredMessage[];
+  profiles: Profile[];
+  sessions: Session[];
+  workspaces: Workspace[];
+};
+
+type BootstrapInput = {
+  locale: string;
+  permissionMode?: "ask" | "automatic" | "read-only";
+  profileName: string;
+  profileSoul: string;
+  workspaceName: string;
+  workspaceRootPath: string;
+  workspaceSoul: string;
+};
+
 type ProviderInput = Omit<ConnectedProvider, "id"> & { apiKey: string };
 export type ChatMessage = { content: string; id: string; role: "assistant" | "user" };
 
@@ -29,6 +82,59 @@ export async function connectProvider(input: ProviderInput): Promise<ConnectedPr
     method: "POST",
   });
   return response.provider;
+}
+
+export async function getAppState(): Promise<AppState> {
+  return request("/v1/state", { method: "GET" });
+}
+
+export async function bootstrapApp(input: BootstrapInput): Promise<AppState> {
+  return request("/v1/bootstrap", {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function listProviders(): Promise<ConnectedProvider[]> {
+  const response = await request<{ providers: ConnectedProvider[] }>("/v1/providers", {
+    method: "GET",
+  });
+  return response.providers;
+}
+
+export async function createSession(workspaceId: string, title?: string): Promise<Session> {
+  const response = await request<{ session: Session }>("/v1/sessions", {
+    body: JSON.stringify({ title, workspaceId }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  return response.session;
+}
+
+export async function selectSession(sessionId: string): Promise<AppState> {
+  return request(`/v1/sessions/${sessionId}/select`, {
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function persistMessage(
+  sessionId: string,
+  message: {
+    content: string;
+    model?: string | null;
+    providerId?: string | null;
+    role: StoredMessage["role"];
+    status?: string;
+  },
+): Promise<StoredMessage> {
+  const response = await request<{ message: StoredMessage }>(`/v1/sessions/${sessionId}/messages`, {
+    body: JSON.stringify(message),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  return response.message;
 }
 
 export async function sendMessage(

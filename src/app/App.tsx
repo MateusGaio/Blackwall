@@ -1,8 +1,14 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { currentRuntime } from "../platform/runtime";
-import type { ConnectedProvider } from "../shared/api/sidecar";
+import { currentRuntime, pickDirectory } from "../platform/runtime";
+import {
+  type AppState,
+  bootstrapApp,
+  type ConnectedProvider,
+  getAppState,
+  listProviders,
+} from "../shared/api/sidecar";
 import {
   clampOnboardingStep,
   detectInitialLocale,
@@ -30,12 +36,21 @@ type OnboardingPanelProps = {
   locale: "pt-BR" | "en";
   profileName: string;
   soul: string;
+  workspaceName: string;
+  workspaceRootPath: string;
+  workspaceSoul: string;
+  isCompleting: boolean;
+  completionError: string;
   step: OnboardingStep;
   isExiting: boolean;
   runtime: "desktop" | "web";
   onLocaleChange: (locale: "pt-BR" | "en") => void;
   onProfileNameChange: (name: string) => void;
   onSoulChange: (soul: string) => void;
+  onWorkspaceNameChange: (name: string) => void;
+  onWorkspaceRootPathChange: (path: string) => void;
+  onWorkspaceSoulChange: (soul: string) => void;
+  onPickFolder: () => void;
   onProviderConnected: (provider: ConnectedProvider) => void;
   onAdvance: (animate: boolean) => void;
   onBack: (animate: boolean) => void;
@@ -45,12 +60,21 @@ function OnboardingPanel({
   locale,
   profileName,
   soul,
+  workspaceName,
+  workspaceRootPath,
+  workspaceSoul,
+  isCompleting,
+  completionError,
   step,
   isExiting,
   runtime,
   onLocaleChange,
   onProfileNameChange,
   onSoulChange,
+  onWorkspaceNameChange,
+  onWorkspaceRootPathChange,
+  onWorkspaceSoulChange,
+  onPickFolder,
   onProviderConnected,
   onAdvance,
   onBack,
@@ -64,6 +88,9 @@ function OnboardingPanel({
     ? {
         language: "Your local space to think and build.",
         profile: "What should we call you?",
+        workspace: "Where will we work?",
+        folder: "Choose the project folder.",
+        "workspace-soul": "Give your workspace an identity.",
         provider: "Connect your first intelligence.",
         soul: "Start with a ready-made Soul.",
         vault: "Knowledge that stays with you.",
@@ -73,6 +100,9 @@ function OnboardingPanel({
     ? {
         language: "Language",
         profile: "Profile",
+        workspace: "Workspace",
+        folder: "Folder",
+        "workspace-soul": "Workspace Soul",
         provider: "Provider",
         soul: "Soul",
         vault: "Vault",
@@ -161,6 +191,40 @@ function OnboardingPanel({
               />
             </label>
           )}
+          {step.id === "workspace" && (
+            <label className="field-label" htmlFor="workspace-name">
+              {isEnglish ? "Workspace name" : "Nome do workspace"}
+              <input
+                id="workspace-name"
+                onChange={(event) => onWorkspaceNameChange(event.target.value)}
+                placeholder={isEnglish ? "My project" : "Meu projeto"}
+                value={workspaceName}
+              />
+            </label>
+          )}
+          {step.id === "folder" && (
+            <div className="folder-picker">
+              <label className="field-label" htmlFor="workspace-root">
+                {isEnglish ? "Project folder" : "Pasta do projeto"}
+                <input
+                  id="workspace-root"
+                  onChange={(event) => onWorkspaceRootPathChange(event.target.value)}
+                  placeholder={isEnglish ? "/path/to/project" : "/caminho/para/projeto"}
+                  value={workspaceRootPath}
+                />
+              </label>
+              {runtime === "desktop" && (
+                <button className="button button-secondary" onClick={onPickFolder} type="button">
+                  {isEnglish ? "Choose folder" : "Escolher pasta"}
+                </button>
+              )}
+              <span className="field-hint">
+                {isEnglish
+                  ? "The folder is required so Blackwall can keep project context local."
+                  : "A pasta é obrigatória para manter o contexto do projeto local."}
+              </span>
+            </div>
+          )}
           {step.id === "soul" && (
             <label className="field-label" htmlFor="soul-prompt">
               {isEnglish ? "Profile Soul" : "Soul do perfil"}
@@ -172,8 +236,24 @@ function OnboardingPanel({
               />
               <span className="field-hint">
                 {isEnglish
-                  ? "You can combine this Soul with the workspace Soul later."
-                  : "Você poderá combinar esta Soul com a do workspace depois."}
+                  ? "This Soul guides your profile in every workspace."
+                  : "Esta Soul orienta seu perfil em todos os workspaces."}
+              </span>
+            </label>
+          )}
+          {step.id === "workspace-soul" && (
+            <label className="field-label" htmlFor="workspace-soul-prompt">
+              {isEnglish ? "Workspace Soul" : "Soul do workspace"}
+              <textarea
+                id="workspace-soul-prompt"
+                onChange={(event) => onWorkspaceSoulChange(event.target.value)}
+                rows={5}
+                value={workspaceSoul}
+              />
+              <span className="field-hint">
+                {isEnglish
+                  ? "This Soul is combined with your profile Soul in every session."
+                  : "Esta Soul é combinada com a Soul do seu perfil em todas as sessões."}
               </span>
             </label>
           )}
@@ -207,20 +287,31 @@ function OnboardingPanel({
             {step.id !== "provider" && (
               <button
                 className="button button-primary"
-                disabled={isExiting || (step.id === "profile" && profileName.trim().length === 0)}
+                disabled={
+                  isExiting ||
+                  isCompleting ||
+                  (step.id === "profile" && profileName.trim().length === 0) ||
+                  (step.id === "workspace" && workspaceName.trim().length === 0) ||
+                  (step.id === "folder" && workspaceRootPath.trim().length === 0)
+                }
                 onClick={(event) => onAdvance(event.detail !== 0)}
                 type="button"
               >
-                {isLastStep
+                {isCompleting
                   ? isEnglish
-                    ? "Enter Blackwall"
-                    : "Entrar no Blackwall"
-                  : isEnglish
-                    ? "Continue"
-                    : "Continuar"}
+                    ? "Saving…"
+                    : "Salvando…"
+                  : isLastStep
+                    ? isEnglish
+                      ? "Enter Blackwall"
+                      : "Entrar no Blackwall"
+                    : isEnglish
+                      ? "Continue"
+                      : "Continuar"}
               </button>
             )}
           </footer>
+          {completionError && <p className="form-error">{completionError}</p>}
         </div>
         <p className="stage-status">
           {isEnglish ? "Local setup" : "Configuração local"} · {runtime} · {progress}{" "}
@@ -237,6 +328,9 @@ export function App() {
   const [stepIndex, setStepIndex] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [completionError, setCompletionError] = useState("");
+  const [appState, setAppState] = useState<AppState | null>(null);
   const [locale, setLocale] = useState<"pt-BR" | "en">(() =>
     detectInitialLocale(navigator.language),
   );
@@ -250,6 +344,9 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
 
 Ao lidar com código, leia o contexto relevante antes de editar, preserve alterações existentes, escreva ou atualize testes quando aplicável e informe com clareza o que foi verificado. Quando faltar uma decisão material, apresente a dúvida e as consequências antes de assumir.`,
   );
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceRootPath, setWorkspaceRootPath] = useState("");
+  const [workspaceSoul, setWorkspaceSoul] = useState(soul);
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
 
@@ -258,8 +355,39 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
   }, [i18n, locale]);
 
   useEffect(() => {
+    let cancelled = false;
     const frame = window.requestAnimationFrame(() => setIsReady(true));
-    return () => window.cancelAnimationFrame(frame);
+    void getAppState()
+      .then(async (state) => {
+        if (
+          cancelled ||
+          !state.activeSessionId ||
+          !state.activeProfileId ||
+          !state.activeWorkspaceId
+        )
+          return;
+        const profile = state.profiles.find((item) => item.id === state.activeProfileId);
+        const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
+        if (!profile || !workspace) return;
+        setAppState(state);
+        setProfileName(profile.name);
+        setLocale(profile.locale === "en" ? "en" : "pt-BR");
+        setWorkspaceName(workspace.name);
+        setWorkspaceRootPath(workspace.rootPath);
+        setWorkspaceSoul(workspace.soul);
+        const providers = await listProviders();
+        setProvider(
+          providers.find((item) => item.id === state.sessions[0]?.selectedProviderId) ??
+            providers[0] ??
+            null,
+        );
+        setIsComplete(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   const currentStep = useMemo(() => onboardingSteps[stepIndex], [stepIndex]);
@@ -281,7 +409,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
 
   function advance(animate: boolean) {
     if (stepIndex === onboardingSteps.length - 1) {
-      setIsComplete(true);
+      void completeOnboarding();
       return;
     }
     navigate(stepIndex + 1, animate);
@@ -291,6 +419,30 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     setProvider(connectedProvider);
     navigate(stepIndex + 1, true);
   }
+
+  const completeOnboarding = useCallback(async () => {
+    setCompletionError("");
+    setIsCompleting(true);
+    try {
+      const state = await bootstrapApp({
+        locale,
+        permissionMode: "ask",
+        profileName,
+        profileSoul: soul,
+        workspaceName,
+        workspaceRootPath,
+        workspaceSoul,
+      });
+      setAppState(state);
+      setIsComplete(true);
+    } catch (reason) {
+      setCompletionError(
+        reason instanceof Error ? reason.message : "Não foi possível salvar a configuração.",
+      );
+    } finally {
+      setIsCompleting(false);
+    }
+  }, [locale, profileName, soul, workspaceName, workspaceRootPath, workspaceSoul]);
 
   useEffect(() => {
     function advanceWithEnter(event: KeyboardEvent) {
@@ -305,7 +457,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       if (event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
       if (stepIndex === onboardingSteps.length - 1) {
-        setIsComplete(true);
+        void completeOnboarding();
         return;
       }
       setStepIndex(clampOnboardingStep(stepIndex + 1));
@@ -313,13 +465,13 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
 
     window.addEventListener("keydown", advanceWithEnter);
     return () => window.removeEventListener("keydown", advanceWithEnter);
-  }, [isComplete, isExiting, profileName, stepIndex]);
+  }, [completeOnboarding, isComplete, isExiting, profileName, stepIndex]);
 
   if (!isReady) return <LoadingSkeleton />;
   if (isComplete) {
     return (
       <Suspense fallback={<LoadingSkeleton />}>
-        <WorkspaceShell profileName={profileName} provider={provider} />
+        <WorkspaceShell appState={appState} profileName={profileName} provider={provider} />
       </Suspense>
     );
   }
@@ -333,11 +485,24 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       onLocaleChange={setLocale}
       onProfileNameChange={setProfileName}
       onSoulChange={setSoul}
+      onWorkspaceNameChange={setWorkspaceName}
+      onWorkspaceRootPathChange={setWorkspaceRootPath}
+      onWorkspaceSoulChange={setWorkspaceSoul}
+      onPickFolder={() => {
+        void pickDirectory().then((path) => {
+          if (path) setWorkspaceRootPath(path);
+        });
+      }}
       onProviderConnected={providerConnected}
       profileName={profileName}
       soul={soul}
       step={currentStep}
       runtime={runtime}
+      workspaceName={workspaceName}
+      workspaceRootPath={workspaceRootPath}
+      workspaceSoul={workspaceSoul}
+      isCompleting={isCompleting}
+      completionError={completionError}
     />
   );
 }

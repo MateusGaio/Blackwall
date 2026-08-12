@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Permissões padrão da janela principal do Blackwall.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:default"]
 }
