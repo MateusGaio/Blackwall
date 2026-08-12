@@ -1,6 +1,8 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { asc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import {
@@ -660,6 +662,6 @@ export function startFromEnvironment() {
 }
 
 /* c8 ignore next 4 -- entrada direta do processo, coberta pelo empacotamento. */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   void startFromEnvironment();
 }
