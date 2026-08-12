@@ -2,7 +2,7 @@
 
 Este arquivo é lido por qualquer agente (Codex, Claude Code, Cursor, Windsurf, Hermes, etc.) que for trabalhar neste repositório. Se você é um agente de IA lendo isto: siga estas regras antes de tocar em qualquer código.
 
-> Este é um primeiro rascunho. Deve ser atualizado com as informações específicas de convenção de código que o Mateus for enviando (nomenclatura, estrutura de pastas definitiva, padrões de commit específicos do time, etc.).
+> Este arquivo é a referência operacional para agentes e contribuidores. Mudanças nas convenções devem ser feitas por PR e mencionadas na Issue correspondente.
 
 ---
 
@@ -31,6 +31,24 @@ Repita estas restrições mentalmente antes de gerar qualquer plano ou código. 
 
 Toda tarefa (correção, melhoria ou nova função) segue este fluxo:
 
+### 2.0 Regra obrigatória de rastreabilidade e release
+
+- O repositório público é [`MateusGaio/Blackwall.`](https://github.com/MateusGaio/Blackwall.). A branch `main` é a base estável e padrão.
+- Nenhum agente deve iniciar implementação de uma correção, melhoria ou função nova sem uma Issue aberta. Se a tarefa ainda não tiver Issue, crie-a antes de criar a branch.
+- Todo trabalho deve ocorrer em branch própria e chegar à `main` por Pull Request. Push direto na `main`, merge local e deploy manual fora do PR são proibidos.
+- O nome da branch deve conter o número da Issue: `feat/<issue>-descricao`, `fix/<issue>-descricao` ou `chore/<issue>-descricao`.
+- Todo PR deve mencionar a Issue na descrição com `Closes #N` quando a encerra ou `Refs #N` quando a Issue continua aberta. PRs de deploy/release também precisam apontar para a Issue ou conjunto de Issues que produziram o artefato.
+- PR novo deve ser aberto como rascunho. Ele só pode ser marcado como pronto depois dos quality gates, da revisão e do checklist de UI quando aplicável.
+- Merge de PR aprovado é o único gatilho de integração com `main` e de deploy/release. O agente não deve fazer merge em nome do owner sem autorização explícita.
+- Commits seguem Conventional Commits e devem ser pequenos, verificáveis e relacionados à Issue ativa.
+
+#### Responsabilidade de cada ferramenta
+
+- `git`: criar/trocar branches, revisar diff, commitar e publicar branches (`git push`).
+- GitHub Connector ou `gh`: criar e consultar Issues, abrir/atualizar PRs, acompanhar checks e revisar o estado do remoto.
+- Antes de usar `gh`, valide a sessão com `gh auth status`. Nunca cole tokens em comandos, arquivos, Issues, PRs, logs ou telemetria. Se a autenticação estiver inválida, pare a publicação e peça ao owner para executar `gh auth login -h github.com`.
+- Depois do push, confirme a branch remota e os checks. Não declare uma Issue ou PR como publicado apenas porque o commit local existe.
+
 ### 2.1 Issue primeiro
 Nenhuma tarefa é iniciada sem uma Issue correspondente no GitHub. Toda Issue tem um tipo, marcado por label:
 
@@ -54,13 +72,14 @@ Template mínimo de Issue:
 - [ ] Lint (Biome), Knip e dependency-cruiser passando
 ```
 
-> **Nota de execução:** no momento em que este arquivo foi criado, não havia um conector de GitHub disponível para a IA abrir Issues automaticamente. Até isso ser resolvido (via token de API ou `gh` CLI), as Issues devem ser abertas manualmente seguindo este template, ou o agente deve orientar o usuário a rodar os comandos `gh issue create`.
+> **Nota de execução:** o agente deve preferir o GitHub Connector para criar Issues e PRs. O `gh` CLI é o fallback operacional para consultas e ações que o conector não cobrir, sempre após `gh auth status`. Se nenhum dos dois estiver autenticado, a implementação não deve ser apresentada como publicada: registre o bloqueio e solicite autenticação ao owner.
 
 ### 2.2 Branch
 Nome da branch referencia a Issue: `feat/123-roteador-fallback`, `fix/124-crash-vault`, `chore/125-setup-biome`.
 
 ### 2.3 Pull Request
 - **Todo PR precisa mencionar a Issue na descrição** — usar `Closes #123` (ou `Refs #123` se não fecha a Issue completamente).
+- PRs que dependem de outro PR devem declarar a dependência (por exemplo, `Depends on #123`) e usar a branch do PR anterior como base até que ela seja integrada em `main`.
 - PR precisa passar todos os quality gates (seção 3) antes de poder ser mergeado.
 - Merge de PR = trigger de deploy/release, conforme pipeline definido em CI.
 

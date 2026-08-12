@@ -1,20 +1,23 @@
 ---
-name: Feature
-about: Nova funcionalidade do Blackwall
-labels: type:feature
+name: Nova função
+about: Propor uma capacidade nova para o Blackwall
+title: "feat: "
+labels: "type:feature"
+assignees: ""
 ---
 
 ## Contexto
 
-<!-- Por que esta tarefa existe? -->
+Qual necessidade do usuário esta função atende?
 
 ## O que precisa ser feito
 
-<!-- Descrição objetiva. -->
+Descreva o escopo e as limitações da primeira versão.
 
 ## Critério de aceite
 
 - [ ]
-- [ ] Testes cobrindo o caso (unit/integration/e2e conforme aplicável)
-- [ ] Se toca em UI: skeleton/lazy/animação/progresso conferidos
-- [ ] Lint (Biome), Knip e dependency-cruiser passando
+- [ ] Testes unitários/integrados e E2E quando o fluxo for crítico.
+- [ ] Se tocar em UI: skeleton, lazy loading, entrada/saída, progresso e reduced-motion conferidos.
+- [ ] Documentação atualizada quando o comportamento público mudar.
+- [ ] Quality gates passam.
