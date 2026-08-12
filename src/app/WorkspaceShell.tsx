@@ -42,11 +42,17 @@ const VaultPanel = lazy(async () => {
 
 type WorkspaceShellProps = {
   appState: AppState | null;
+  onSignOut: () => Promise<void>;
   profileName: string;
   provider: ConnectedProvider | null;
 };
 
-export default function WorkspaceShell({ appState, profileName, provider }: WorkspaceShellProps) {
+export default function WorkspaceShell({
+  appState,
+  onSignOut,
+  profileName,
+  provider,
+}: WorkspaceShellProps) {
   const [state, setState] = useState(appState);
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
@@ -765,6 +771,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
                 : current,
             );
           }}
+          onSignOut={onSignOut}
           onSelect={(next) => setActiveProvider(next)}
           onWorkspaceChange={(updated) => {
             setState((current) =>

@@ -517,6 +517,42 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     return getState();
   }
 
+  function selectProfile(profileId: string) {
+    const profile = database.db.select().from(profiles).where(eq(profiles.id, profileId)).get();
+    if (!profile) throw new Error("O perfil selecionado não existe.");
+    const session = database.db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.profileId, profileId))
+      .orderBy(desc(sessions.updatedAt))
+      .get();
+    const workspace = session
+      ? session.workspaceId
+        ? database.db.select().from(workspaces).where(eq(workspaces.id, session.workspaceId)).get()
+        : null
+      : listWorkspaces(profileId)[0];
+    const activeSession =
+      session ?? createSession({ profileId, workspaceId: workspace?.id ?? null });
+    saveSetting(database, settingKeys.activeProfileId, profileId);
+    saveSetting(database, settingKeys.activeWorkspaceId, workspace?.id ?? "");
+    saveSetting(database, settingKeys.activeSessionId, activeSession.id);
+    if (workspace) {
+      database.db
+        .update(workspaces)
+        .set({ lastOpenedAt: now(), updatedAt: now() })
+        .where(eq(workspaces.id, workspace.id))
+        .run();
+    }
+    return getState();
+  }
+
+  function signOutProfile() {
+    saveSetting(database, settingKeys.activeProfileId, "");
+    saveSetting(database, settingKeys.activeWorkspaceId, "");
+    saveSetting(database, settingKeys.activeSessionId, "");
+    return getState();
+  }
+
   function selectWorkspace(id: string) {
     const workspace = database.db.select().from(workspaces).where(eq(workspaces.id, id)).get();
     if (!workspace) throw new Error("O workspace selecionado não existe.");
@@ -550,7 +586,9 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     setWorkspaceSoul,
     setWorkspacePermissionMode,
     selectSession,
+    selectProfile,
     selectWorkspace,
+    signOutProfile,
     updateProfile,
   };
 }

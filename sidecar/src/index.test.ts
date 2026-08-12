@@ -35,7 +35,6 @@ describe("sidecar health", () => {
     directories.push(directory);
     const { port, server } = await createSidecar(0, directory);
     servers.push(server);
-
     const response = await fetch(`http://${SIDECAR_HOST}:${port}/health`);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual(healthPayload());
@@ -71,6 +70,7 @@ describe("sidecar health", () => {
     directories.push(directory);
     const { port, server } = await createSidecar(0, directory);
     servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
 
     const bootstrap = await fetch(`http://${SIDECAR_HOST}:${port}/v1/bootstrap`, {
       body: JSON.stringify({
@@ -106,6 +106,24 @@ describe("sidecar health", () => {
     expect(recent.status).toBe(200);
     await expect(recent.json()).resolves.toMatchObject({
       sessions: [{ id: state.activeSessionId, workspaceName: "Project" }],
+    });
+    const signedOut = await fetch(`${baseUrl}/v1/profile/sign-out`, {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(signedOut.status).toBe(200);
+    await expect(signedOut.json()).resolves.toMatchObject({
+      activeProfileId: null,
+      profiles: [{ name: "Ada" }],
+    });
+    const selected = await fetch(`${baseUrl}/v1/profile/select`, {
+      body: JSON.stringify({ profileId: state.activeProfileId }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(selected.status).toBe(200);
+    await expect(selected.json()).resolves.toMatchObject({
+      activeProfileId: state.activeProfileId,
     });
   });
 
