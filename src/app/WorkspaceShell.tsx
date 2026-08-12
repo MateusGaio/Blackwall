@@ -260,6 +260,12 @@ export default function WorkspaceShell({
       activeSessionIdRef.current = sessionId;
       setState(nextState);
       setMessages(nextState.messages);
+      const nextSession = nextState.sessions.find((item) => item.id === sessionId);
+      setActiveProvider(
+        nextSession?.selectedProviderId
+          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ?? null)
+          : (providers[0] ?? null),
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível abrir a sessão.");
     }
@@ -274,6 +280,12 @@ export default function WorkspaceShell({
       activeSessionIdRef.current = nextState.activeSessionId;
       setState(nextState);
       setMessages(nextState.messages);
+      const nextSession = nextState.sessions.find((item) => item.id === nextState.activeSessionId);
+      setActiveProvider(
+        nextSession?.selectedProviderId
+          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ?? null)
+          : (providers[0] ?? null),
+      );
       if (wasWithoutWorkspace) setShowVault(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
