@@ -57,6 +57,25 @@ function OnboardingPanel({
   const stepIndex = onboardingSteps.findIndex((item) => item.id === step.id);
   const isLastStep = stepIndex === onboardingSteps.length - 1;
   const progress = `${((stepIndex + 1) / onboardingSteps.length) * 100}%`;
+  const isEnglish = locale === "en";
+  const title = isEnglish
+    ? {
+        language: "Your local space to think and build.",
+        profile: "What should we call you?",
+        provider: "Connect your first intelligence.",
+        soul: "Start with a ready-made Soul.",
+        vault: "Knowledge that stays with you.",
+      }[step.id]
+    : step.title;
+  const label = isEnglish
+    ? {
+        language: "Language",
+        profile: "Profile",
+        provider: "Provider",
+        soul: "Soul",
+        vault: "Vault",
+      }[step.id]
+    : step.label;
 
   return (
     <main className="app-shell">
@@ -92,8 +111,8 @@ function OnboardingPanel({
         </header>
 
         <div className={`onboarding-card ${isExiting ? "is-leaving" : ""}`} key={step.id}>
-          <p className="eyebrow">{step.label}</p>
-          <h1>{step.title}</h1>
+          <p className="eyebrow">{label}</p>
+          <h1>{title}</h1>
           {step.id === "language" && (
             <div className="choice-list" role="radiogroup" aria-label="Idioma">
               <button
@@ -118,19 +137,19 @@ function OnboardingPanel({
           )}
           {step.id === "profile" && (
             <label className="field-label" htmlFor="profile-name">
-              Nome do perfil
+              {isEnglish ? "Profile name" : "Nome do perfil"}
               <input
                 autoComplete="name"
                 id="profile-name"
                 onChange={(event) => onProfileNameChange(event.target.value)}
-                placeholder="Seu nome"
+                placeholder={isEnglish ? "Your name" : "Seu nome"}
                 value={profileName}
               />
             </label>
           )}
           {step.id === "soul" && (
             <label className="field-label" htmlFor="soul-prompt">
-              Soul do perfil
+              {isEnglish ? "Profile Soul" : "Soul do perfil"}
               <textarea
                 id="soul-prompt"
                 onChange={(event) => onSoulChange(event.target.value)}
@@ -138,7 +157,9 @@ function OnboardingPanel({
                 value={soul}
               />
               <span className="field-hint">
-                Você poderá combinar esta Soul com a do workspace depois.
+                {isEnglish
+                  ? "You can combine this Soul with the workspace Soul later."
+                  : "Você poderá combinar esta Soul com a do workspace depois."}
               </span>
             </label>
           )}
@@ -164,7 +185,7 @@ function OnboardingPanel({
               onClick={(event) => onBack(event.detail !== 0)}
               type="button"
             >
-              Voltar
+              {isEnglish ? "Back" : "Voltar"}
             </button>
             {step.id !== "provider" && (
               <button
@@ -173,13 +194,20 @@ function OnboardingPanel({
                 onClick={(event) => onAdvance(event.detail !== 0)}
                 type="button"
               >
-                {isLastStep ? "Entrar no Blackwall" : "Continuar"}
+                {isLastStep
+                  ? isEnglish
+                    ? "Enter Blackwall"
+                    : "Entrar no Blackwall"
+                  : isEnglish
+                    ? "Continue"
+                    : "Continuar"}
               </button>
             )}
           </footer>
         </div>
         <p className="stage-status">
-          Configuração local · {runtime} · {progress} concluída
+          {isEnglish ? "Local setup" : "Configuração local"} · {runtime} · {progress}{" "}
+          {isEnglish ? "complete" : "concluída"}
         </p>
       </section>
     </main>
