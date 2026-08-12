@@ -1,0 +1,12 @@
+# MIT License — Copyright (c) 2026 Mateus Gaio
+node_modules/
+dist/
+coverage/
+sidecar/dist/
+src-tauri/target/
+*.log
+.env
+.env.*
+!.env.example
+.agents/
+skills-lock.json

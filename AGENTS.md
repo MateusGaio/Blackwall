@@ -1,0 +1,169 @@
+# AGENTS.md — Instruções para qualquer agente de IA trabalhando no Blackwall
+
+Este arquivo é lido por qualquer agente (Codex, Claude Code, Cursor, Windsurf, Hermes, etc.) que for trabalhar neste repositório. Se você é um agente de IA lendo isto: siga estas regras antes de tocar em qualquer código.
+
+> Este é um primeiro rascunho. Deve ser atualizado com as informações específicas de convenção de código que o Mateus for enviando (nomenclatura, estrutura de pastas definitiva, padrões de commit específicos do time, etc.).
+
+---
+
+## 0. Antes de qualquer tarefa — leia isto
+
+1. Leia `PRODUCT.md` para entender o que o Blackwall é e para quem é.
+2. Leia `ARCHITECTURE.md` para entender a stack e as decisões já tomadas (ADRs).
+3. Leia `UX_SPEC.md` para entender navegação, estados vazios, onboarding e identidade visual — **nenhuma tela nova é aceita sem estar de acordo com esse documento**.
+4. **Não reabra decisões já tomadas** (stack, licença, storage, ADRs de UX) sem alinhar antes — trate-as como travadas a menos que o Mateus peça explicitamente para revisar.
+
+---
+
+## 1. Constraint Anchoring — restrições fixas do projeto
+
+Repita estas restrições mentalmente antes de gerar qualquer plano ou código. Elas não mudam entre tarefas:
+
+- **Stack travada:** Tauri v2 (Rust) + React/Vite (frontend) + sidecar Node/Bun (TypeScript) para lógica de IA. Sidecar Python só existe para a feature de LoRA (Fase 3), nunca para lógica de produto geral.
+- **Licença:** MIT. Todo arquivo novo de código deve manter o cabeçalho de licença do projeto.
+- **Zero telemetria por padrão.** Qualquer instrumentação nova (OTel/Sentry) precisa nascer desligada, com opt-in explícito do usuário.
+- **Sem dependência nova sem necessidade clara.** Antes de `npm install` algo novo, verifique se já existe uma lib aprovada no `ARCHITECTURE.md` que resolve o problema.
+- **Nenhum componente de UI é aceito sem:** skeleton de carregamento, lazy loading (se aplicável), animação de entrada/saída, indicador de progresso quando a ação não é instantânea, e suporte a `prefers-reduced-motion`. Isso não é opcional — é critério de aceite.
+
+---
+
+## 2. Fluxo de trabalho: Issue → Branch → PR
+
+Toda tarefa (correção, melhoria ou nova função) segue este fluxo:
+
+### 2.1 Issue primeiro
+Nenhuma tarefa é iniciada sem uma Issue correspondente no GitHub. Toda Issue tem um tipo, marcado por label:
+
+- `type:bug` — correção de comportamento incorreto.
+- `type:enhancement` — melhoria em algo que já existe.
+- `type:feature` — função nova.
+
+Template mínimo de Issue:
+
+```markdown
+## Contexto
+[Por que essa tarefa existe]
+
+## O que precisa ser feito
+[Descrição objetiva]
+
+## Critério de aceite
+- [ ] ...
+- [ ] Testes cobrindo o caso (unit/integration/e2e conforme aplicável)
+- [ ] Se toca em UI: skeleton/lazy/animação/progresso conferidos
+- [ ] Lint (Biome), Knip e dependency-cruiser passando
+```
+
+> **Nota de execução:** no momento em que este arquivo foi criado, não havia um conector de GitHub disponível para a IA abrir Issues automaticamente. Até isso ser resolvido (via token de API ou `gh` CLI), as Issues devem ser abertas manualmente seguindo este template, ou o agente deve orientar o usuário a rodar os comandos `gh issue create`.
+
+### 2.2 Branch
+Nome da branch referencia a Issue: `feat/123-roteador-fallback`, `fix/124-crash-vault`, `chore/125-setup-biome`.
+
+### 2.3 Pull Request
+- **Todo PR precisa mencionar a Issue na descrição** — usar `Closes #123` (ou `Refs #123` se não fecha a Issue completamente).
+- PR precisa passar todos os quality gates (seção 3) antes de poder ser mergeado.
+- Merge de PR = trigger de deploy/release, conforme pipeline definido em CI.
+
+Template mínimo de PR:
+
+```markdown
+## O que mudou
+[Resumo objetivo]
+
+Closes #123
+
+## Como testar
+[Passos manuais, se houver]
+
+## Checklist
+- [ ] Testes novos/atualizados
+- [ ] Lint/format (Biome) ok
+- [ ] Knip ok (sem código morto introduzido)
+- [ ] dependency-cruiser ok (sem violação de fronteira de arquitetura)
+- [ ] Se UI: motion audit (design-motion-principles) feito
+```
+
+---
+
+## 3. Quality gates (obrigatórios antes de merge)
+
+| Gate | Ferramenta | Bloqueia merge? |
+|---|---|---|
+| Lint + formatação | Biome | Sim |
+| Código/deps não usadas | Knip | Sim |
+| Fronteiras de arquitetura | dependency-cruiser | Sim |
+| Padrão de commit | commitlint | Sim (no commit, via hook) |
+| Testes unitários + integração | Vitest | Sim |
+| Cobertura mínima | Codecov | Sim (limiar configurado no `codecov.yml`) |
+| E2E dos fluxos críticos | Playwright | Sim, para PRs que tocam fluxo crítico |
+| Teste de mutação | Stryker Mutator | Não bloqueia PR — roda em job agendado |
+
+---
+
+## 4. Motion design — obrigatório em toda UI
+
+Antes de considerar um componente de UI "pronto":
+
+1. Rode a skill `design-motion-principles` em modo **Create** ao construir o componente.
+2. Rode a mesma skill em modo **Audit** antes de abrir o PR, se o PR toca em qualquer tela existente.
+3. Confirme os 5 itens do checklist da seção 1 (skeleton, lazy, entrada/saída, progresso, reduced-motion).
+
+Instalação (uma vez por ambiente de agente):
+```
+npx skills add kylezantos/design-motion-principles
+```
+
+---
+
+## 5. Observabilidade
+
+- Instrumentar com **OpenTelemetry** desde o código novo (spans para chamadas de modelo, MCP, roteador).
+- Backend padrão de erro: **Sentry**. Exporters adicionais (Datadog, New Relic) só entram via config, nunca hard-coded.
+- Nunca enviar conteúdo de prompt/resposta do usuário em telemetria — só metadados de performance/erro.
+
+---
+
+## 6. Como o agente deve pensar antes de agir (estratégias de prompting)
+
+Estas três estratégias devem estruturar **qualquer** plano de trabalho gerado por um agente neste repo, independente do modelo usado:
+
+### Role Assignment
+Antes de começar, declare explicitamente qual papel você está assumindo para essa tarefa. Exemplos:
+- "Atuando como Agente de Frontend implementando skeleton loading na lista de sessões."
+- "Atuando como Agente de Arquitetura revisando a regra de dependency-cruiser entre `sidecar/` e `ui/`."
+
+Isso evita que o agente misture responsabilidades (ex: um agente de UI decidindo sozinho mudar o schema do SQLite).
+
+### Stepwise Prompting
+Antes de escrever qualquer código, produza um plano numerado e sequencial da tarefa, e execute passo a passo, sinalizando ao final de cada passo. Não pule etapas do plano nem execute tudo de uma vez sem checkpoint. Ordem sugerida:
+1. Reler a Issue e os critérios de aceite.
+2. Confirmar constraints (seção 1) que se aplicam.
+3. Planejar os arquivos que serão tocados.
+4. Implementar.
+5. Escrever/atualizar testes.
+6. Rodar os quality gates localmente.
+7. Abrir o PR com o template da seção 2.3.
+
+### Constraint Anchoring
+No início de cada plano gerado, reafirme as restrições fixas relevantes à tarefa (stack, licença, ausência de telemetria não-opt-in, checklist de motion). Isso vale mesmo em conversas longas — não assuma que o contexto anterior "ainda vale"; reancore.
+
+---
+
+## 7. Execução com Caveman / CaveCrew
+
+Este repositório é compatível com o uso de **Caveman** (compressão de tokens para agentes) e subagentes **CaveCrew** para paralelizar lotes de Issues. Regras específicas:
+
+- Caveman/CaveCrew podem ser usados livremente durante o trabalho interno do agente (planejamento, leitura de contexto, chamadas de subagente).
+- **A descrição final do PR e da Issue nunca deve ficar comprimida/em "caveman-speak"** — precisa ser português (ou inglês, se o repo virar internacional) legível por humanos, já que outros contribuidores vão ler.
+- Codex é suportado nativamente pelo Caveman — pode ser usado como o modelo de execução principal deste projeto sem conflito com essa ferramenta.
+
+---
+
+## 8. Convenção de commits
+
+Conventional Commits, validado por `commitlint`:
+```
+feat(router): adiciona fallback sequencial entre provedores
+fix(vault): corrige crash ao renderizar wikilink quebrado
+chore(ci): adiciona job de Stryker Mutator agendado
+```

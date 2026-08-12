@@ -1,0 +1,15 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
+  "files": {
+    "includes": ["src/**", "sidecar/src/**", "*.{json,ts,tsx,cjs,mjs}"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": { "preset": "recommended" }
+  }
+}

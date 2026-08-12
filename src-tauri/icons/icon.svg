@@ -1,0 +1,6 @@
+<!-- MIT License — Copyright (c) 2026 Mateus Gaio -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Blackwall">
+  <rect width="512" height="512" fill="#0a0a0b"/>
+  <rect x="96" y="96" width="320" height="320" fill="none" stroke="#f2f2f3" stroke-width="24"/>
+  <path fill="#f2f2f3" d="M156 166h66c42 0 68 18 68 53 0 18-9 32-25 40 23 8 35 24 35 47 0 38-28 60-73 60h-71Zm53 38v37h13c11 0 18-7 18-19 0-11-7-18-18-18Zm0 75v42h17c14 0 22-8 22-21s-8-21-22-21Zm109-113h45v93l45-93h50l-57 108 62 107h-52l-48-91v91h-45Z"/>
+</svg>

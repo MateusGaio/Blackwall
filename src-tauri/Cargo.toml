@@ -1,0 +1,20 @@
+# MIT License — Copyright (c) 2026 Mateus Gaio
+[package]
+name = "blackwall"
+version = "0.1.0"
+description = "A local-first AI harness for code."
+authors = ["Mateus Gaio"]
+edition = "2021"
+license = "MIT"
+rust-version = "1.77"
+
+[lib]
+name = "blackwall_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "2", features = [] }

@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# MIT License — Copyright (c) 2026 Mateus Gaio
+npx --no -- commitlint --edit "$1"
