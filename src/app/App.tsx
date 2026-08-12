@@ -119,7 +119,7 @@ function OnboardingPanel({
                 autoComplete="name"
                 id="profile-name"
                 onChange={(event) => onProfileNameChange(event.target.value)}
-                placeholder="Ex.: Mateus"
+                placeholder="Seu nome"
                 value={profileName}
               />
             </label>
@@ -223,6 +223,29 @@ export function App() {
     setProvider(connectedProvider);
     navigate(stepIndex + 1, true);
   }
+
+  useEffect(() => {
+    function advanceWithEnter(event: KeyboardEvent) {
+      if (
+        event.key !== "Enter" ||
+        isComplete ||
+        isExiting ||
+        onboardingSteps[stepIndex].id === "provider"
+      )
+        return;
+      if (onboardingSteps[stepIndex].id === "profile" && !profileName.trim()) return;
+      if (event.target instanceof HTMLTextAreaElement) return;
+      event.preventDefault();
+      if (stepIndex === onboardingSteps.length - 1) {
+        setIsComplete(true);
+        return;
+      }
+      setStepIndex(clampOnboardingStep(stepIndex + 1));
+    }
+
+    window.addEventListener("keydown", advanceWithEnter);
+    return () => window.removeEventListener("keydown", advanceWithEnter);
+  }, [isComplete, isExiting, profileName, stepIndex]);
 
   if (!isReady) return <LoadingSkeleton />;
   if (isComplete) {
