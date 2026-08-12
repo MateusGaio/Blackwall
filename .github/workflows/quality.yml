@@ -58,4 +58,6 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
+      - name: Prepare resource path for cargo check
+        run: mkdir -p desktop-runtime
       - run: cargo check --manifest-path src-tauri/Cargo.toml
