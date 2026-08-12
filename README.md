@@ -2,7 +2,7 @@
 
 Harness de IA local-first e open source para código.
 
-O Blackwall combina perfis, workspaces, Souls e um chat persistente com provedores OpenAI-compatible ou Ollama — sempre com dados sob controle local do usuário. A Fase 1 também inclui sessões persistentes, anexos pesquisáveis por FTS5, fallback de rede e permissões por workspace.
+O Blackwall combina perfis, workspaces, Souls e um chat persistente com provedores OpenAI-compatible ou Ollama — sempre com dados sob controle local do usuário. Também é possível iniciar uma conversa sem workspace e adicionar uma pasta depois. A Fase 1 inclui sessões persistentes, anexos pesquisáveis por FTS5, fallback de rede e permissões por workspace.
 
 ## Desenvolvimento
 

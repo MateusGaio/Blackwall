@@ -35,9 +35,7 @@ export const workspaces = sqliteTable(
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
-  workspaceId: text("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   selectedProviderId: text("selected_provider_id"),
   selectedModel: text("selected_model"),

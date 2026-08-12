@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
 import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
 
@@ -20,6 +20,7 @@ export type BootstrapInput = {
   workspaceRootPath: string;
   workspaceSoul: string;
   workspaceFiles?: WorkspaceFile[];
+  workspaceMode?: "none" | "workspace";
   permissionMode?: PermissionMode;
 };
 
@@ -49,7 +50,8 @@ function now() {
 }
 
 function setting(store: DatabaseHandle, key: string): string | null {
-  return store.db.select().from(appSettings).where(eq(appSettings.key, key)).get()?.value ?? null;
+  const value = store.db.select().from(appSettings).where(eq(appSettings.key, key)).get()?.value;
+  return value || null;
 }
 
 function saveSetting(store: DatabaseHandle, key: string, value: string) {
@@ -189,13 +191,11 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .all();
   }
 
-  function createSession(input: { title?: string; workspaceId: string }) {
-    const workspace = database.db
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, input.workspaceId))
-      .get();
-    if (!workspace) throw new Error("O workspace selecionado não existe.");
+  function createSession(input: { title?: string; workspaceId?: string | null }) {
+    const workspace = input.workspaceId
+      ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
+      : null;
+    if (input.workspaceId && !workspace) throw new Error("O workspace selecionado não existe.");
     const timestamp = now();
     const session: Session = {
       createdAt: timestamp,
@@ -204,23 +204,25 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       selectedProviderId: null,
       title: input.title?.trim() || "Nova conversa",
       updatedAt: timestamp,
-      workspaceId: workspace.id,
+      workspaceId: workspace?.id ?? null,
     };
     database.db.insert(sessions).values(session).run();
     saveSetting(database, settingKeys.activeSessionId, session.id);
-    database.db
-      .update(workspaces)
-      .set({ lastOpenedAt: timestamp, updatedAt: timestamp })
-      .where(eq(workspaces.id, workspace.id))
-      .run();
+    if (workspace) {
+      database.db
+        .update(workspaces)
+        .set({ lastOpenedAt: timestamp, updatedAt: timestamp })
+        .where(eq(workspaces.id, workspace.id))
+        .run();
+    }
     return session;
   }
 
-  function listSessions(workspaceId: string) {
+  function listSessions(workspaceId: string | null) {
     return database.db
       .select()
       .from(sessions)
-      .where(eq(sessions.workspaceId, workspaceId))
+      .where(workspaceId ? eq(sessions.workspaceId, workspaceId) : isNull(sessions.workspaceId))
       .orderBy(desc(sessions.updatedAt))
       .all();
   }
@@ -349,7 +351,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     const workspaceRows = activeProfileId
       ? listWorkspaces(activeProfileId)
       : database.db.select().from(workspaces).orderBy(desc(workspaces.lastOpenedAt)).all();
-    const sessionRows = activeWorkspaceId ? listSessions(activeWorkspaceId) : [];
+    const sessionRows = listSessions(activeWorkspaceId);
     return {
       activeProfileId,
       activeSessionId,
@@ -384,29 +386,37 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       )
       .get();
     const workspace =
-      existingWorkspace ??
-      (input.workspaceRootPath.trim()
-        ? await createWorkspace({
-            name: input.workspaceName,
-            permissionMode: input.permissionMode,
-            profileId: selectedProfile.id,
-            rootPath: input.workspaceRootPath,
-            soul: input.workspaceSoul,
-          })
-        : await createWebWorkspace({
-            files: input.workspaceFiles ?? [],
-            name: input.workspaceName,
-            permissionMode: input.permissionMode,
-            profileId: selectedProfile.id,
-            soul: input.workspaceSoul,
-          }));
-    if (!input.workspaceRootPath.trim() && input.workspaceFiles?.length && existingWorkspace) {
+      input.workspaceMode === "none"
+        ? null
+        : (existingWorkspace ??
+          (input.workspaceRootPath.trim()
+            ? await createWorkspace({
+                name: input.workspaceName,
+                permissionMode: input.permissionMode,
+                profileId: selectedProfile.id,
+                rootPath: input.workspaceRootPath,
+                soul: input.workspaceSoul,
+              })
+            : await createWebWorkspace({
+                files: input.workspaceFiles ?? [],
+                name: input.workspaceName,
+                permissionMode: input.permissionMode,
+                profileId: selectedProfile.id,
+                soul: input.workspaceSoul,
+              })));
+    if (
+      input.workspaceMode !== "none" &&
+      !input.workspaceRootPath.trim() &&
+      input.workspaceFiles?.length &&
+      existingWorkspace
+    ) {
       await persistWorkspaceFiles(existingWorkspace.rootPath, input.workspaceFiles);
     }
     saveSetting(database, settingKeys.activeProfileId, selectedProfile.id);
-    saveSetting(database, settingKeys.activeWorkspaceId, workspace.id);
+    saveSetting(database, settingKeys.activeWorkspaceId, workspace?.id ?? "");
     const currentSession =
-      listSessions(workspace.id)[0] ?? createSession({ workspaceId: workspace.id });
+      listSessions(workspace?.id ?? null)[0] ??
+      createSession({ workspaceId: workspace?.id ?? null });
     saveSetting(database, settingKeys.activeSessionId, currentSession.id);
     return getState();
   }
@@ -414,7 +424,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   function selectSession(id: string) {
     const session = database.db.select().from(sessions).where(eq(sessions.id, id)).get();
     if (!session) throw new Error("A sessão selecionada não existe.");
-    saveSetting(database, settingKeys.activeWorkspaceId, session.workspaceId);
+    saveSetting(database, settingKeys.activeWorkspaceId, session.workspaceId ?? "");
     saveSetting(database, settingKeys.activeSessionId, session.id);
     return getState();
   }

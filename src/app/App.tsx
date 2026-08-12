@@ -38,6 +38,7 @@ type OnboardingPanelProps = {
   soul: string;
   workspaceName: string;
   folderSelection: FolderSelection | null;
+  startWithoutWorkspace: boolean;
   workspaceSoul: string;
   isCompleting: boolean;
   completionError: string;
@@ -48,6 +49,7 @@ type OnboardingPanelProps = {
   onProfileNameChange: (name: string) => void;
   onSoulChange: (soul: string) => void;
   onWorkspaceNameChange: (name: string) => void;
+  onStartWithoutWorkspace: () => void;
   onWorkspaceSoulChange: (soul: string) => void;
   onPickFolder: () => void;
   onProviderConnected: (provider: ConnectedProvider) => void;
@@ -61,6 +63,7 @@ function OnboardingPanel({
   soul,
   workspaceName,
   folderSelection,
+  startWithoutWorkspace,
   workspaceSoul,
   isCompleting,
   completionError,
@@ -71,6 +74,7 @@ function OnboardingPanel({
   onProfileNameChange,
   onSoulChange,
   onWorkspaceNameChange,
+  onStartWithoutWorkspace,
   onWorkspaceSoulChange,
   onPickFolder,
   onProviderConnected,
@@ -219,6 +223,22 @@ function OnboardingPanel({
                   </small>
                 </span>
               </button>
+              <button
+                aria-pressed={startWithoutWorkspace}
+                className={startWithoutWorkspace ? "choice is-selected" : "choice"}
+                onClick={onStartWithoutWorkspace}
+                type="button"
+              >
+                <span>
+                  {isEnglish ? "Start without a workspace" : "Iniciar sem workspace"}
+                  <small>
+                    {isEnglish
+                      ? "You can add a project folder later"
+                      : "Você poderá adicionar uma pasta depois"}
+                  </small>
+                </span>
+                <span>{startWithoutWorkspace ? "✓" : ""}</span>
+              </button>
               {folderSelection && (
                 <div className="folder-selected" role="status">
                   <strong>{folderSelection.name}</strong>
@@ -232,8 +252,8 @@ function OnboardingPanel({
               )}
               <span className="field-hint">
                 {isEnglish
-                  ? "The folder is required. Markdown files will be available in your Vault and graph."
-                  : "A pasta é obrigatória. Os Markdown ficarão disponíveis no Vault e no grafo."}
+                  ? "Choose a folder to use files and the Vault, or start without a workspace."
+                  : "Escolha uma pasta para usar arquivos e o Vault, ou inicie sem workspace."}
               </span>
             </div>
           )}
@@ -304,7 +324,7 @@ function OnboardingPanel({
                   isCompleting ||
                   (step.id === "profile" && profileName.trim().length === 0) ||
                   (step.id === "workspace" && workspaceName.trim().length === 0) ||
-                  (step.id === "folder" && !folderSelection)
+                  (step.id === "folder" && !folderSelection && !startWithoutWorkspace)
                 }
                 onClick={(event) => onAdvance(event.detail !== 0)}
                 type="button"
@@ -359,6 +379,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [folderSelection, setFolderSelection] = useState<FolderSelection | null>(null);
+  const [startWithoutWorkspace, setStartWithoutWorkspace] = useState(false);
   const [workspaceSoul, setWorkspaceSoul] = useState(soul);
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
@@ -372,22 +393,17 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     const frame = window.requestAnimationFrame(() => setIsReady(true));
     void getAppState()
       .then(async (state) => {
-        if (
-          cancelled ||
-          !state.activeSessionId ||
-          !state.activeProfileId ||
-          !state.activeWorkspaceId
-        )
-          return;
+        if (cancelled || !state.activeSessionId || !state.activeProfileId) return;
         const profile = state.profiles.find((item) => item.id === state.activeProfileId);
         const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
-        if (!profile || !workspace) return;
+        if (!profile) return;
         setAppState(state);
         setProfileName(profile.name);
         setLocale(profile.locale === "en" ? "en" : "pt-BR");
-        setWorkspaceName(workspace.name);
-        setWorkspaceRootPath(workspace.rootPath);
-        setWorkspaceSoul(workspace.soul);
+        setWorkspaceName(workspace?.name ?? "");
+        setWorkspaceRootPath(workspace?.rootPath ?? "");
+        setWorkspaceSoul(workspace?.soul ?? "");
+        setStartWithoutWorkspace(!workspace);
         const providers = await listProviders();
         const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
         setProvider(
@@ -446,6 +462,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
         workspaceName,
         workspaceRootPath,
         workspaceFiles: folderSelection?.files,
+        workspaceMode: startWithoutWorkspace ? "none" : "workspace",
         workspaceSoul,
       });
       setAppState(state);
@@ -457,7 +474,16 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     } finally {
       setIsCompleting(false);
     }
-  }, [folderSelection, locale, profileName, soul, workspaceName, workspaceRootPath, workspaceSoul]);
+  }, [
+    folderSelection,
+    locale,
+    profileName,
+    soul,
+    startWithoutWorkspace,
+    workspaceName,
+    workspaceRootPath,
+    workspaceSoul,
+  ]);
 
   useEffect(() => {
     function advanceWithEnter(event: KeyboardEvent) {
@@ -470,7 +496,8 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
         return;
       if (onboardingSteps[stepIndex].id === "profile" && !profileName.trim()) return;
       if (onboardingSteps[stepIndex].id === "workspace" && !workspaceName.trim()) return;
-      if (onboardingSteps[stepIndex].id === "folder" && !folderSelection) return;
+      if (onboardingSteps[stepIndex].id === "folder" && !folderSelection && !startWithoutWorkspace)
+        return;
       if (event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
       if (stepIndex === onboardingSteps.length - 1) {
@@ -488,6 +515,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     isComplete,
     isExiting,
     profileName,
+    startWithoutWorkspace,
     stepIndex,
     workspaceName,
   ]);
@@ -511,11 +539,17 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       onProfileNameChange={setProfileName}
       onSoulChange={setSoul}
       onWorkspaceNameChange={setWorkspaceName}
+      onStartWithoutWorkspace={() => {
+        setFolderSelection(null);
+        setWorkspaceRootPath("");
+        setStartWithoutWorkspace(true);
+      }}
       onWorkspaceSoulChange={setWorkspaceSoul}
       onPickFolder={() => {
         void pickDirectory().then((selection) => {
           if (!selection) return;
           setFolderSelection(selection);
+          setStartWithoutWorkspace(false);
           setWorkspaceRootPath(selection.path ?? "");
         });
       }}
@@ -526,6 +560,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       runtime={runtime}
       workspaceName={workspaceName}
       folderSelection={folderSelection}
+      startWithoutWorkspace={startWithoutWorkspace}
       workspaceSoul={workspaceSoul}
       isCompleting={isCompleting}
       completionError={completionError}

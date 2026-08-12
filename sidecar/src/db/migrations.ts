@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS providers (
 );
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY NOT NULL,
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   selected_provider_id TEXT,
   selected_model TEXT,
@@ -124,10 +124,33 @@ export function applyMigrations(client: Database.Database) {
     "CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY NOT NULL, applied_at INTEGER NOT NULL)",
   );
   const applied = client.prepare("SELECT id FROM _migrations WHERE id = 1").get();
-  if (applied) return;
-  const transaction = client.transaction(() => {
-    client.exec(migration);
-    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(1, Date.now());
-  });
-  transaction();
+  if (!applied) {
+    const transaction = client.transaction(() => {
+      client.exec(migration);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(1, Date.now());
+    });
+    transaction();
+  }
+
+  const nullableWorkspace = client.prepare("SELECT id FROM _migrations WHERE id = 2").get();
+  if (nullableWorkspace) return;
+  client.pragma("foreign_keys = OFF");
+  client.exec(`
+    CREATE TABLE sessions_v2 (
+      id TEXT PRIMARY KEY NOT NULL,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      selected_provider_id TEXT,
+      selected_model TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    INSERT INTO sessions_v2 (id, workspace_id, title, selected_provider_id, selected_model, created_at, updated_at)
+      SELECT id, workspace_id, title, selected_provider_id, selected_model, created_at, updated_at FROM sessions;
+    DROP TABLE sessions;
+    ALTER TABLE sessions_v2 RENAME TO sessions;
+    CREATE INDEX IF NOT EXISTS sessions_workspace_updated ON sessions(workspace_id, updated_at DESC);
+  `);
+  client.pragma("foreign_keys = ON");
+  client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(2, Date.now());
 }

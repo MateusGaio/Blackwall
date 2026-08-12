@@ -188,7 +188,10 @@ export function createSidecar(
         return;
       }
       if (request.method === "POST" && pathname === "/v1/sessions") {
-        const input = (await requestBody(request)) as { title?: string; workspaceId: string };
+        const input = (await requestBody(request)) as {
+          title?: string;
+          workspaceId?: string | null;
+        };
         writeJson(response, 201, { session: store.createSession(input) });
         return;
       }
@@ -314,6 +317,7 @@ export function createSidecar(
       model?: string;
       providerId: string;
       requestId: string;
+      profileId?: string;
       workspaceId?: string;
     },
   ) {
@@ -328,7 +332,9 @@ export function createSidecar(
       : null;
     const profile = workspace
       ? database.db.select().from(profiles).where(eq(profiles.id, workspace.profileId)).get()
-      : null;
+      : input.profileId
+        ? database.db.select().from(profiles).where(eq(profiles.id, input.profileId)).get()
+        : null;
     const systemMessages: ChatMessage[] = [];
     if (profile?.soul) systemMessages.push({ content: profile.soul, role: "system" });
     if (workspace?.soul) systemMessages.push({ content: workspace.soul, role: "system" });
@@ -404,6 +410,7 @@ export function createSidecar(
       model?: string;
       providerId: string;
       requestId: string;
+      profileId?: string;
       workspaceId?: string;
     },
   ) {
