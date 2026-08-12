@@ -76,6 +76,9 @@ function OnboardingPanel({
         vault: "Vault",
       }[step.id]
     : step.label;
+  const brandNote = isEnglish
+    ? "Private by default. Your context stays on your computer."
+    : "Privado por padrão. Seu contexto continua no seu computador.";
 
   return (
     <main className="app-shell">
@@ -86,17 +89,24 @@ function OnboardingPanel({
           </span>
           <p className="eyebrow">Blackwall / local-first</p>
         </div>
-        <p className="brand-note">Privado por padrão. Seu contexto continua no seu computador.</p>
+        <p className="brand-note">{brandNote}</p>
       </aside>
 
-      <section className="onboarding-area" aria-label="Configuração inicial">
+      <section
+        className="onboarding-area"
+        aria-label={isEnglish ? "Initial setup" : "Configuração inicial"}
+      >
         <header className="progress-header">
           <p>
             {String(stepIndex + 1).padStart(2, "0")} /{" "}
             {String(onboardingSteps.length).padStart(2, "0")}
           </p>
           <div
-            aria-label={`Etapa ${stepIndex + 1} de ${onboardingSteps.length}`}
+            aria-label={
+              isEnglish
+                ? `Step ${stepIndex + 1} of ${onboardingSteps.length}`
+                : `Etapa ${stepIndex + 1} de ${onboardingSteps.length}`
+            }
             aria-valuemax={onboardingSteps.length}
             aria-valuemin={1}
             aria-valuenow={stepIndex + 1}
@@ -114,7 +124,11 @@ function OnboardingPanel({
           <p className="eyebrow">{label}</p>
           <h1>{title}</h1>
           {step.id === "language" && (
-            <div className="choice-list" role="radiogroup" aria-label="Idioma">
+            <div
+              className="choice-list"
+              role="radiogroup"
+              aria-label={isEnglish ? "Language" : "Idioma"}
+            >
               <button
                 className={locale === "pt-BR" ? "choice is-selected" : "choice"}
                 onClick={() => onLocaleChange("pt-BR")}
@@ -170,10 +184,13 @@ function OnboardingPanel({
           )}
           {step.id === "vault" && (
             <div className="info-panel">
-              <strong>Um Vault real, em Markdown.</strong>
+              <strong>
+                {isEnglish ? "A real Vault, in Markdown." : "Um Vault real, em Markdown."}
+              </strong>
               <p>
-                O Blackwall manterá notas, links e contexto em arquivos que você também pode abrir
-                no Obsidian.
+                {isEnglish
+                  ? "Blackwall will keep notes, links, and context in files you can also open in Obsidian."
+                  : "O Blackwall manterá notas, links e contexto em arquivos que você também pode abrir no Obsidian."}
               </p>
             </div>
           )}
