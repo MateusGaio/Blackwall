@@ -176,6 +176,21 @@ export function createStore(database: DatabaseHandle) {
       .all();
   }
 
+  function setSessionModel(sessionId: string, model: string, providerId?: string | null) {
+    const session = database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!session) throw new Error("A sessão selecionada não existe.");
+    database.db
+      .update(sessions)
+      .set({
+        selectedModel: model.trim() || null,
+        selectedProviderId: providerId ?? null,
+        updatedAt: now(),
+      })
+      .where(eq(sessions.id, sessionId))
+      .run();
+    return database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+  }
+
   function appendMessage(input: {
     content: string;
     model?: string | null;
@@ -295,6 +310,7 @@ export function createStore(database: DatabaseHandle) {
     listMessages,
     listSessions,
     listWorkspaces,
+    setSessionModel,
     selectSession,
   };
 }

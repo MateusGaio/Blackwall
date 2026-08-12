@@ -6,7 +6,14 @@ import { type ChatMessage, sendChatMessage } from "./chat.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
-import { listProviders, type ProviderInput, saveProvider, validateProvider } from "./providers.js";
+import {
+  listProviderModels,
+  listProviders,
+  listStoredProviderModels,
+  type ProviderInput,
+  saveProvider,
+  validateProvider,
+} from "./providers.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
 const allowedOrigins = new Set([
@@ -142,6 +149,24 @@ export function createSidecar(
         writeJson(response, 200, { providers: await listProviders() });
         return;
       }
+      if (request.method === "POST" && pathname === "/v1/providers/models") {
+        const input = (await requestBody(request)) as ProviderInput;
+        writeJson(response, 200, { models: await listProviderModels(input) });
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
+        writeJson(response, 200, {
+          models: await listStoredProviderModels(pathname.split("/")[3]),
+        });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/model$/.test(pathname)) {
+        const input = (await requestBody(request)) as { model: string; providerId?: string | null };
+        writeJson(response, 200, {
+          session: store.setSessionModel(pathname.split("/")[3], input.model, input.providerId),
+        });
+        return;
+      }
       if (request.method === "POST" && pathname === "/v1/providers") {
         const input = (await requestBody(request)) as ProviderInput;
         await validateProvider(input);
@@ -151,9 +176,14 @@ export function createSidecar(
       if (request.method === "POST" && pathname === "/v1/chat/completions") {
         const input = (await requestBody(request)) as {
           messages: ChatMessage[];
+          model?: string;
           providerId: string;
         };
-        writeJson(response, 200, await sendChatMessage(input.providerId, input.messages));
+        writeJson(
+          response,
+          200,
+          await sendChatMessage(input.providerId, input.messages, input.model),
+        );
         return;
       }
       writeJson(response, 404, { error: "Rota local não encontrada." });

@@ -6,6 +6,7 @@ export type ConnectedProvider = {
   id: string;
   model: string;
   name: string;
+  type: "openai-compatible" | "ollama";
 };
 
 export type Profile = {
@@ -61,7 +62,10 @@ type BootstrapInput = {
   workspaceSoul: string;
 };
 
-type ProviderInput = Omit<ConnectedProvider, "id"> & { apiKey: string };
+type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
+  apiKey?: string;
+  type?: ConnectedProvider["type"];
+};
 export type ChatMessage = { content: string; id: string; role: "assistant" | "user" };
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -82,6 +86,44 @@ export async function connectProvider(input: ProviderInput): Promise<ConnectedPr
     method: "POST",
   });
   return response.provider;
+}
+
+export type ProviderModel = {
+  capabilities: string[];
+  id: string;
+  name: string;
+};
+
+export async function discoverProviderModels(
+  input: Omit<ProviderInput, "model">,
+): Promise<ProviderModel[]> {
+  const response = await request<{ models: ProviderModel[] }>("/v1/providers/models", {
+    body: JSON.stringify({ ...input, model: "discovery" }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  return response.models;
+}
+
+export async function listStoredProviderModels(providerId: string): Promise<ProviderModel[]> {
+  const response = await request<{ models: ProviderModel[] }>(
+    `/v1/providers/${providerId}/models`,
+    { method: "GET" },
+  );
+  return response.models;
+}
+
+export async function setSessionModel(
+  sessionId: string,
+  model: string,
+  providerId: string,
+): Promise<Session> {
+  const response = await request<{ session: Session }>(`/v1/sessions/${sessionId}/model`, {
+    body: JSON.stringify({ model, providerId }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  return response.session;
 }
 
 export async function getAppState(): Promise<AppState> {
@@ -140,10 +182,12 @@ export async function persistMessage(
 export async function sendMessage(
   providerId: string,
   messages: ChatMessage[],
+  model?: string,
 ): Promise<{ content: string; provider: ConnectedProvider }> {
   return request("/v1/chat/completions", {
     body: JSON.stringify({
       messages: messages.map(({ content, role }) => ({ content, role })),
+      model,
       providerId,
     }),
     headers: { "content-type": "application/json" },

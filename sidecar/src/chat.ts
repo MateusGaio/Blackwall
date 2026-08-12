@@ -9,14 +9,22 @@ type FetchLike = typeof fetch;
 export async function sendChatMessage(
   providerId: string,
   messages: ChatMessage[],
+  modelOverride?: string,
   request: FetchLike = fetch,
 ): Promise<{ content: string; provider: Provider }> {
   const provider = await getProvider(providerId);
   const apiKey = await providerApiKey(providerId);
+  const isOllama = provider.type === "ollama";
+  const model = modelOverride?.trim() || provider.model;
   const response = await withInstrumentation("provider.chat", () =>
-    request(`${provider.baseUrl}/chat/completions`, {
-      body: JSON.stringify({ messages, model: provider.model, stream: false }),
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    request(isOllama ? `${provider.baseUrl}/api/chat` : `${provider.baseUrl}/chat/completions`, {
+      body: JSON.stringify(
+        isOllama ? { messages, model, stream: false } : { messages, model, stream: false },
+      ),
+      headers: {
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        "content-type": "application/json",
+      },
       method: "POST",
     }),
   );
@@ -26,8 +34,11 @@ export async function sendChatMessage(
       `Não foi possível obter resposta (HTTP ${response.status}). Revise o provedor ou tente novamente.`,
     );
   }
-  const body = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const content = body.choices?.[0]?.message?.content?.trim();
+  const body = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    message?: { content?: string };
+  };
+  const content = (isOllama ? body.message?.content : body.choices?.[0]?.message?.content)?.trim();
   if (!content)
     throw new Error("O provedor não retornou uma mensagem utilizável. Tente outro modelo.");
   return { content, provider };

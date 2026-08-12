@@ -1,14 +1,17 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import {
   type AppState,
   type ChatMessage,
   type ConnectedProvider,
   createSession,
   getAppState,
+  listStoredProviderModels,
+  type ProviderModel,
   persistMessage,
   selectSession,
   sendMessage,
+  setSessionModel,
 } from "../shared/api/sidecar";
 import { isSubmitShortcut } from "./composer";
 
@@ -25,10 +28,43 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [models, setModels] = useState<ProviderModel[]>([]);
 
   const name = profileName.trim() || "você";
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
+  const selectedModel = activeSession?.selectedModel ?? provider?.model ?? models[0]?.id ?? "";
+
+  useEffect(() => {
+    if (!provider) return;
+    setModels([{ capabilities: [], id: provider.model, name: provider.model }]);
+    void listStoredProviderModels(provider.id)
+      .then((available) =>
+        setModels(
+          available.length > 0
+            ? available
+            : [{ capabilities: [], id: provider.model, name: provider.model }],
+        ),
+      )
+      .catch(() => undefined);
+  }, [provider]);
+
+  async function changeModel(model: string) {
+    if (!activeSession || !provider) return;
+    try {
+      const session = await setSessionModel(activeSession.id, model, provider.id);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
+            }
+          : current,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível trocar o modelo.");
+    }
+  }
 
   async function openSession(sessionId: string) {
     setError("");
@@ -70,7 +106,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     setIsSending(true);
     try {
       await persistMessage(sessionId, { content, role: "user", status: "complete" });
-      const result = await sendMessage(provider.id, nextMessages);
+      const result = await sendMessage(provider.id, nextMessages, selectedModel);
       const assistantMessage = {
         content: result.content,
         id: crypto.randomUUID(),
@@ -171,7 +207,24 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             <p className="eyebrow">{workspace?.name ?? "Workspace"}</p>
             <p className="workspace-session-title">{activeSession?.title ?? "Nova conversa"}</p>
           </div>
-          <p className="eyebrow">{provider?.name ?? "sem provedor"}</p>
+          <div className="chat-controls">
+            <p className="eyebrow">{provider?.name ?? "sem provedor"}</p>
+            {provider && (
+              <label className="model-selector">
+                <span className="sr-only">Modelo</span>
+                <select
+                  onChange={(event) => void changeModel(event.target.value)}
+                  value={selectedModel}
+                >
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
         </header>
         <section className="chat-shell" aria-label="Conversa">
           {messages.length === 0 ? (

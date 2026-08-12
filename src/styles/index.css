@@ -21,7 +21,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -246,6 +247,16 @@ button:disabled {
   gap: 7px;
 }
 
+.model-input-row {
+  align-items: stretch;
+  display: flex;
+  gap: 8px;
+}
+
+.model-input-row input {
+  min-width: 0;
+}
+
 .provider-skeleton {
   height: 216px;
 }
@@ -468,6 +479,30 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   min-width: 0;
+}
+
+.chat-controls {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.model-selector select {
+  background: #141416;
+  border: 1px solid #353539;
+  color: #cfcfd2;
+  font-size: 0.76rem;
+  max-width: 220px;
+  padding: 7px 9px;
+}
+
+.sr-only {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
 }
 
 .workspace-session-title {

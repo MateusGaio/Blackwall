@@ -8,13 +8,24 @@ import { withInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret } from "./secrets.js";
 
 export type ProviderInput = {
-  apiKey: string;
+  apiKey?: string;
   baseUrl: string;
   model: string;
   name: string;
+  type?: ProviderKind;
 };
 
-export type Provider = Omit<ProviderInput, "apiKey"> & { id: string };
+export type ProviderKind = "openai-compatible" | "ollama";
+export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
+  id: string;
+  type: ProviderKind;
+};
+
+type ProviderModel = {
+  capabilities: string[];
+  id: string;
+  name: string;
+};
 
 type ProviderDocument = { providers: Provider[] };
 type FetchLike = typeof fetch;
@@ -37,13 +48,21 @@ export async function validateProvider(
   input: ProviderInput,
   request: FetchLike = fetch,
 ): Promise<void> {
-  if (!input.name.trim() || !input.model.trim() || !input.apiKey.trim()) {
+  const type = input.type ?? "openai-compatible";
+  if (!input.name.trim() || !input.model.trim() || (type !== "ollama" && !input.apiKey?.trim())) {
     throw new Error("Informe nome, modelo e chave de API para continuar.");
   }
 
-  const endpoint = `${normalizeBaseUrl(input.baseUrl)}/models`;
+  const endpoint =
+    type === "ollama"
+      ? `${normalizeBaseUrl(input.baseUrl)}/api/tags`
+      : `${normalizeBaseUrl(input.baseUrl)}/models`;
   const response = await withInstrumentation("provider.validate", () =>
-    request(endpoint, { headers: { authorization: `Bearer ${input.apiKey.trim()}` } }),
+    request(endpoint, {
+      headers: input.apiKey?.trim()
+        ? { authorization: `Bearer ${input.apiKey.trim()}` }
+        : undefined,
+    }),
   );
 
   if (response.ok) return;
@@ -57,9 +76,15 @@ export async function validateProvider(
 
 async function readDocument(dataDirectory: string): Promise<ProviderDocument> {
   try {
-    return JSON.parse(
-      await readFile(join(dataDirectory, "providers.json"), "utf8"),
-    ) as ProviderDocument;
+    const document = JSON.parse(await readFile(join(dataDirectory, "providers.json"), "utf8")) as {
+      providers?: Array<Omit<Provider, "type"> & { type?: ProviderKind }>;
+    };
+    return {
+      providers: (document.providers ?? []).map((provider) => ({
+        ...provider,
+        type: provider.type ?? "openai-compatible",
+      })),
+    };
   } catch (error) {
     if (typeof error === "object" && error && "code" in error && error.code === "ENOENT") {
       return emptyDocument();
@@ -85,17 +110,28 @@ export async function saveProvider(
     id: randomUUID(),
     model: input.model.trim(),
     name: input.name.trim(),
+    type: input.type ?? "openai-compatible",
   };
   const document = await readDocument(dataDirectory);
   document.providers = [...document.providers, provider];
-  await encryptSecret(dataDirectory, provider.id, input.apiKey.trim());
+  if (input.apiKey?.trim()) {
+    await encryptSecret(dataDirectory, provider.id, input.apiKey.trim());
+  }
   await writeDocument(dataDirectory, document);
   const database = openDatabase(dataDirectory);
   database.client
     .prepare(
-      "INSERT OR REPLACE INTO providers (id, type, name, base_url, status, created_at, updated_at) VALUES (?, 'openai-compatible', ?, ?, 'connected', COALESCE((SELECT created_at FROM providers WHERE id = ?), ?), ?)",
+      "INSERT OR REPLACE INTO providers (id, type, name, base_url, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'connected', COALESCE((SELECT created_at FROM providers WHERE id = ?), ?), ?)",
     )
-    .run(provider.id, provider.name, provider.baseUrl, provider.id, Date.now(), Date.now());
+    .run(
+      provider.id,
+      provider.type,
+      provider.name,
+      provider.baseUrl,
+      provider.id,
+      Date.now(),
+      Date.now(),
+    );
   database.close();
   return provider;
 }
@@ -118,5 +154,63 @@ export async function providerApiKey(
   id: string,
   dataDirectory = providerDataDirectory(),
 ): Promise<string> {
-  return decryptSecret(dataDirectory, id);
+  try {
+    return await decryptSecret(dataDirectory, id);
+  } catch {
+    return "";
+  }
+}
+
+export async function listProviderModels(
+  provider: ProviderInput,
+  request: FetchLike = fetch,
+): Promise<ProviderModel[]> {
+  const type = provider.type ?? "openai-compatible";
+  const endpoint =
+    type === "ollama"
+      ? `${normalizeBaseUrl(provider.baseUrl)}/api/tags`
+      : `${normalizeBaseUrl(provider.baseUrl)}/models`;
+  const response = await withInstrumentation("provider.models", () =>
+    request(endpoint, {
+      headers: provider.apiKey?.trim()
+        ? { authorization: `Bearer ${provider.apiKey.trim()}` }
+        : undefined,
+    }),
+  );
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("A chave foi recusada. Revise a chave ou as permissões do provedor.");
+    }
+    throw new Error(`Não foi possível listar os modelos (HTTP ${response.status}).`);
+  }
+  const body = (await response.json()) as {
+    data?: Array<{ id?: string; name?: string }>;
+    models?: Array<{ name?: string; model?: string }>;
+  };
+  const models: Array<{ id?: string; model?: string; name?: string }> =
+    type === "ollama" ? (body.models ?? []) : (body.data ?? []);
+  return models
+    .map((model) => {
+      const id = model.id ?? model.model ?? model.name ?? "";
+      return { capabilities: [], id, name: id };
+    })
+    .filter((model) => model.id);
+}
+
+export async function listStoredProviderModels(
+  id: string,
+  dataDirectory = providerDataDirectory(),
+  request: FetchLike = fetch,
+): Promise<ProviderModel[]> {
+  const provider = await getProvider(id, dataDirectory);
+  return listProviderModels(
+    {
+      apiKey: await providerApiKey(id, dataDirectory),
+      baseUrl: provider.baseUrl,
+      model: provider.model,
+      name: provider.name,
+      type: provider.type,
+    },
+    request,
+  );
 }
