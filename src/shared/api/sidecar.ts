@@ -94,10 +94,15 @@ type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
   id?: string;
   type?: ConnectedProvider["type"];
 };
-export type ChatMessage = { content: string; id: string; role: "assistant" | "system" | "user" };
+export type ChatMessage = {
+  content: string;
+  id: string;
+  role: "assistant" | "system" | "tool" | "user";
+};
 
 export type Attachment = {
   byteSize: number;
+  createdAt?: number;
   filename: string;
   id: string;
   status: string;
@@ -336,6 +341,30 @@ export async function persistMessage(
   return response.message;
 }
 
+export async function editSessionMessage(
+  sessionId: string,
+  messageId: string,
+  content: string,
+): Promise<StoredMessage[]> {
+  const response = await request<{ messages: StoredMessage[] }>(
+    `/v1/sessions/${sessionId}/messages/${messageId}/edit`,
+    {
+      body: JSON.stringify({ content }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.messages;
+}
+
+export async function regenerateSession(sessionId: string): Promise<StoredMessage[]> {
+  const response = await request<{ messages: StoredMessage[] }>(
+    `/v1/sessions/${sessionId}/regenerate`,
+    { method: "POST" },
+  );
+  return response.messages;
+}
+
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
   const chunkSize = 0x8000;
@@ -365,6 +394,17 @@ export async function uploadAttachment(
   return response.attachment;
 }
 
+export async function listAttachments(
+  workspaceId: string,
+  sessionId?: string,
+): Promise<Attachment[]> {
+  const response = await request<{ attachments: Attachment[] }>(
+    `/v1/attachments?workspaceId=${encodeURIComponent(workspaceId)}&sessionId=${encodeURIComponent(sessionId ?? "")}`,
+    { method: "GET" },
+  );
+  return response.attachments;
+}
+
 export async function searchAttachments(
   workspaceId: string,
   query: string,
@@ -382,6 +422,7 @@ export async function removeAttachment(attachmentId: string): Promise<void> {
 
 type StreamResult = {
   content: string;
+  persisted?: boolean;
   provider: ConnectedProvider | null;
   stopped?: boolean;
 };
@@ -403,6 +444,7 @@ export async function streamMessage(
   workspaceId: string,
   handlers: StreamHandlers,
   profileId?: string,
+  sessionId?: string,
 ): Promise<ActiveStream> {
   const baseUrl = await sidecarUrl();
   if (!baseUrl) throw new Error("O sidecar local não está disponível.");
@@ -427,6 +469,7 @@ export async function streamMessage(
         profileId,
         providerId,
         requestId,
+        sessionId,
         type: "chat.start",
         workspaceId: workspaceId === "default" ? undefined : workspaceId,
       }),
@@ -438,6 +481,7 @@ export async function streamMessage(
       delta?: string;
       message?: string;
       provider?: ConnectedProvider;
+      persisted?: boolean;
       type?: string;
     };
     if (message.type === "chat.delta" && message.delta) {
@@ -447,11 +491,20 @@ export async function streamMessage(
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? "Tentando novamente…");
     if (message.type === "chat.completed") {
-      resolveDone({ content: message.content ?? content, provider: message.provider ?? null });
+      resolveDone({
+        content: message.content ?? content,
+        persisted: message.persisted,
+        provider: message.provider ?? null,
+      });
       socket.close();
     }
     if (message.type === "chat.stopped") {
-      resolveDone({ content, provider: null, stopped: true });
+      resolveDone({
+        content: message.content ?? content,
+        persisted: message.persisted,
+        provider: null,
+        stopped: true,
+      });
       socket.close();
     }
     if (message.type === "chat.failed") {

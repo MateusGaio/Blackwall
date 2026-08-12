@@ -9,11 +9,11 @@ import {
   providerDataDirectory,
 } from "./providers.js";
 
-type StreamMessage = { content: string; role: "assistant" | "system" | "user" };
+type StreamMessage = { content: string; role: "assistant" | "system" | "tool" | "user" };
 type StreamDelta = (content: string) => void;
 type FetchLike = typeof fetch;
 
-export class ProviderRequestError extends ProviderHttpError {
+class ProviderRequestError extends ProviderHttpError {
   constructor(status: number) {
     super(status, "obter uma resposta");
     this.name = "ProviderRequestError";

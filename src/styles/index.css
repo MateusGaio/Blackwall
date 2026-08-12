@@ -1455,6 +1455,79 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.safe-markdown p {
+  margin: 0 0 8px;
+}
+
+.safe-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.safe-markdown code {
+  background: #242429;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 4px;
+}
+
+.code-block {
+  background: #101013;
+  border: 1px solid #303036;
+  border-radius: 8px;
+  margin: 10px 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.code-block pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 14px;
+}
+
+.code-copy {
+  background: #25252a;
+  border: 1px solid #3a3a40;
+  border-radius: 5px;
+  color: #d9d9de;
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+}
+
+.message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.message-action {
+  background: transparent;
+  border: 0;
+  color: #8f8f98;
+  cursor: pointer;
+  font-size: 0.74rem;
+  padding: 2px 0;
+}
+
+.message-action:hover {
+  color: #f0f0f2;
+}
+
+.message-edit-form textarea {
+  background: #151519;
+  border: 1px solid #56565e;
+  border-radius: 8px;
+  color: inherit;
+  min-height: 100px;
+  padding: 10px;
+  resize: vertical;
+  width: min(100%, 620px);
+}
+
 .message-user {
   align-self: flex-end;
   background: #202024;

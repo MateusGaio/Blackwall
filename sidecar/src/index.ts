@@ -1,17 +1,18 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import {
   type AttachmentInput,
+  listAttachments,
   removeAttachment,
   saveAttachment,
   searchAttachments,
 } from "./attachments.js";
 import { type ChatMessage, sendChatMessage } from "./chat.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
-import { profiles, workspaces } from "./db/schema.js";
+import { profiles, routerEntries, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
@@ -22,7 +23,9 @@ import {
   type ProviderInput,
   providerApiKey,
   removeProvider,
+  routeCandidates,
   saveProvider,
+  syncProviderModels,
   validateProvider,
 } from "./providers.js";
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
@@ -133,6 +136,19 @@ export function createSidecar(
           throw new Error("Informe workspace e busca para pesquisar anexos.");
         writeJson(response, 200, {
           results: await searchAttachments(workspaceId, query, storageDirectory),
+        });
+        return;
+      }
+      if (request.method === "GET" && pathname === "/v1/attachments") {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const workspaceId = url.searchParams.get("workspaceId");
+        if (!workspaceId) throw new Error("Informe o workspace para listar anexos.");
+        writeJson(response, 200, {
+          attachments: await listAttachments(
+            workspaceId,
+            url.searchParams.get("sessionId"),
+            storageDirectory,
+          ),
         });
         return;
       }
@@ -256,12 +272,27 @@ export function createSidecar(
           content: string;
           model?: string | null;
           providerId?: string | null;
-          role: "assistant" | "system" | "user";
+          role: "assistant" | "system" | "tool" | "user";
           status?: string;
         };
         writeJson(response, 201, {
           message: store.appendMessage({ ...input, sessionId: pathname.split("/")[3] }),
         });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/sessions\/[^/]+\/messages\/[^/]+\/edit$/.test(pathname)
+      ) {
+        const input = (await requestBody(request)) as { content: string };
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          messages: store.editUserMessage(parts[3], parts[5], input.content),
+        });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/regenerate$/.test(pathname)) {
+        writeJson(response, 200, { messages: store.prepareRegeneration(pathname.split("/")[3]) });
         return;
       }
       if (request.method === "GET" && pathname === "/v1/providers") {
@@ -276,6 +307,24 @@ export function createSidecar(
       if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
         writeJson(response, 200, {
           models: await listStoredProviderModels(pathname.split("/")[3]),
+        });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/providers\/[^/]+\/models\/sync$/.test(pathname)) {
+        const providerId = pathname.split("/")[3];
+        const provider = await getProvider(providerId, storageDirectory);
+        writeJson(response, 200, {
+          models: await syncProviderModels(
+            providerId,
+            {
+              apiKey: await providerApiKey(providerId, storageDirectory),
+              baseUrl: provider.baseUrl,
+              model: provider.model,
+              name: provider.name,
+              type: provider.type,
+            },
+            storageDirectory,
+          ),
         });
         return;
       }
@@ -350,15 +399,12 @@ export function createSidecar(
       providerId: string;
       requestId: string;
       profileId?: string;
+      sessionId?: string;
       workspaceId?: string;
     },
   ) {
     const controller = new AbortController();
     activeRequests.set(input.requestId, controller);
-    const providers = await listProviders();
-    const providerIds = [input.providerId, ...providers.map((provider) => provider.id)]
-      .filter((id, index, ids) => ids.indexOf(id) === index)
-      .slice(0, 8);
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
       : null;
@@ -367,26 +413,71 @@ export function createSidecar(
       : input.profileId
         ? database.db.select().from(profiles).where(eq(profiles.id, input.profileId)).get()
         : null;
+    const entries = input.workspaceId
+      ? database.db
+          .select({
+            providerId: routerEntries.providerId,
+            modelId: routerEntries.modelId,
+            position: routerEntries.position,
+          })
+          .from(routerEntries)
+          .where(eq(routerEntries.workspaceId, input.workspaceId))
+          .orderBy(asc(routerEntries.position))
+          .all()
+      : [];
+    const candidates = routeCandidates(
+      { model: input.model, providerId: input.providerId },
+      entries,
+    );
     const systemMessages: ChatMessage[] = [];
     if (profile?.soul) systemMessages.push({ content: profile.soul, role: "system" });
     if (workspace?.soul) systemMessages.push({ content: workspace.soul, role: "system" });
+    const storedMessages = input.sessionId
+      ? store.listMessages(input.sessionId).map((message) => ({
+          content: message.content,
+          role: message.role as ChatMessage["role"],
+        }))
+      : input.messages;
     const promptMessages = [
       ...systemMessages,
-      ...input.messages.filter((message) => message.role === "system"),
-      ...input.messages.filter((message) => message.role !== "system"),
+      ...(input.sessionId
+        ? input.messages.filter((message) => message.role === "system")
+        : storedMessages.filter((message) => message.role === "system")),
+      ...storedMessages.filter((message) => message.role !== "system"),
     ];
+    const persistStream = (
+      content: string,
+      providerId?: string,
+      model?: string,
+      status = "complete",
+    ) => {
+      if (!input.sessionId || !content.trim()) return;
+      store.appendMessage({
+        content,
+        model: model ?? input.model ?? null,
+        providerId: providerId ?? null,
+        role: "assistant",
+        sessionId: input.sessionId,
+        status,
+      });
+    };
     try {
-      for (const providerId of providerIds) {
+      for (const candidate of candidates) {
         if (controller.signal.aborted) return;
         socket.send(
-          JSON.stringify({ providerId, requestId: input.requestId, type: "chat.started" }),
+          JSON.stringify({
+            model: candidate.model,
+            providerId: candidate.providerId,
+            requestId: input.requestId,
+            type: "chat.started",
+          }),
         );
         let content = "";
         try {
           const result = await streamChatMessage(
-            providerId,
+            candidate.providerId,
             promptMessages,
-            input.model,
+            candidate.model,
             (delta) => {
               content += delta;
               socket.send(
@@ -398,10 +489,14 @@ export function createSidecar(
               );
             },
             controller.signal,
+            fetch,
+            storageDirectory,
           );
+          persistStream(content, result.provider.id, input.model, "complete");
           socket.send(
             JSON.stringify({
               content,
+              persisted: Boolean(input.sessionId),
               provider: result.provider,
               requestId: input.requestId,
               type: "chat.completed",
@@ -409,8 +504,19 @@ export function createSidecar(
           );
           return;
         } catch (error) {
-          if (controller.signal.aborted) return;
-          if (!isRetryableProviderError(error) || providerId === providerIds.at(-1)) {
+          if (controller.signal.aborted) {
+            persistStream(content, candidate.providerId, candidate.model, "stopped");
+            socket.send(
+              JSON.stringify({
+                content,
+                persisted: Boolean(input.sessionId),
+                requestId: input.requestId,
+                type: "chat.stopped",
+              }),
+            );
+            return;
+          }
+          if (!isRetryableProviderError(error) || candidate === candidates.at(-1)) {
             const message = error instanceof Error ? error.message : "Falha no provedor.";
             socket.send(
               JSON.stringify({ message, requestId: input.requestId, type: "chat.failed" }),
@@ -420,13 +526,13 @@ export function createSidecar(
           socket.send(
             JSON.stringify({
               message: "Tentando o próximo provedor…",
-              providerId,
+              providerId: candidate.providerId,
               requestId: input.requestId,
               type: "chat.retrying",
             }),
           );
           await new Promise((resolve) =>
-            setTimeout(resolve, 120 * (providerIds.indexOf(providerId) + 1)),
+            setTimeout(resolve, Math.min(2000, 250 * 2 ** candidates.indexOf(candidate))),
           );
         }
       }
@@ -443,10 +549,11 @@ export function createSidecar(
       providerId: string;
       requestId: string;
       profileId?: string;
+      sessionId?: string;
       workspaceId?: string;
     },
   ) {
-    const workspaceId = input.workspaceId ?? "default";
+    const workspaceId = input.workspaceId ?? `session:${input.sessionId ?? "default"}`;
     const previous = queues.get(workspaceId) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(() => executeChat(socket, input));
     queues.set(workspaceId, current);
@@ -469,8 +576,9 @@ export function createSidecar(
         return;
       }
       if (input.type === "chat.stop" && input.requestId) {
-        activeRequests.get(input.requestId)?.abort();
-        socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
+        const active = activeRequests.get(input.requestId);
+        if (active) active.abort();
+        else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
         return;
       }
       if (input.type === "chat.start" && input.requestId && typeof input.providerId === "string") {

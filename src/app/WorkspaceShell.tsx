@@ -16,11 +16,14 @@ import {
   type ConnectedProvider,
   createSession,
   deleteSession,
+  editSessionMessage,
   getAppState,
+  listAttachments,
   listProviders,
   listStoredProviderModels,
   type ProviderModel,
   persistMessage,
+  regenerateSession,
   removeAttachment,
   renameSession,
   searchAttachments,
@@ -32,6 +35,7 @@ import {
   uploadAttachment,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
+import { SafeMarkdown } from "../shared/components/SafeMarkdown";
 import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 
@@ -77,8 +81,16 @@ export default function WorkspaceShell({
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
   );
+  const [sessionToRename, setSessionToRename] = useState<{ id: string; title: string } | null>(
+    null,
+  );
+  const [renameDraft, setRenameDraft] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingMessageDraft, setEditingMessageDraft] = useState("");
+  const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
+  const messageListRef = useRef<HTMLOListElement | null>(null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
   const name = activeProfile?.name.trim() || profileName.trim() || "você";
@@ -129,8 +141,26 @@ export default function WorkspaceShell({
     if (!workspace) {
       setShowVault(false);
       setPermissionOpen(false);
+      setAttachments([]);
     }
   }, [workspace]);
+
+  useEffect(() => {
+    if (!workspace || !activeSession) return;
+    void listAttachments(workspace.id, activeSession.id)
+      .then(setAttachments)
+      .catch(() => undefined);
+  }, [workspace, activeSession]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      messageListRef.current?.scrollTo({
+        behavior: "smooth",
+        top: messageListRef.current.scrollHeight,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  });
 
   useEffect(() => {
     if (!activeProvider) return;
@@ -237,8 +267,11 @@ export default function WorkspaceShell({
   }
 
   async function rename(sessionId: string, currentTitle: string) {
-    const title = window.prompt("Nome da sessão", currentTitle)?.trim();
-    if (!title || title === currentTitle) return;
+    const title = renameDraft.trim();
+    if (!title || title === currentTitle) {
+      setSessionToRename(null);
+      return;
+    }
     try {
       const updated = await renameSession(sessionId, title);
       setState((current) =>
@@ -252,6 +285,7 @@ export default function WorkspaceShell({
             }
           : current,
       );
+      setSessionToRename(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível renomear a sessão.");
     }
@@ -291,40 +325,16 @@ export default function WorkspaceShell({
     }
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const content = draft.trim();
-    const sessionId = state?.activeSessionId;
-    const selectedProvider = activeProvider;
-    if (!content || !selectedProvider || !sessionId || isSending) return;
-    const nextMessages: ChatMessage[] = [
-      ...messages,
-      { content, id: crypto.randomUUID(), role: "user" },
-    ];
-    setMessages(nextMessages);
-    setDraft("");
+  async function generateResponse(promptMessages: ChatMessage[], sessionId: string) {
+    if (!activeProvider || isSending) return;
     setError("");
-    setResourceNotice("");
     setIsSending(true);
     setStreamingContent("");
     setStreamingStatus("Consultando…");
     try {
-      await persistMessage(sessionId, { content, role: "user", status: "complete" });
-      const relevantAttachments = workspace
-        ? await searchAttachments(workspace.id, content.slice(0, 160)).catch(() => [])
-        : [];
-      const contextMessage: ChatMessage | null = relevantAttachments.length
-        ? {
-            content: `Trechos relevantes dos anexos locais:\n${relevantAttachments
-              .map((item) => `[${item.filename}]\n${item.content}`)
-              .join("\n\n")}`,
-            id: crypto.randomUUID(),
-            role: "system",
-          }
-        : null;
       const stream = await streamMessage(
-        selectedProvider.id,
-        contextMessage ? [...nextMessages, contextMessage] : nextMessages,
+        activeProvider.id,
+        promptMessages,
         selectedModel,
         workspace?.id ?? "default",
         {
@@ -335,27 +345,23 @@ export default function WorkspaceShell({
           onRetry: (message) => setStreamingStatus(message),
         },
         state?.activeProfileId ?? undefined,
+        sessionId,
       );
       activeStream.current = stream;
       const result = await stream.done;
       const assistantContent = result.content.trim();
-      if (assistantContent) {
-        const assistantMessage = {
-          content: assistantContent,
-          id: crypto.randomUUID(),
-          role: "assistant" as const,
-        };
+      if (assistantContent && !result.persisted) {
         await persistMessage(sessionId, {
-          content: assistantMessage.content,
+          content: assistantContent,
           model: result.provider?.model ?? selectedModel,
-          providerId: result.provider?.id ?? selectedProvider.id,
-          role: assistantMessage.role,
+          providerId: result.provider?.id ?? activeProvider.id,
+          role: "assistant",
           status: result.stopped ? "stopped" : "complete",
         });
-        setMessages((current) => [...current, assistantMessage]);
       }
       const refreshed = await getAppState();
       setState(refreshed);
+      setMessages(refreshed.messages);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível enviar a mensagem.");
     } finally {
@@ -363,6 +369,64 @@ export default function WorkspaceShell({
       setStreamingContent("");
       setStreamingStatus("");
       setIsSending(false);
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = draft.trim();
+    const sessionId = state?.activeSessionId;
+    if (!content || !activeProvider || !sessionId || isSending) return;
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { content, id: crypto.randomUUID(), role: "user" },
+    ];
+    setMessages(nextMessages);
+    setDraft("");
+    setResourceNotice("");
+    await persistMessage(sessionId, { content, role: "user", status: "complete" });
+    const relevantAttachments = workspace
+      ? await searchAttachments(workspace.id, content.slice(0, 160)).catch(() => [])
+      : [];
+    const contextMessage: ChatMessage | null = relevantAttachments.length
+      ? {
+          content: `Trechos relevantes dos anexos locais:\n${relevantAttachments
+            .map((item) => `[${item.filename}]\n${item.content}`)
+            .join("\n\n")}`,
+          id: crypto.randomUUID(),
+          role: "system",
+        }
+      : null;
+    await generateResponse(
+      contextMessage ? [...nextMessages, contextMessage] : nextMessages,
+      sessionId,
+    );
+  }
+
+  async function editMessage(messageId: string, content: string) {
+    const sessionId = state?.activeSessionId;
+    if (!sessionId || isSending) return;
+    try {
+      const next = await editSessionMessage(sessionId, messageId, content);
+      setMessages(next as ChatMessage[]);
+      const refreshed = await getAppState();
+      setState(refreshed);
+      setMessages(refreshed.messages);
+      await generateResponse(refreshed.messages as ChatMessage[], sessionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível editar a mensagem.");
+    }
+  }
+
+  async function regenerate() {
+    const sessionId = state?.activeSessionId;
+    if (!sessionId || isSending) return;
+    try {
+      const next = await regenerateSession(sessionId);
+      setMessages(next as ChatMessage[]);
+      await generateResponse(next as ChatMessage[], sessionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível regenerar a resposta.");
     }
   }
 
@@ -407,6 +471,11 @@ export default function WorkspaceShell({
 
     event.preventDefault();
     event.currentTarget.form?.requestSubmit();
+  }
+
+  function resizeComposer(target: HTMLTextAreaElement) {
+    target.style.height = "auto";
+    target.style.height = `${Math.min(target.scrollHeight, 240)}px`;
   }
 
   return (
@@ -509,7 +578,8 @@ export default function WorkspaceShell({
                     <button
                       onClick={() => {
                         setOpenSessionMenuId(null);
-                        void rename(session.id, session.title);
+                        setRenameDraft(session.title);
+                        setSessionToRename({ id: session.id, title: session.title });
                       }}
                       role="menuitem"
                       type="button"
@@ -598,10 +668,64 @@ export default function WorkspaceShell({
               </p>
             </div>
           ) : (
-            <ol className="message-list">
+            <ol className="message-list" ref={messageListRef}>
               {messages.map((message) => (
                 <li className={`message message-${message.role}`} key={message.id}>
-                  {message.content}
+                  {editingMessageId === message.id ? (
+                    <form
+                      className="message-edit-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        setEditingMessageId(null);
+                        void editMessage(message.id, editingMessageDraft);
+                      }}
+                    >
+                      <textarea
+                        aria-label="Editar mensagem"
+                        onChange={(event) => setEditingMessageDraft(event.target.value)}
+                        value={editingMessageDraft}
+                      />
+                      <div className="message-actions">
+                        <button
+                          className="button button-secondary"
+                          onClick={() => setEditingMessageId(null)}
+                          type="button"
+                        >
+                          Cancelar
+                        </button>
+                        <button className="button button-primary" type="submit">
+                          Salvar e regenerar
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <SafeMarkdown content={message.content} />
+                      <div className="message-actions">
+                        {message.role === "user" && (
+                          <button
+                            className="message-action"
+                            onClick={() => {
+                              setEditingMessageDraft(message.content);
+                              setEditingMessageId(message.id);
+                            }}
+                            type="button"
+                          >
+                            Editar
+                          </button>
+                        )}
+                        {message.role === "assistant" && message.id === messages.at(-1)?.id && (
+                          <button
+                            className="message-action"
+                            onClick={() => void regenerate()}
+                            type="button"
+                          >
+                            Regenerar
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </li>
               ))}
               {isSending && (
@@ -619,7 +743,7 @@ export default function WorkspaceShell({
                   <span>{attachment.filename}</span>
                   <button
                     aria-label={`Remover ${attachment.filename}`}
-                    onClick={() => void detachFile(attachment)}
+                    onClick={() => setAttachmentToRemove(attachment)}
                     type="button"
                   >
                     ×
@@ -706,7 +830,10 @@ export default function WorkspaceShell({
             <textarea
               aria-label="Mensagem"
               disabled={!activeProvider || !activeSession || isSending}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                resizeComposer(event.target);
+              }}
               onKeyDown={handleComposerKeyDown}
               placeholder="Envie uma mensagem…"
               rows={1}
@@ -804,6 +931,62 @@ export default function WorkspaceShell({
           }}
           title={`Excluir ${sessionToDelete.title}?`}
         />
+      )}
+      {attachmentToRemove && (
+        <ConfirmDialog
+          confirmLabel="Remover anexo"
+          description="O arquivo e seu índice local serão removidos deste dispositivo."
+          onCancel={() => setAttachmentToRemove(null)}
+          onConfirm={() => {
+            const attachment = attachmentToRemove;
+            setAttachmentToRemove(null);
+            void detachFile(attachment);
+          }}
+          title={`Remover ${attachmentToRemove.filename}?`}
+        />
+      )}
+      {sessionToRename && (
+        <div className="confirm-backdrop" role="presentation">
+          <section
+            aria-labelledby="rename-session-title"
+            aria-modal="true"
+            className="confirm-dialog"
+            role="dialog"
+          >
+            <p className="eyebrow">Sessão</p>
+            <h2 id="rename-session-title">Renomear conversa</h2>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void rename(sessionToRename.id, sessionToRename.title);
+              }}
+            >
+              <label className="settings-field">
+                <span>Novo nome</span>
+                <input
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  value={renameDraft}
+                />
+              </label>
+              <footer className="confirm-dialog-actions">
+                <button
+                  className="button button-secondary"
+                  onClick={() => setSessionToRename(null)}
+                  type="button"
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="button button-primary"
+                  disabled={!renameDraft.trim()}
+                  type="submit"
+                >
+                  Salvar
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
       )}
       {paletteOpen && (
         <div className="command-backdrop" role="presentation">

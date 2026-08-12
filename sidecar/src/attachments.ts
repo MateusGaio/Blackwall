@@ -147,6 +147,31 @@ export async function searchAttachments(
   }
 }
 
+export async function listAttachments(
+  workspaceId: string,
+  sessionId?: string | null,
+  storageDirectory = dataDirectory(),
+) {
+  const database = openDatabase(storageDirectory);
+  try {
+    const rows = database.client
+      .prepare(
+        "SELECT id, filename, mime_type AS mimeType, byte_size AS byteSize, status, created_at AS createdAt FROM attachments WHERE workspace_id = ? AND (? IS NULL OR session_id = ? OR session_id IS NULL) ORDER BY created_at DESC",
+      )
+      .all(workspaceId, sessionId ?? null, sessionId ?? null) as Array<{
+      byteSize: number;
+      createdAt: number;
+      filename: string;
+      id: string;
+      mimeType: string;
+      status: string;
+    }>;
+    return rows;
+  } finally {
+    database.close();
+  }
+}
+
 export async function removeAttachment(id: string, storageDirectory = dataDirectory()) {
   const database = openDatabase(storageDirectory);
   try {

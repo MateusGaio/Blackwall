@@ -37,7 +37,7 @@ export function openDatabase(directory = dataDirectory()): DatabaseHandle {
 
 function migrateLegacyProviders(client: Database.Database, directory: string) {
   const legacyPath = join(directory, "providers.json");
-  const backupPath = join(directory, "providers.json.backup");
+  const backupPath = join(directory, "providers.json.bak");
   const current = client.prepare("SELECT COUNT(*) AS count FROM providers").get() as {
     count: number;
   };

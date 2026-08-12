@@ -22,7 +22,7 @@ export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
   type: ProviderKind;
 };
 
-export type ProviderModel = {
+type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
@@ -33,7 +33,7 @@ export type ProviderModel = {
  * Keeping transport details here prevents the router from making assumptions
  * about OpenAI-compatible and Ollama endpoints.
  */
-export interface ProviderAdapter {
+interface ProviderAdapter {
   readonly kind: ProviderKind;
   validate(request?: FetchLike): Promise<void>;
   listModels(request?: FetchLike): Promise<ProviderModel[]>;
@@ -149,7 +149,7 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
   }
 }
 
-export class OllamaProvider extends BaseProviderAdapter {
+class OllamaProvider extends BaseProviderAdapter {
   readonly kind = "ollama" as const;
 
   async validate(request: FetchLike = fetch) {

@@ -381,7 +381,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     content: string;
     model?: string | null;
     providerId?: string | null;
-    role: "assistant" | "system" | "user";
+    role: "assistant" | "system" | "tool" | "user";
     sessionId: string;
     status?: string;
   }) {
@@ -427,6 +427,48 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .where(eq(sessions.id, session.id))
       .run();
     return message;
+  }
+
+  function editUserMessage(sessionId: string, messageId: string, content: string) {
+    const nextContent = content.trim();
+    if (!nextContent) throw new Error("A mensagem editada não pode ficar vazia.");
+    const message = database.db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.id, messageId), eq(messages.sessionId, sessionId)))
+      .get();
+    if (message?.role !== "user") {
+      throw new Error("A mensagem selecionada não pode ser editada.");
+    }
+    const transaction = database.client.transaction(() => {
+      database.client
+        .prepare("DELETE FROM messages WHERE session_id = ? AND sequence > ?")
+        .run(sessionId, message.sequence);
+      database.db
+        .update(messages)
+        .set({ content: nextContent, status: "complete", updatedAt: now() })
+        .where(eq(messages.id, messageId))
+        .run();
+      database.db
+        .update(sessions)
+        .set({ title: nextContent.replace(/\s+/g, " ").slice(0, 56), updatedAt: now() })
+        .where(eq(sessions.id, sessionId))
+        .run();
+    });
+    transaction();
+    return listMessages(sessionId);
+  }
+
+  function prepareRegeneration(sessionId: string) {
+    const lastAssistant = database.db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.role, "assistant")))
+      .orderBy(desc(messages.sequence))
+      .get();
+    if (!lastAssistant) throw new Error("Não há resposta para regenerar.");
+    database.client.prepare("DELETE FROM messages WHERE id = ?").run(lastAssistant.id);
+    return listMessages(sessionId);
   }
 
   function getState(): AppState {
@@ -570,6 +612,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
 
   return {
     appendMessage,
+    editUserMessage,
     bootstrap,
     createProfile,
     createSession,
@@ -580,6 +623,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     listRecentSessions,
     listSessions,
     listWorkspaces,
+    prepareRegeneration,
     renameSession,
     deleteSession,
     setSessionModel,
