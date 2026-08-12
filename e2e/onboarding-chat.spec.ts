@@ -18,7 +18,10 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
   await continueButton.click();
   await page.getByLabel(/Nome do workspace|Workspace name/).fill("Workspace E2E");
   await continueButton.click();
-  await page.getByLabel(/Pasta do projeto|Project folder/).fill(process.cwd());
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Escolher pasta|Choose folder/ }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(process.cwd());
   await continueButton.click();
   await continueButton.click();
   await continueButton.click();

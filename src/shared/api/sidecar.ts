@@ -25,6 +25,19 @@ export type Workspace = {
   soul: string;
 };
 
+export type VaultFile = {
+  content: string;
+  headings: string[];
+  path: string;
+  title: string;
+};
+
+export type VaultGraph = {
+  edges: Array<{ label?: string; source: string; target: string }>;
+  files: VaultFile[];
+  nodes: Array<{ id: string; label: string; path: string }>;
+};
+
 export type Session = {
   id: string;
   selectedModel: string | null;
@@ -52,6 +65,11 @@ export type AppState = {
   workspaces: Workspace[];
 };
 
+type WorkspaceFile = {
+  content: string;
+  relativePath: string;
+};
+
 type BootstrapInput = {
   locale: string;
   permissionMode?: "ask" | "automatic" | "read-only";
@@ -60,6 +78,7 @@ type BootstrapInput = {
   workspaceName: string;
   workspaceRootPath: string;
   workspaceSoul: string;
+  workspaceFiles?: WorkspaceFile[];
 };
 
 type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
@@ -199,6 +218,7 @@ export async function createWorkspace(input: {
   profileId: string;
   rootPath: string;
   soul: string;
+  workspaceFiles?: WorkspaceFile[];
 }): Promise<Workspace> {
   const response = await request<{ workspace: Workspace }>("/v1/workspaces", {
     body: JSON.stringify(input),
@@ -235,6 +255,10 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+}
+
+export async function getVault(workspaceId: string): Promise<VaultGraph> {
+  return request(`/v1/workspaces/${workspaceId}/vault`, { method: "GET" });
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<Session> {

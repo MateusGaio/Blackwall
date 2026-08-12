@@ -1,9 +1,9 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { randomUUID } from "node:crypto";
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { and, asc, desc, eq } from "drizzle-orm";
-import type { DatabaseHandle } from "./database.js";
+import { type DatabaseHandle, dataDirectory } from "./database.js";
 import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
 
 export type PermissionMode = "ask" | "automatic" | "read-only";
@@ -19,7 +19,13 @@ export type BootstrapInput = {
   workspaceName: string;
   workspaceRootPath: string;
   workspaceSoul: string;
+  workspaceFiles?: WorkspaceFile[];
   permissionMode?: PermissionMode;
+};
+
+export type WorkspaceFile = {
+  content: string;
+  relativePath: string;
 };
 
 type AppState = {
@@ -69,7 +75,22 @@ function permissionMode(value: string | undefined): PermissionMode {
   return "ask";
 }
 
-export function createStore(database: DatabaseHandle) {
+async function persistWorkspaceFiles(rootPath: string, files: WorkspaceFile[]) {
+  const absoluteRoot = resolve(rootPath);
+  const selectedFiles = files
+    .filter((file) => /\.(md|markdown)$/i.test(file.relativePath))
+    .slice(0, 500);
+  for (const file of selectedFiles) {
+    const target = resolve(absoluteRoot, file.relativePath);
+    const relativeTarget = relative(absoluteRoot, target);
+    if (relativeTarget.startsWith("..") || relativeTarget.includes(".." + "/")) continue;
+    if (file.content.length > 2_000_000) continue;
+    await mkdir(resolve(target, ".."), { recursive: true, mode: 0o700 });
+    await writeFile(target, file.content, { encoding: "utf8", mode: 0o600 });
+  }
+}
+
+export function createStore(database: DatabaseHandle, storageDirectory = dataDirectory()) {
   async function createProfile(input: { locale: string; name: string; soul: string }) {
     const name = input.name.trim();
     const soul = input.soul.trim();
@@ -109,6 +130,43 @@ export function createStore(database: DatabaseHandle) {
     const workspace: Workspace = {
       createdAt: timestamp,
       id: randomUUID(),
+      lastOpenedAt: timestamp,
+      name,
+      permissionMode: permissionMode(input.permissionMode),
+      profileId: input.profileId,
+      rootPath,
+      soul,
+      updatedAt: timestamp,
+    };
+    database.db.insert(workspaces).values(workspace).run();
+    saveSetting(database, settingKeys.activeWorkspaceId, workspace.id);
+    return workspace;
+  }
+
+  async function createWebWorkspace(input: {
+    files: WorkspaceFile[];
+    name: string;
+    permissionMode?: PermissionMode;
+    profileId: string;
+    soul: string;
+  }) {
+    const name = input.name.trim();
+    const soul = input.soul.trim();
+    if (!name || !soul) throw new Error("Informe o nome e a Soul do workspace.");
+    const profile = database.db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.id, input.profileId))
+      .get();
+    if (!profile) throw new Error("O perfil selecionado não existe.");
+    const id = randomUUID();
+    const rootPath = join(storageDirectory, "web-workspaces", id);
+    await mkdir(rootPath, { recursive: true, mode: 0o700 });
+    await persistWorkspaceFiles(rootPath, input.files);
+    const timestamp = now();
+    const workspace: Workspace = {
+      createdAt: timestamp,
+      id,
       lastOpenedAt: timestamp,
       name,
       permissionMode: permissionMode(input.permissionMode),
@@ -327,13 +385,24 @@ export function createStore(database: DatabaseHandle) {
       .get();
     const workspace =
       existingWorkspace ??
-      (await createWorkspace({
-        name: input.workspaceName,
-        permissionMode: input.permissionMode,
-        profileId: selectedProfile.id,
-        rootPath: input.workspaceRootPath,
-        soul: input.workspaceSoul,
-      }));
+      (input.workspaceRootPath.trim()
+        ? await createWorkspace({
+            name: input.workspaceName,
+            permissionMode: input.permissionMode,
+            profileId: selectedProfile.id,
+            rootPath: input.workspaceRootPath,
+            soul: input.workspaceSoul,
+          })
+        : await createWebWorkspace({
+            files: input.workspaceFiles ?? [],
+            name: input.workspaceName,
+            permissionMode: input.permissionMode,
+            profileId: selectedProfile.id,
+            soul: input.workspaceSoul,
+          }));
+    if (!input.workspaceRootPath.trim() && input.workspaceFiles?.length && existingWorkspace) {
+      await persistWorkspaceFiles(existingWorkspace.rootPath, input.workspaceFiles);
+    }
     saveSetting(database, settingKeys.activeProfileId, selectedProfile.id);
     saveSetting(database, settingKeys.activeWorkspaceId, workspace.id);
     const currentSession =
@@ -371,6 +440,7 @@ export function createStore(database: DatabaseHandle) {
     createProfile,
     createSession,
     createWorkspace,
+    createWebWorkspace,
     getState,
     listMessages,
     listSessions,

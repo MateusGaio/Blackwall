@@ -86,14 +86,15 @@ Todo perfil e todo workspace precisa ter uma Soul ativa — não é opcional dei
 
 Fluxo passo a passo obrigatório antes da primeira tela "normal":
 1. Idioma (detectado do SO, editável).
-2. Perfil e Soul do perfil (a Soul padrão é elaborada para desenvolvimento local-first).
-3. Nome do workspace.
-4. Pasta raiz obrigatória (seletor nativo no desktop ou caminho absoluto validado no web dev).
-5. Soul do workspace.
-6. Provedor OpenAI-compatible ou Ollama detectado/configurado.
-7. Entrada no chat com estado local persistente.
+2. Perfil (a Soul padrão é elaborada para desenvolvimento local-first).
+3. Soul do perfil.
+4. Nome do workspace.
+5. Pasta raiz obrigatória (seletor nativo no desktop ou explorador de diretório do navegador no web dev).
+6. Soul do workspace.
+7. Provedor OpenAI-compatible ou Ollama detectado/configurado.
+8. Vault e entrada no chat com estado local persistente; os Markdown da pasta já aparecem no Vault e no grafo lateral.
 
-Vault e notas de exemplo entram na Fase 2. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
+O Vault lê os Markdown selecionados/escaneados na pasta. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
 
 ---
 

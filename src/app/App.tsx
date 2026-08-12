@@ -1,7 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { currentRuntime, pickDirectory } from "../platform/runtime";
+import { currentRuntime, type FolderSelection, pickDirectory } from "../platform/runtime";
 import {
   type AppState,
   bootstrapApp,
@@ -37,7 +37,7 @@ type OnboardingPanelProps = {
   profileName: string;
   soul: string;
   workspaceName: string;
-  workspaceRootPath: string;
+  folderSelection: FolderSelection | null;
   workspaceSoul: string;
   isCompleting: boolean;
   completionError: string;
@@ -48,7 +48,6 @@ type OnboardingPanelProps = {
   onProfileNameChange: (name: string) => void;
   onSoulChange: (soul: string) => void;
   onWorkspaceNameChange: (name: string) => void;
-  onWorkspaceRootPathChange: (path: string) => void;
   onWorkspaceSoulChange: (soul: string) => void;
   onPickFolder: () => void;
   onProviderConnected: (provider: ConnectedProvider) => void;
@@ -61,7 +60,7 @@ function OnboardingPanel({
   profileName,
   soul,
   workspaceName,
-  workspaceRootPath,
+  folderSelection,
   workspaceSoul,
   isCompleting,
   completionError,
@@ -72,7 +71,6 @@ function OnboardingPanel({
   onProfileNameChange,
   onSoulChange,
   onWorkspaceNameChange,
-  onWorkspaceRootPathChange,
   onWorkspaceSoulChange,
   onPickFolder,
   onProviderConnected,
@@ -204,24 +202,38 @@ function OnboardingPanel({
           )}
           {step.id === "folder" && (
             <div className="folder-picker">
-              <label className="field-label" htmlFor="workspace-root">
-                {isEnglish ? "Project folder" : "Pasta do projeto"}
-                <input
-                  id="workspace-root"
-                  onChange={(event) => onWorkspaceRootPathChange(event.target.value)}
-                  placeholder={isEnglish ? "/path/to/project" : "/caminho/para/projeto"}
-                  value={workspaceRootPath}
-                />
-              </label>
-              {runtime === "desktop" && (
-                <button className="button button-secondary" onClick={onPickFolder} type="button">
-                  {isEnglish ? "Choose folder" : "Escolher pasta"}
-                </button>
+              <button className="folder-select-button" onClick={onPickFolder} type="button">
+                <span className="folder-select-icon" aria-hidden="true">
+                  ⌘
+                </span>
+                <span>
+                  <strong>{isEnglish ? "Choose folder" : "Escolher pasta"}</strong>
+                  <small>
+                    {runtime === "desktop"
+                      ? isEnglish
+                        ? "Open the system file explorer"
+                        : "Abrir o explorador de arquivos"
+                      : isEnglish
+                        ? "Open the browser file explorer"
+                        : "Abrir o explorador do navegador"}
+                  </small>
+                </span>
+              </button>
+              {folderSelection && (
+                <div className="folder-selected" role="status">
+                  <strong>{folderSelection.name}</strong>
+                  {folderSelection.source === "web" && (
+                    <span>
+                      {folderSelection.files.length}{" "}
+                      {isEnglish ? "Markdown files selected" : "arquivos Markdown selecionados"}
+                    </span>
+                  )}
+                </div>
               )}
               <span className="field-hint">
                 {isEnglish
-                  ? "The folder is required so Blackwall can keep project context local."
-                  : "A pasta é obrigatória para manter o contexto do projeto local."}
+                  ? "The folder is required. Markdown files will be available in your Vault and graph."
+                  : "A pasta é obrigatória. Os Markdown ficarão disponíveis no Vault e no grafo."}
               </span>
             </div>
           )}
@@ -292,7 +304,7 @@ function OnboardingPanel({
                   isCompleting ||
                   (step.id === "profile" && profileName.trim().length === 0) ||
                   (step.id === "workspace" && workspaceName.trim().length === 0) ||
-                  (step.id === "folder" && workspaceRootPath.trim().length === 0)
+                  (step.id === "folder" && !folderSelection)
                 }
                 onClick={(event) => onAdvance(event.detail !== 0)}
                 type="button"
@@ -346,6 +358,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
   );
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
+  const [folderSelection, setFolderSelection] = useState<FolderSelection | null>(null);
   const [workspaceSoul, setWorkspaceSoul] = useState(soul);
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
@@ -432,6 +445,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
         profileSoul: soul,
         workspaceName,
         workspaceRootPath,
+        workspaceFiles: folderSelection?.files,
         workspaceSoul,
       });
       setAppState(state);
@@ -443,7 +457,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
     } finally {
       setIsCompleting(false);
     }
-  }, [locale, profileName, soul, workspaceName, workspaceRootPath, workspaceSoul]);
+  }, [folderSelection, locale, profileName, soul, workspaceName, workspaceRootPath, workspaceSoul]);
 
   useEffect(() => {
     function advanceWithEnter(event: KeyboardEvent) {
@@ -455,6 +469,8 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       )
         return;
       if (onboardingSteps[stepIndex].id === "profile" && !profileName.trim()) return;
+      if (onboardingSteps[stepIndex].id === "workspace" && !workspaceName.trim()) return;
+      if (onboardingSteps[stepIndex].id === "folder" && !folderSelection) return;
       if (event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
       if (stepIndex === onboardingSteps.length - 1) {
@@ -466,7 +482,15 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
 
     window.addEventListener("keydown", advanceWithEnter);
     return () => window.removeEventListener("keydown", advanceWithEnter);
-  }, [completeOnboarding, isComplete, isExiting, profileName, stepIndex]);
+  }, [
+    completeOnboarding,
+    folderSelection,
+    isComplete,
+    isExiting,
+    profileName,
+    stepIndex,
+    workspaceName,
+  ]);
 
   if (!isReady) return <LoadingSkeleton />;
   if (isComplete) {
@@ -487,11 +511,12 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       onProfileNameChange={setProfileName}
       onSoulChange={setSoul}
       onWorkspaceNameChange={setWorkspaceName}
-      onWorkspaceRootPathChange={setWorkspaceRootPath}
       onWorkspaceSoulChange={setWorkspaceSoul}
       onPickFolder={() => {
-        void pickDirectory().then((path) => {
-          if (path) setWorkspaceRootPath(path);
+        void pickDirectory().then((selection) => {
+          if (!selection) return;
+          setFolderSelection(selection);
+          setWorkspaceRootPath(selection.path ?? "");
         });
       }}
       onProviderConnected={providerConnected}
@@ -500,7 +525,7 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
       step={currentStep}
       runtime={runtime}
       workspaceName={workspaceName}
-      workspaceRootPath={workspaceRootPath}
+      folderSelection={folderSelection}
       workspaceSoul={workspaceSoul}
       isCompleting={isCompleting}
       completionError={completionError}

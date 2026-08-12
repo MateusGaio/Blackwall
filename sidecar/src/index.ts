@@ -27,6 +27,7 @@ import {
 } from "./providers.js";
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
 import { type ApprovalDecision, executeTool, resolveApproval, type ToolInput } from "./tools.js";
+import { scanVault } from "./vault.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
 const allowedOrigins = new Set([
@@ -80,7 +81,7 @@ export function createSidecar(
   storageDirectory = dataDirectory(),
 ): Promise<{ port: number; server: Server }> {
   const database = openDatabase(storageDirectory);
-  const store = createStore(database);
+  const store = createStore(database, storageDirectory);
   const server = createServer(async (request, response) => {
     allowOrigin(request, response);
     if (request.method === "OPTIONS") return response.writeHead(204).end();
@@ -97,6 +98,17 @@ export function createSidecar(
       if (request.method === "POST" && pathname === "/v1/bootstrap") {
         const input = (await requestBody(request)) as BootstrapInput;
         writeJson(response, 200, await store.bootstrap(input));
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/vault$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        const workspace = database.db
+          .select()
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .get();
+        if (!workspace) throw new Error("O workspace selecionado não existe.");
+        writeJson(response, 200, await scanVault(workspace.rootPath));
         return;
       }
       if (request.method === "POST" && pathname === "/v1/attachments") {
@@ -145,8 +157,19 @@ export function createSidecar(
           profileId: string;
           rootPath: string;
           soul: string;
+          workspaceFiles?: Array<{ content: string; relativePath: string }>;
         };
-        writeJson(response, 201, { workspace: await store.createWorkspace(input) });
+        writeJson(response, 201, {
+          workspace: input.rootPath.trim()
+            ? await store.createWorkspace(input)
+            : await store.createWebWorkspace({
+                files: input.workspaceFiles ?? [],
+                name: input.name,
+                permissionMode: input.permissionMode,
+                profileId: input.profileId,
+                soul: input.soul,
+              }),
+        });
         return;
       }
       if (
