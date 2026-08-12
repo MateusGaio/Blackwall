@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { currentRuntime } from "../platform/runtime";
 import type { ConnectedProvider } from "../shared/api/sidecar";
 import {
@@ -54,6 +55,7 @@ function OnboardingPanel({
   onAdvance,
   onBack,
 }: OnboardingPanelProps) {
+  const { t } = useTranslation();
   const stepIndex = onboardingSteps.findIndex((item) => item.id === step.id);
   const isLastStep = stepIndex === onboardingSteps.length - 1;
   const progress = `${((stepIndex + 1) / onboardingSteps.length) * 100}%`;
@@ -76,9 +78,7 @@ function OnboardingPanel({
         vault: "Vault",
       }[step.id]
     : step.label;
-  const brandNote = isEnglish
-    ? "Private by default. Your context stays on your computer."
-    : "Privado por padrão. Seu contexto continua no seu computador.";
+  const brandNote = t("brand.note");
 
   return (
     <main className="app-shell">
@@ -232,6 +232,7 @@ function OnboardingPanel({
 }
 
 export function App() {
+  const { i18n } = useTranslation();
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
@@ -251,6 +252,10 @@ Ao lidar com código, leia o contexto relevante antes de editar, preserve altera
   );
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
+
+  useEffect(() => {
+    void i18n.changeLanguage(locale);
+  }, [i18n, locale]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setIsReady(true));

@@ -7,7 +7,11 @@ import { telemetryMode, withInstrumentation } from "./observability.js";
 import { listProviders, type ProviderInput, saveProvider, validateProvider } from "./providers.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
-const allowedOrigins = new Set(["http://localhost:1420", "http://tauri.localhost"]);
+const allowedOrigins = new Set([
+  "http://localhost:1420",
+  "http://127.0.0.1:1420",
+  "http://tauri.localhost",
+]);
 
 export function healthPayload() {
   return {
