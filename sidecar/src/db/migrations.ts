@@ -133,24 +133,50 @@ export function applyMigrations(client: Database.Database) {
   }
 
   const nullableWorkspace = client.prepare("SELECT id FROM _migrations WHERE id = 2").get();
-  if (nullableWorkspace) return;
-  client.pragma("foreign_keys = OFF");
+  if (!nullableWorkspace) {
+    client.pragma("foreign_keys = OFF");
+    client.exec(`
+      CREATE TABLE sessions_v2 (
+        id TEXT PRIMARY KEY NOT NULL,
+        workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        selected_provider_id TEXT,
+        selected_model TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO sessions_v2 (id, workspace_id, title, selected_provider_id, selected_model, created_at, updated_at)
+        SELECT id, workspace_id, title, selected_provider_id, selected_model, created_at, updated_at FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_v2 RENAME TO sessions;
+      CREATE INDEX IF NOT EXISTS sessions_workspace_updated ON sessions(workspace_id, updated_at DESC);
+    `);
+    client.pragma("foreign_keys = ON");
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(2, Date.now());
+  }
+
+  const profileColumn = client.prepare("SELECT id FROM _migrations WHERE id = 3").get();
+  if (profileColumn) return;
+  client.exec(
+    "ALTER TABLE sessions ADD COLUMN profile_id TEXT REFERENCES profiles(id) ON DELETE CASCADE",
+  );
   client.exec(`
-    CREATE TABLE sessions_v2 (
-      id TEXT PRIMARY KEY NOT NULL,
-      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      selected_provider_id TEXT,
-      selected_model TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    INSERT INTO sessions_v2 (id, workspace_id, title, selected_provider_id, selected_model, created_at, updated_at)
-      SELECT id, workspace_id, title, selected_provider_id, selected_model, created_at, updated_at FROM sessions;
-    DROP TABLE sessions;
-    ALTER TABLE sessions_v2 RENAME TO sessions;
-    CREATE INDEX IF NOT EXISTS sessions_workspace_updated ON sessions(workspace_id, updated_at DESC);
+    UPDATE sessions
+    SET profile_id = (
+      SELECT profile_id FROM workspaces WHERE workspaces.id = sessions.workspace_id
+    )
+    WHERE profile_id IS NULL AND workspace_id IS NOT NULL;
+    UPDATE sessions
+    SET profile_id = (
+      SELECT value FROM app_settings WHERE key = 'active_profile_id'
+    )
+    WHERE profile_id IS NULL;
+    UPDATE sessions
+    SET profile_id = (SELECT id FROM profiles ORDER BY updated_at DESC LIMIT 1)
+    WHERE profile_id IS NULL;
   `);
-  client.pragma("foreign_keys = ON");
-  client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(2, Date.now());
+  client.exec(
+    "CREATE INDEX IF NOT EXISTS sessions_profile_updated ON sessions(profile_id, updated_at DESC)",
+  );
+  client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(3, Date.now());
 }

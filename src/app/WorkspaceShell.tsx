@@ -50,7 +50,9 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
-  const [showVault, setShowVault] = useState(true);
+  const [showVault, setShowVault] = useState(Boolean(appState?.activeWorkspaceId));
+  const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null);
+  const [permissionOpen, setPermissionOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
@@ -64,6 +66,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
+  const [permissionError, setPermissionError] = useState("");
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
 
@@ -74,6 +77,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const greeting = greetingForTime(new Date(), profileLocale);
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
+  const recentSessions = state?.recentSessions ?? [];
   const selectedModel =
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
 
@@ -89,6 +93,33 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    function closeFloatingMenus(event: globalThis.MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest("[data-session-menu]")) setOpenSessionMenuId(null);
+      if (!target.closest("[data-permission-control]")) setPermissionOpen(false);
+    }
+    function closeWithEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpenSessionMenuId(null);
+      setPermissionOpen(false);
+    }
+    document.addEventListener("click", closeFloatingMenus);
+    document.addEventListener("keydown", closeWithEscape);
+    return () => {
+      document.removeEventListener("click", closeFloatingMenus);
+      document.removeEventListener("keydown", closeWithEscape);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workspace) {
+      setShowVault(false);
+      setPermissionOpen(false);
+    }
+  }, [workspace]);
 
   useEffect(() => {
     if (!activeProvider) return;
@@ -124,6 +155,9 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         current
           ? {
               ...current,
+              recentSessions: current.recentSessions.map((item) =>
+                item.id === session.id ? { ...item, ...session } : item,
+              ),
               sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
             }
           : current,
@@ -135,6 +169,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
 
   async function openSession(sessionId: string) {
     setError("");
+    setOpenSessionMenuId(null);
     try {
       const nextState = await selectSession(sessionId);
       setState(nextState);
@@ -146,11 +181,13 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
 
   async function openWorkspace(workspaceId: string) {
     if (workspaceId === workspace?.id) return;
+    const wasWithoutWorkspace = !workspace;
     setError("");
     try {
       const nextState = await selectWorkspace(workspaceId);
       setState(nextState);
       setMessages(nextState.messages);
+      if (wasWithoutWorkspace) setShowVault(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
     }
@@ -184,6 +221,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     const nextState = await selectSession(session.id);
     setState(nextState);
     setMessages(nextState.messages);
+    setShowVault(true);
     setResourceNotice("");
   }
 
@@ -196,6 +234,9 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         current
           ? {
               ...current,
+              recentSessions: current.recentSessions.map((item) =>
+                item.id === updated.id ? { ...item, ...updated } : item,
+              ),
               sessions: current.sessions.map((item) => (item.id === updated.id ? updated : item)),
             }
           : current,
@@ -219,6 +260,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
 
   async function changePermissionMode(mode: NonNullable<typeof workspace>["permissionMode"]) {
     if (!workspace) return;
+    setPermissionError("");
     try {
       const updated = await setWorkspacePermissionMode(workspace.id, mode);
       setState((current) =>
@@ -232,7 +274,10 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           : current,
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível salvar as permissões.");
+      const message =
+        reason instanceof Error ? reason.message : "Não foi possível salvar as permissões.";
+      setPermissionError(message);
+      setError(message);
     }
   }
 
@@ -355,7 +400,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   }
 
   return (
-    <main className={`workspace-shell ${showVault ? "has-vault" : ""}`}>
+    <main className={`workspace-shell ${showVault && workspace ? "has-vault" : ""}`}>
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
           <span className="brand-mark" aria-hidden="true">
@@ -407,7 +452,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         </div>
         <div className="sidebar-section sidebar-sessions">
           <div className="sidebar-section-heading">
-            <p className="eyebrow">Sessões</p>
+            <p className="eyebrow">Recentes</p>
             <button
               aria-label="Nova sessão"
               className="icon-button"
@@ -418,57 +463,67 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
               +
             </button>
           </div>
-          <nav aria-label="Sessões do workspace">
-            {state?.sessions.map((session) => (
-              <div className="session-row" key={session.id}>
+          <nav aria-label="Sessões recentes">
+            {recentSessions.map((session) => (
+              <div className="session-row" data-session-menu key={session.id}>
                 <button
                   className={`session-item ${session.id === activeSession?.id ? "is-active" : ""}`}
                   onClick={() => void openSession(session.id)}
-                  onDoubleClick={() => void rename(session.id, session.title)}
                   type="button"
                 >
-                  {session.title}
+                  <span aria-hidden="true" className="session-icon" />
+                  <span className="session-copy">
+                    <strong>{session.title}</strong>
+                    <small>{session.workspaceName ?? "Sem workspace"}</small>
+                  </span>
                 </button>
                 <button
-                  aria-label={`Renomear ${session.title}`}
+                  aria-expanded={openSessionMenuId === session.id}
+                  aria-haspopup="menu"
+                  aria-label={`Ações de ${session.title}`}
                   className="session-more"
-                  onClick={() => void rename(session.id, session.title)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenSessionMenuId((current) => (current === session.id ? null : session.id));
+                  }}
                   type="button"
                 >
-                  ···
+                  …
                 </button>
-                <button
-                  aria-label={`Excluir ${session.title}`}
-                  className="session-delete"
-                  onClick={() => void remove(session.id)}
-                  type="button"
-                >
-                  ×
-                </button>
+                {openSessionMenuId === session.id && (
+                  <div className="session-menu" role="menu">
+                    <button
+                      onClick={() => {
+                        setOpenSessionMenuId(null);
+                        void rename(session.id, session.title);
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      Renomear
+                    </button>
+                    <button
+                      className="session-menu-danger"
+                      onClick={() => {
+                        setOpenSessionMenuId(null);
+                        void remove(session.id);
+                      }}
+                      role="menuitem"
+                      type="button"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </nav>
         </div>
-        <label className="sidebar-settings">
-          <span>Permissões do workspace</span>
-          <select
-            aria-label="Modo de permissões"
-            disabled={!workspace}
-            onChange={(event) =>
-              void changePermissionMode(
-                event.target.value as NonNullable<typeof workspace>["permissionMode"],
-              )
-            }
-            value={workspace?.permissionMode ?? "ask"}
-          >
-            <option value="ask">Perguntar sempre</option>
-            <option value="automatic">Automático</option>
-            <option value="read-only">Somente leitura</option>
-          </select>
+        <div className="sidebar-settings">
           <button className="sidebar-config" onClick={() => setShowSettings(true)} type="button">
             Configurações de provedores
           </button>
-        </label>
+        </div>
       </aside>
 
       <section className="workspace-main">
@@ -513,12 +568,12 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             </button>
           </div>
         </header>
-        <section className="chat-shell" aria-label="Conversa">
+        <section
+          className={`chat-shell ${messages.length === 0 ? "is-empty" : ""}`}
+          aria-label="Conversa"
+        >
           {messages.length === 0 ? (
             <div className="empty-state">
-              <p className="greeting-mark" aria-hidden="true">
-                ✳
-              </p>
               <h1>
                 {greeting}, {name}
               </h1>
@@ -580,6 +635,60 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             >
               +
             </button>
+            {workspace && (
+              <div className="permission-control" data-permission-control>
+                <button
+                  aria-expanded={permissionOpen}
+                  aria-haspopup="menu"
+                  aria-label="Modo de permissões"
+                  className="composer-permission"
+                  onClick={() => setPermissionOpen((current) => !current)}
+                  title={`Permissões: ${
+                    workspace.permissionMode === "ask"
+                      ? "Perguntar sempre"
+                      : workspace.permissionMode === "automatic"
+                        ? "Automático"
+                        : "Somente leitura"
+                  }`}
+                  type="button"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M12 3 5 6v5c0 4.3 2.8 8.2 7 10 4.2-1.8 7-5.7 7-10V6l-7-3Z" />
+                    <path d="m9 12 2 2 4-4" />
+                  </svg>
+                </button>
+                {permissionOpen && (
+                  <div className="permission-popover" role="menu">
+                    <p>Permissões</p>
+                    {(
+                      [
+                        ["ask", "Perguntar sempre"],
+                        ["automatic", "Automático"],
+                        ["read-only", "Somente leitura"],
+                      ] as const
+                    ).map(([mode, label]) => (
+                      <button
+                        className={workspace.permissionMode === mode ? "is-selected" : ""}
+                        key={mode}
+                        onClick={() => {
+                          void changePermissionMode(mode);
+                          setPermissionOpen(false);
+                        }}
+                        role="menuitemradio"
+                        aria-checked={workspace.permissionMode === mode}
+                        type="button"
+                      >
+                        <span>{label}</span>
+                        {workspace.permissionMode === mode && <span aria-hidden="true">✓</span>}
+                      </button>
+                    ))}
+                    {permissionError && (
+                      <small className="permission-error">{permissionError}</small>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <textarea
               aria-label="Mensagem"
               disabled={!activeProvider || !activeSession || isSending}
@@ -662,7 +771,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
               >
                 Abrir configurações
               </button>
-              {state?.sessions
+              {recentSessions
                 .filter((session) =>
                   session.title.toLocaleLowerCase().includes(paletteQuery.toLocaleLowerCase()),
                 )

@@ -216,7 +216,7 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 
 ### Fase 1 — MVP funcional
 - Perfis, workspaces vinculados a pastas quando criados, sessões sem workspace e Souls combináveis.
-- SQLite em WAL com migração idempotente para sessões, mensagens, provedores, modelos, anexos e aprovações.
+- SQLite em WAL com migração idempotente para sessões, mensagens, provedores, modelos, anexos e aprovações. Sessões carregam `profile_id` (herdado do workspace ou do perfil ativo) e o sidecar expõe uma consulta de até 30 sessões recentes por perfil, ordenadas por `updated_at DESC`.
 - APIs OpenAI-compatible e Ollama, múltiplos provedores, seletor de modelos e fallback para erros transitórios.
 - Streaming WebSocket, parada preservando parcial, fila FIFO por workspace e título automático da sessão.
 - Anexos locais com extração de texto, PDF pesquisável e índice SQLite FTS5.

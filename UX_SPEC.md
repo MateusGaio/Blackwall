@@ -18,7 +18,7 @@ Este documento existe porque decisão de stack não garante experiência boa —
 ## 2. Navegação
 
 **Decisão: os dois modelos, não um só.**
-- **Sidebar persistente** à esquerda para navegação estrutural: Perfil atual no topo → lista de Workspaces do perfil → dentro do workspace, lista de sessões.
+- **Sidebar persistente** à esquerda para navegação estrutural: Perfil atual no topo → lista de Workspaces do perfil → seção `Recentes` com até 30 sessões do perfil ativo. Cada sessão mostra título, workspace secundário (`Sem workspace` quando aplicável) e um único menu de ações.
 - **Command palette (Cmd/Ctrl+K)** para qualquer ação rápida: trocar de perfil, criar workspace, trocar Soul, trocar modelo, abrir uma nota do Vault por nome, ir para a página de Agentes.
 
 A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer agora" — são complementares, não redundantes.
@@ -41,6 +41,7 @@ Elementos obrigatórios, replicando a mecânica que você pediu:
 - Botão **Regenerar resposta** e **Editar mensagem** (do usuário) após o fim da resposta.
 - Blocos de código com syntax highlight + botão de copiar.
 - Composer (caixa de digitação) com auto-resize, seletor de modelo/Soul visível acima ou ao lado dela, e um indicador de "na fila" (ADR-21) quando aplicável.
+- Em workspaces, o compositor exibe um escudo discreto ao lado do anexo para escolher `Perguntar sempre`, `Automático` ou `Somente leitura`; no modo sem workspace esse controle não aparece.
 - Pill de "rolar para o final" quando o usuário rola pra cima durante um streaming.
 
 ---
@@ -51,7 +52,7 @@ Regra geral: nenhuma tela em branco sem explicação do próximo passo.
 
 | Contexto | Texto |
 |---|---|
-| Sem mensagens na sessão | Saudação curta contextual ao horário local, seguida do compositor central; o texto secundário orienta o próximo passo. |
+| Sem mensagens na sessão | Saudação curta contextual ao horário local, seguida do compositor central no mesmo bloco; o texto secundário orienta o próximo passo. Depois da primeira mensagem, o compositor volta ao rodapé e o histórico ocupa a área central. |
 | Vault sem notas | "Nenhuma nota por ora — crie uma nota ou peça para a IA salvar algo importante da conversa." |
 | Workspace sem Soul configurada | Não deveria acontecer — Soul é **obrigatória** (ver seção 7), mas todo workspace nasce com a **Soul padrão** pré-configurada automaticamente, então esse estado vazio nunca é exposto ao usuário. |
 | Página de Agentes sem swarm disparado ainda | "Nenhum agente em execução — dispare um swarm a partir do chat ou pelo botão abaixo." |
@@ -94,7 +95,7 @@ Fluxo passo a passo obrigatório antes da primeira tela "normal":
 7. Provedor OpenAI-compatible ou Ollama detectado/configurado.
 8. Vault e entrada no chat com estado local persistente; os Markdown da pasta já aparecem no Vault e no grafo lateral.
 
-O Vault lê os Markdown selecionados/escaneados na pasta. No modo sem workspace, o chat e as sessões continuam funcionando sem arquivos, Vault ou ferramentas de filesystem. O botão de Vault permanece visível para explicar o bloqueio: "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace." O aviso oferece a ação "Adicionar workspace nas configurações". A área de configurações lista os workspaces do perfil e permite criar outro escolhendo uma pasta; depois da criação, o novo workspace e uma sessão ficam ativos. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
+O Vault lê os Markdown selecionados/escaneados na pasta. No modo sem workspace, o chat e as sessões continuam funcionando sem arquivos, Vault ou ferramentas de filesystem e nenhuma coluna direita vazia é reservada. O painel lateral do Vault 2D só é criado quando há workspace e o usuário o abre; o mesmo slot fica reservado para o futuro `graph3d`. O botão de Vault permanece visível para explicar o bloqueio: "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace." O aviso oferece a ação "Adicionar workspace nas configurações". A área de configurações lista os workspaces do perfil e permite criar outro escolhendo uma pasta; depois da criação, o novo workspace e uma sessão ficam ativos. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
 
 ---
 

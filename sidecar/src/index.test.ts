@@ -31,7 +31,9 @@ describe("sidecar health", () => {
   });
 
   it("expõe health check e avisa clientes WebSocket", async () => {
-    const { port, server } = await createSidecar();
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-health-"));
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
     servers.push(server);
 
     const response = await fetch(`http://${SIDECAR_HOST}:${port}/health`);
@@ -51,11 +53,15 @@ describe("sidecar health", () => {
   });
 
   it("inicia usando a porta do ambiente", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-env-"));
+    directories.push(directory);
+    vi.stubEnv("BLACKWALL_DATA_DIR", directory);
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const { server } = await startFromEnvironment();
     servers.push(server);
     expect(info).toHaveBeenCalledOnce();
     info.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it("persiste o estado do onboarding pelas rotas locais", async () => {
@@ -81,6 +87,7 @@ describe("sidecar health", () => {
     expect(bootstrap.status).toBe(200);
     const state = (await bootstrap.json()) as {
       activeSessionId: string;
+      activeProfileId: string;
       profiles: Array<{ name: string }>;
       workspaces: Array<{ rootPath: string }>;
     };
@@ -92,6 +99,13 @@ describe("sidecar health", () => {
     expect(restored.status).toBe(200);
     await expect(restored.json()).resolves.toMatchObject({
       activeSessionId: state.activeSessionId,
+    });
+    const recent = await fetch(
+      `http://${SIDECAR_HOST}:${port}/v1/profiles/${state.activeProfileId}/sessions/recent`,
+    );
+    expect(recent.status).toBe(200);
+    await expect(recent.json()).resolves.toMatchObject({
+      sessions: [{ id: state.activeSessionId, workspaceName: "Project" }],
     });
   });
 });

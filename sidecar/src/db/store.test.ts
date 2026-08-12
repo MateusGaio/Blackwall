@@ -56,7 +56,7 @@ describe("persistência local", () => {
     first.close();
     const second = openDatabase(directory);
     expect(second.client.prepare("SELECT COUNT(*) AS count FROM _migrations").get()).toEqual({
-      count: 2,
+      count: 3,
     });
     second.close();
   });
@@ -132,5 +132,32 @@ describe("persistência local", () => {
     expect(restoredState.activeWorkspaceId).toBeNull();
     expect(restoredState.messages[0]?.content).toBe("conversa sem pasta");
     restored.close();
+  });
+
+  it("lista no máximo 30 sessões recentes do perfil com o workspace correto", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-recent-sessions-"));
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const state = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Ada",
+      profileSoul: "Profile",
+      workspaceName: "Projeto",
+      workspaceRootPath: workspaceRoot,
+      workspaceSoul: "Workspace",
+    });
+    const profileId = state.activeProfileId as string;
+    for (let index = 0; index < 32; index += 1) {
+      store.createSession({ profileId, title: `Sessão ${index}`, workspaceId: null });
+    }
+    const recent = store.listRecentSessions(profileId);
+    expect(recent).toHaveLength(30);
+    expect(recent.every((session) => session.profileId === profileId)).toBe(true);
+    expect(recent.every((session) => session.workspaceName === null)).toBe(true);
+    expect(recent[0]?.updatedAt).toBeGreaterThanOrEqual(recent.at(-1)?.updatedAt ?? 0);
+    database.close();
   });
 });

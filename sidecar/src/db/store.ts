@@ -11,6 +11,7 @@ type Profile = typeof profiles.$inferSelect;
 type Workspace = typeof workspaces.$inferSelect;
 type Session = typeof sessions.$inferSelect;
 type StoredMessage = typeof messages.$inferSelect;
+type SessionSummary = Session & { workspaceName: string | null };
 
 export type BootstrapInput = {
   locale: string;
@@ -34,6 +35,7 @@ type AppState = {
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   profiles: Profile[];
+  recentSessions: SessionSummary[];
   workspaces: Workspace[];
   sessions: Session[];
   messages: StoredMessage[];
@@ -191,15 +193,23 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .all();
   }
 
-  function createSession(input: { title?: string; workspaceId?: string | null }) {
+  function createSession(input: {
+    profileId?: string | null;
+    title?: string;
+    workspaceId?: string | null;
+  }) {
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
       : null;
     if (input.workspaceId && !workspace) throw new Error("O workspace selecionado não existe.");
+    const profileId =
+      workspace?.profileId ?? input.profileId ?? setting(database, settingKeys.activeProfileId);
+    if (!profileId) throw new Error("Selecione um perfil antes de criar uma sessão.");
     const timestamp = now();
     const session: Session = {
       createdAt: timestamp,
       id: randomUUID(),
+      profileId,
       selectedModel: null,
       selectedProviderId: null,
       title: input.title?.trim() || "Nova conversa",
@@ -224,6 +234,27 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .from(sessions)
       .where(workspaceId ? eq(sessions.workspaceId, workspaceId) : isNull(sessions.workspaceId))
       .orderBy(desc(sessions.updatedAt))
+      .all();
+  }
+
+  function listRecentSessions(profileId: string, limit = 30): SessionSummary[] {
+    return database.db
+      .select({
+        createdAt: sessions.createdAt,
+        id: sessions.id,
+        profileId: sessions.profileId,
+        selectedModel: sessions.selectedModel,
+        selectedProviderId: sessions.selectedProviderId,
+        title: sessions.title,
+        updatedAt: sessions.updatedAt,
+        workspaceId: sessions.workspaceId,
+        workspaceName: workspaces.name,
+      })
+      .from(sessions)
+      .leftJoin(workspaces, eq(sessions.workspaceId, workspaces.id))
+      .where(eq(sessions.profileId, profileId))
+      .orderBy(desc(sessions.updatedAt))
+      .limit(Math.max(1, Math.min(limit, 100)))
       .all();
   }
 
@@ -358,6 +389,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       activeWorkspaceId,
       messages: activeSessionId ? listMessages(activeSessionId) : [],
       profiles: profileRows,
+      recentSessions: activeProfileId ? listRecentSessions(activeProfileId) : [],
       sessions: sessionRows,
       workspaces: workspaceRows,
     };
@@ -424,6 +456,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   function selectSession(id: string) {
     const session = database.db.select().from(sessions).where(eq(sessions.id, id)).get();
     if (!session) throw new Error("A sessão selecionada não existe.");
+    if (session.profileId) saveSetting(database, settingKeys.activeProfileId, session.profileId);
     saveSetting(database, settingKeys.activeWorkspaceId, session.workspaceId ?? "");
     saveSetting(database, settingKeys.activeSessionId, session.id);
     return getState();
@@ -453,6 +486,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     createWebWorkspace,
     getState,
     listMessages,
+    listRecentSessions,
     listSessions,
     listWorkspaces,
     renameSession,
