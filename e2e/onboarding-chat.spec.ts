@@ -2,6 +2,16 @@
 import { expect, test } from "@playwright/test";
 
 test("onboarding cria workspace e restaura a sessão após recarregar", async ({ page }) => {
+  // O seletor nativo de diretórios não expõe um evento controlável pelo
+  // Playwright. Forçamos o fallback `webkitdirectory`, que representa o
+  // mesmo fluxo de seleção de pasta no navegador e permite anexar a pasta
+  // temporária do teste de forma determinística.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "showDirectoryPicker", {
+      configurable: true,
+      value: undefined,
+    });
+  });
   await page.goto("/");
   const language = page.getByRole("button", { name: /Português do Brasil/ });
   if (await language.count()) {

@@ -263,7 +263,9 @@ export default function WorkspaceShell({
       const nextSession = nextState.sessions.find((item) => item.id === sessionId);
       setActiveProvider(
         nextSession?.selectedProviderId
-          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ?? null)
+          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ??
+              providers[0] ??
+              null)
           : (providers[0] ?? null),
       );
     } catch (reason) {
@@ -283,7 +285,9 @@ export default function WorkspaceShell({
       const nextSession = nextState.sessions.find((item) => item.id === nextState.activeSessionId);
       setActiveProvider(
         nextSession?.selectedProviderId
-          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ?? null)
+          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ??
+              providers[0] ??
+              null)
           : (providers[0] ?? null),
       );
       if (wasWithoutWorkspace) setShowVault(true);
