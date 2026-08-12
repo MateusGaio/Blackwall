@@ -32,6 +32,7 @@ import {
   uploadAttachment,
 } from "../shared/api/sidecar";
 import { isSubmitShortcut } from "./composer";
+import { greetingForTime } from "./greetings";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
@@ -67,6 +68,10 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const activeStream = useRef<{ stop: () => void } | null>(null);
 
   const name = profileName.trim() || "você";
+  const profileLocale = state?.profiles.find(
+    (profile) => profile.id === state.activeProfileId,
+  )?.locale;
+  const greeting = greetingForTime(new Date(), profileLocale);
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
   const selectedModel =
@@ -511,15 +516,16 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         <section className="chat-shell" aria-label="Conversa">
           {messages.length === 0 ? (
             <div className="empty-state">
-              <p className="eyebrow">Pronto, {name}</p>
+              <p className="greeting-mark" aria-hidden="true">
+                ✳
+              </p>
               <h1>
-                Nenhuma conversa por ora — envie uma mensagem para começar
-                {workspace ? "." : ", mesmo sem workspace."}
+                {greeting}, {name}
               </h1>
               <p>
                 {workspace
-                  ? `As respostas serão enviadas por ${activeProvider?.name ?? "seu provedor local"}.`
-                  : "Você está no modo sem workspace. Adicione uma pasta quando quiser usar arquivos e o Vault."}
+                  ? "O que vamos construir hoje?"
+                  : "Converse livremente. Adicione uma pasta quando quiser usar arquivos e o Vault."}
               </p>
             </div>
           ) : (
