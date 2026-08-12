@@ -54,7 +54,11 @@ const VaultPanel = lazy(async () => {
 type SidebarFocusTarget = "recent" | "settings" | "workspace";
 type VaultTab = "files" | "graph";
 
-function CompactIcon({ kind }: { kind: "files" | "graph" | "recent" | "settings" | "workspace" }) {
+function CompactIcon({
+  kind,
+}: {
+  kind: "files" | "graph" | "recent" | "settings" | "workspace" | "panel";
+}) {
   const paths = {
     files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
     graph: (
@@ -65,6 +69,7 @@ function CompactIcon({ kind }: { kind: "files" | "graph" | "recent" | "settings"
       <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
     ),
     workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
+    panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
   } as const;
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -611,12 +616,7 @@ export default function WorkspaceShell({
     >
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
-          <button
-            aria-label={sidebarCollapsed ? "Mostrar sidebar" : "Blackwall"}
-            className="sidebar-brand-button"
-            onClick={() => (sidebarCollapsed ? expandSidebar() : undefined)}
-            type="button"
-          >
+          <span className="sidebar-brand">
             {activeProfile?.avatarData && !sidebarCollapsed ? (
               <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
             ) : (
@@ -624,7 +624,7 @@ export default function WorkspaceShell({
                 BW
               </span>
             )}
-          </button>
+          </span>
           <div>
             <p className="eyebrow">Perfil</p>
             <strong>{name}</strong>
@@ -637,7 +637,7 @@ export default function WorkspaceShell({
             title={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
             type="button"
           >
-            {sidebarCollapsed ? "→" : "←"}
+            <CompactIcon kind="panel" />
           </button>
         </div>
         {sidebarCollapsed && (
