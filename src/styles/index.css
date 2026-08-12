@@ -1468,7 +1468,9 @@ button:disabled {
   align-content: center;
   display: flex;
   flex-direction: column;
+  flex: 1;
   justify-content: center;
+  padding-bottom: clamp(56px, 12vh, 136px);
 }
 
 .chat-shell.is-empty .empty-state {
