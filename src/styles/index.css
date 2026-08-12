@@ -176,7 +176,8 @@ button:disabled {
   font-size: 0.72rem;
   gap: 10px;
 }
-.field-label input {
+.field-label input,
+.field-label textarea {
   background: #111113;
   border: 1px solid #303034;
   border-radius: 0;
@@ -187,9 +188,23 @@ button:disabled {
     border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
     background-color 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.field-label input:focus {
+.field-label textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+.field-label input:focus,
+.field-label textarea:focus {
   background: #161618;
   border-color: #d3d3d6;
+}
+
+.field-hint {
+  color: #77777c;
+  font-family: inherit;
+  font-size: 0.76rem;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-transform: none;
 }
 
 .info-panel {

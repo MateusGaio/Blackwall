@@ -28,11 +28,13 @@ function LoadingSkeleton() {
 type OnboardingPanelProps = {
   locale: "pt-BR" | "en";
   profileName: string;
+  soul: string;
   step: OnboardingStep;
   isExiting: boolean;
   runtime: "desktop" | "web";
   onLocaleChange: (locale: "pt-BR" | "en") => void;
   onProfileNameChange: (name: string) => void;
+  onSoulChange: (soul: string) => void;
   onProviderConnected: (provider: ConnectedProvider) => void;
   onAdvance: (animate: boolean) => void;
   onBack: (animate: boolean) => void;
@@ -41,11 +43,13 @@ type OnboardingPanelProps = {
 function OnboardingPanel({
   locale,
   profileName,
+  soul,
   step,
   isExiting,
   runtime,
   onLocaleChange,
   onProfileNameChange,
+  onSoulChange,
   onProviderConnected,
   onAdvance,
   onBack,
@@ -125,13 +129,18 @@ function OnboardingPanel({
             </label>
           )}
           {step.id === "soul" && (
-            <div className="info-panel">
-              <strong>Soul padrão / Builder</strong>
-              <p>
-                Clara, direta e preparada para código. Você poderá combinar Souls de perfil e
-                workspace depois.
-              </p>
-            </div>
+            <label className="field-label" htmlFor="soul-prompt">
+              Soul do perfil
+              <textarea
+                id="soul-prompt"
+                onChange={(event) => onSoulChange(event.target.value)}
+                rows={5}
+                value={soul}
+              />
+              <span className="field-hint">
+                Você poderá combinar esta Soul com a do workspace depois.
+              </span>
+            </label>
           )}
           {step.id === "provider" && (
             <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
@@ -186,6 +195,9 @@ export function App() {
     detectInitialLocale(navigator.language),
   );
   const [profileName, setProfileName] = useState("");
+  const [soul, setSoul] = useState(
+    "Você é uma assistente clara, direta e preparada para ajudar com código.",
+  );
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
 
@@ -264,8 +276,10 @@ export function App() {
       onBack={(animate) => navigate(stepIndex - 1, animate)}
       onLocaleChange={setLocale}
       onProfileNameChange={setProfileName}
+      onSoulChange={setSoul}
       onProviderConnected={providerConnected}
       profileName={profileName}
+      soul={soul}
       step={currentStep}
       runtime={runtime}
     />
