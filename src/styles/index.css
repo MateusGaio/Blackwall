@@ -1422,6 +1422,33 @@ button:disabled {
   padding: 7px 9px;
 }
 
+.soul-indicator {
+  background: transparent;
+  border: 1px solid #353539;
+  border-radius: 999px;
+  color: #a5a5aa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.63rem;
+  line-height: 1;
+  max-width: 132px;
+  overflow: hidden;
+  padding: 7px 9px;
+  text-overflow: ellipsis;
+  transition:
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  white-space: nowrap;
+}
+
+.soul-indicator:hover,
+.soul-indicator:focus-visible {
+  background: #1a1a1d;
+  border-color: #a6a6ab;
+  color: #f2f2f3;
+  outline: none;
+}
+
 .sr-only {
   height: 1px;
   margin: -1px;
@@ -1618,8 +1645,10 @@ button:disabled {
 }
 
 .vault-graph-edge {
-  stroke: #4e4e54;
-  stroke-width: 0.35;
+  pointer-events: none;
+  stroke: #a5a5aa;
+  stroke-opacity: 0.22;
+  stroke-width: 0.38;
 }
 
 .vault-graph-node {

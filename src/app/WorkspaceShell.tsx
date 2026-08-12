@@ -44,6 +44,7 @@ import {
   vaultCollapsedPreference,
   writeBooleanPreference,
 } from "./panel-preferences";
+import { activeSoulMeta } from "./soul";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
@@ -144,6 +145,7 @@ export default function WorkspaceShell({
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
   const recentSessions = state?.recentSessions ?? [];
+  const { label: activeSoulLabel, soul: activeSoul } = activeSoulMeta(activeProfile, workspace);
   const selectedModel =
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
 
@@ -817,6 +819,15 @@ export default function WorkspaceShell({
           </div>
           <div className="chat-controls">
             <p className="eyebrow">{activeProvider?.name ?? "sem provedor"}</p>
+            <button
+              aria-label={`Abrir configurações da ${activeSoulLabel.toLowerCase()}`}
+              className="soul-indicator"
+              onClick={() => setShowSettings(true)}
+              title={activeSoul || activeSoulLabel}
+              type="button"
+            >
+              {activeSoulLabel}
+            </button>
             {activeProvider && (
               <label className="model-selector">
                 <span className="sr-only">Modelo</span>
