@@ -171,22 +171,6 @@ function OnboardingPanel({
                 <span>PT-BR</span>
               </button>
               <button
-                aria-pressed={startWithoutWorkspace}
-                className={startWithoutWorkspace ? "choice is-selected" : "choice"}
-                onClick={onStartWithoutWorkspace}
-                type="button"
-              >
-                <span>
-                  {isEnglish ? "Start without a workspace" : "Iniciar sem workspace"}
-                  <small>
-                    {isEnglish
-                      ? "You can add a project folder later"
-                      : "Você poderá adicionar uma pasta depois"}
-                  </small>
-                </span>
-                <span>{startWithoutWorkspace ? "✓" : ""}</span>
-              </button>
-              <button
                 className={locale === "en" ? "choice is-selected" : "choice"}
                 onClick={() => onLocaleChange("en")}
                 aria-pressed={locale === "en"}
@@ -238,6 +222,22 @@ function OnboardingPanel({
                         : "Abrir o explorador do navegador"}
                   </small>
                 </span>
+              </button>
+              <button
+                aria-pressed={startWithoutWorkspace}
+                className={startWithoutWorkspace ? "choice is-selected" : "choice"}
+                onClick={onStartWithoutWorkspace}
+                type="button"
+              >
+                <span>
+                  {isEnglish ? "Start without a workspace" : "Iniciar sem workspace"}
+                  <small>
+                    {isEnglish
+                      ? "You can add a project folder later"
+                      : "Você poderá adicionar uma pasta depois"}
+                  </small>
+                </span>
+                <span>{startWithoutWorkspace ? "✓" : ""}</span>
               </button>
               {folderSelection && (
                 <div className="folder-selected" role="status">
