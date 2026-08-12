@@ -11,6 +11,7 @@ import {
 } from "d3-force";
 import { type PointerEvent, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
+import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 import {
   defaultColorForGroup,
   defaultGraphPreferences,
@@ -51,14 +52,22 @@ function GraphIcon({ kind }: { kind: "settings" }) {
   );
 }
 
-function GraphView({ graph, workspaceId }: { graph: VaultGraph; workspaceId: string }) {
+function GraphView({
+  graph,
+  onOpenNote,
+  workspaceId,
+}: {
+  graph: VaultGraph;
+  onOpenNote: (path: string) => void;
+  workspaceId: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawRef = useRef<() => void>(() => undefined);
   const nodesRef = useRef<GraphNode[]>([]);
   const simulationRef = useRef<ReturnType<typeof forceSimulation<GraphNode>> | null>(null);
   const transformRef = useRef<ViewTransform>({ scale: 1, x: 0, y: 0 });
   const pointerRef = useRef<
-    | { kind: "drag"; node: GraphNode }
+    | { kind: "drag"; node: GraphNode; startX: number; startY: number }
     | { kind: "pan"; origin: ViewTransform; startX: number; startY: number }
     | null
   >(null);
@@ -272,7 +281,7 @@ function GraphView({ graph, workspaceId }: { graph: VaultGraph; workspaceId: str
             const world = worldPoint(point);
             node.fx = world.x;
             node.fy = world.y;
-            pointerRef.current = { kind: "drag", node };
+            pointerRef.current = { kind: "drag", node, startX: point.x, startY: point.y };
             simulationRef.current?.alphaTarget(0.25).restart();
             return;
           }
@@ -309,6 +318,10 @@ function GraphView({ graph, workspaceId }: { graph: VaultGraph; workspaceId: str
         onPointerUp={(event) => {
           const pointer = pointerRef.current;
           if (pointer?.kind === "drag") {
+            const point = pointFor(event);
+            if (Math.hypot(point.x - pointer.startX, point.y - pointer.startY) < 6) {
+              onOpenNote(pointer.node.id);
+            }
             pointer.node.fx = null;
             pointer.node.fy = null;
             simulationRef.current?.alphaTarget(0);
@@ -424,11 +437,15 @@ function GraphView({ graph, workspaceId }: { graph: VaultGraph; workspaceId: str
 export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultPanelProps) {
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState("");
+  const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
+  const [fileListScrollTop, setFileListScrollTop] = useState(0);
+  const fileListRef = useRef<HTMLUListElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setGraph(null);
     setError("");
+    setSelectedNotePath(null);
     void getVault(workspaceId)
       .then((nextGraph) => {
         if (!cancelled) setGraph(nextGraph);
@@ -442,21 +459,35 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
     };
   }, [workspaceId]);
 
+  const selectedNote = graph?.files.find((file) => file.path === selectedNotePath) ?? null;
+
+  function openNote(path: string) {
+    if (!graph?.files.some((file) => file.path === path)) return;
+    if (!selectedNotePath && fileListRef.current)
+      setFileListScrollTop(fileListRef.current.scrollTop);
+    setSelectedNotePath(path);
+    onTabChange("files");
+  }
+
+  function closeNote() {
+    setSelectedNotePath(null);
+    requestAnimationFrame(() => fileListRef.current?.scrollTo({ top: fileListScrollTop }));
+  }
+
   return (
     <aside aria-label="Vault do workspace" className="vault-panel">
       <header className="vault-panel-header">
-        <div>
-          <p className="eyebrow">Conhecimento local</p>
-          <strong>Vault</strong>
-        </div>
+        <strong>Vault</strong>
         <button
           aria-label="Recolher Vault"
-          className="icon-button"
+          className="vault-collapse-button"
           onClick={onCollapse}
           title="Recolher Vault"
           type="button"
         >
-          ×
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M4 5h16v14H4V5Zm5 0v14M15 9l-3 3 3 3" />
+          </svg>
         </button>
       </header>
       <div className="vault-tabs" role="tablist" aria-label="Visualização do Vault">
@@ -487,25 +518,55 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
       )}
       {graph &&
         tab === "files" &&
-        (graph.files.length ? (
-          <ul className="vault-file-list">
+        (selectedNote ? (
+          <section aria-label={`Nota ${selectedNote.title}`} className="vault-note-reader">
+            <div className="vault-note-toolbar">
+              <button className="text-button" onClick={closeNote} type="button">
+                ← Arquivos
+              </button>
+            </div>
+            <header>
+              <p className="eyebrow">{selectedNote.path}</p>
+              <h2>{selectedNote.title}</h2>
+            </header>
+            <article className="vault-note-content">
+              <SafeMarkdown
+                content={selectedNote.content}
+                currentPath={selectedNote.path}
+                files={graph.files}
+                onLocalLink={openNote}
+              />
+            </article>
+          </section>
+        ) : graph.files.length ? (
+          <ul
+            className="vault-file-list"
+            onScroll={(event) => setFileListScrollTop(event.currentTarget.scrollTop)}
+            ref={fileListRef}
+          >
             {graph.files.map((file) => (
               <li key={file.path}>
                 <span className="vault-file-icon" aria-hidden="true">
                   #
                 </span>
-                <span>
+                <button
+                  className="vault-file-button"
+                  onClick={() => openNote(file.path)}
+                  type="button"
+                >
                   <strong>{file.title}</strong>
                   <small>{file.path}</small>
-                </span>
+                </button>
               </li>
             ))}
           </ul>
         ) : (
           <p className="vault-empty">Nenhum arquivo Markdown foi encontrado nesta pasta.</p>
         ))}
-      {graph && tab === "graph" && <GraphView graph={graph} workspaceId={workspaceId} />}
-      {graph && (
+      {graph && tab === "graph" && (
+        <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
+      )}
+      {graph && tab === "graph" && (
         <p className="vault-count">
           {graph.files.length} arquivos · {graph.edges.length} links
         </p>

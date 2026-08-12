@@ -668,19 +668,6 @@ export default function WorkspaceShell({
     >
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
-          <span className="sidebar-brand">
-            {activeProfile?.avatarData && !sidebarCollapsed ? (
-              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
-            ) : (
-              <span className="brand-mark" aria-hidden="true">
-                BW
-              </span>
-            )}
-          </span>
-          <div>
-            <p className="eyebrow">Perfil</p>
-            <strong>{name}</strong>
-          </div>
           <button
             aria-label={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
             aria-pressed={sidebarCollapsed}
@@ -691,6 +678,13 @@ export default function WorkspaceShell({
           >
             <CompactIcon kind="panel" />
           </button>
+          <div className="sidebar-profile-summary">
+            {activeProfile?.avatarData ? (
+              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
+            ) : null}
+            <p className="eyebrow">Perfil</p>
+            <strong>{name}</strong>
+          </div>
         </div>
         {sidebarCollapsed && (
           <nav aria-label="Atalhos da sidebar" className="sidebar-rail">

@@ -1,51 +1,69 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type ReactElement, useState } from "react";
+import { type ReactNode, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import { resolveVaultLink, wikilinksToMarkdown } from "../../features/vault/note-links";
+import type { VaultFile } from "../api/sidecar";
 
-type SafeMarkdownProps = { content: string };
+type SafeMarkdownProps = {
+  content: string;
+  currentPath?: string;
+  files?: VaultFile[];
+  onLocalLink?: (path: string) => void;
+};
 
-function inline(value: string) {
-  const parts = value.split(/(`[^`]+`)/g);
-  return parts.map((part, index) =>
-    part.startsWith("`") && part.endsWith("`") ? (
-      <code key={`inline-code-${part}`}>{part.slice(1, -1)}</code>
-    ) : (
-      <span key={`inline-text-${part}-${index > 0 ? "after" : "before"}`}>{part}</span>
-    ),
+function CodeBlock({ children }: { children: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const text = String(children).replace(/\n$/, "");
+  return (
+    <div className="code-block">
+      <button
+        className="code-copy"
+        onClick={() => {
+          void navigator.clipboard.writeText(text).then(() => setCopied(true));
+        }}
+        type="button"
+      >
+        {copied ? "Copiado" : "Copiar"}
+      </button>
+      <pre>{children}</pre>
+    </div>
   );
 }
 
-export function SafeMarkdown({ content }: SafeMarkdownProps) {
-  const [copied, setCopied] = useState<number | null>(null);
-  const blocks = content.split(/```([\w-]*)\n?([\s\S]*?)```/g);
-  const output: ReactElement[] = [];
-  let blockIndex = 0;
-  for (let index = 0; index < blocks.length; index += 1) {
-    const text = blocks[index];
-    if (!text) continue;
-    if (index % 3 === 0) {
-      text.split("\n").forEach((line, lineIndex, lines) => {
-        if (line.trim()) output.push(<p key={`p-${blockIndex++}`}>{inline(line)}</p>);
-        if (lineIndex < lines.length - 1) output.push(<br key={`br-${blockIndex++}`} />);
-      });
-    } else if (index % 3 === 2) {
-      const codeIndex = blockIndex++;
-      output.push(
-        <div className="code-block" key={`code-${codeIndex}`}>
-          <button
-            className="code-copy"
-            onClick={() => {
-              void navigator.clipboard.writeText(text).then(() => setCopied(codeIndex));
-            }}
-            type="button"
-          >
-            {copied === codeIndex ? "Copiado" : "Copiar"}
-          </button>
-          <pre>
-            <code>{text}</code>
-          </pre>
-        </div>,
-      );
-    }
-  }
-  return <div className="safe-markdown">{output}</div>;
+export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: SafeMarkdownProps) {
+  const source = wikilinksToMarkdown(content);
+  return (
+    <div className="safe-markdown">
+      <ReactMarkdown
+        components={{
+          a: ({ children, href = "" }) => {
+            const localPath = onLocalLink ? resolveVaultLink(currentPath, href, files) : null;
+            if (localPath && onLocalLink) {
+              return (
+                <button
+                  className="markdown-note-link"
+                  onClick={() => onLocalLink(localPath)}
+                  type="button"
+                >
+                  {children}
+                </button>
+              );
+            }
+            return (
+              <a href={href} rel="noreferrer noopener" target="_blank">
+                {children}
+              </a>
+            );
+          },
+          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+        }}
+        rehypePlugins={[rehypeSanitize]}
+        remarkPlugins={[remarkGfm]}
+      >
+        {source}
+      </ReactMarkdown>
+    </div>
+  );
 }
