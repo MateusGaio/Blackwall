@@ -3,6 +3,8 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer } from "ws";
 import { type ChatMessage, sendChatMessage } from "./chat.js";
+import { dataDirectory, openDatabase } from "./db/database.js";
+import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import { listProviders, type ProviderInput, saveProvider, validateProvider } from "./providers.js";
 
@@ -53,26 +55,100 @@ function requestBody(request: import("node:http").IncomingMessage): Promise<unkn
   });
 }
 
-export function createSidecar(port = 0): Promise<{ port: number; server: Server }> {
+export function createSidecar(
+  port = 0,
+  storageDirectory = dataDirectory(),
+): Promise<{ port: number; server: Server }> {
+  const database = openDatabase(storageDirectory);
+  const store = createStore(database);
   const server = createServer(async (request, response) => {
     allowOrigin(request, response);
     if (request.method === "OPTIONS") return response.writeHead(204).end();
+    const pathname = new URL(request.url ?? "/", "http://blackwall.local").pathname;
     if (request.url === "/health") {
       writeJson(response, 200, withInstrumentation("sidecar.health", healthPayload));
       return;
     }
     try {
-      if (request.method === "GET" && request.url === "/v1/providers") {
+      if (request.method === "GET" && pathname === "/v1/state") {
+        writeJson(response, 200, store.getState());
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/bootstrap") {
+        const input = (await requestBody(request)) as BootstrapInput;
+        writeJson(response, 200, await store.bootstrap(input));
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/profiles") {
+        const input = (await requestBody(request)) as {
+          locale: string;
+          name: string;
+          soul: string;
+        };
+        writeJson(response, 201, { profile: await store.createProfile(input) });
+        return;
+      }
+      if (request.method === "GET" && pathname === "/v1/workspaces") {
+        const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
+          "profileId",
+        );
+        if (!profileId) throw new Error("Informe o perfil para listar os workspaces.");
+        writeJson(response, 200, { workspaces: store.listWorkspaces(profileId) });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/workspaces") {
+        const input = (await requestBody(request)) as {
+          name: string;
+          permissionMode?: PermissionMode;
+          profileId: string;
+          rootPath: string;
+          soul: string;
+        };
+        writeJson(response, 201, { workspace: await store.createWorkspace(input) });
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/sessions$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, { sessions: store.listSessions(workspaceId) });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/v1/sessions") {
+        const input = (await requestBody(request)) as { title?: string; workspaceId: string };
+        writeJson(response, 201, { session: store.createSession(input) });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/select$/.test(pathname)) {
+        writeJson(response, 200, store.selectSession(pathname.split("/")[3]));
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/sessions\/[^/]+\/messages$/.test(pathname)) {
+        writeJson(response, 200, { messages: store.listMessages(pathname.split("/")[3]) });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/messages$/.test(pathname)) {
+        const input = (await requestBody(request)) as {
+          content: string;
+          model?: string | null;
+          providerId?: string | null;
+          role: "assistant" | "system" | "user";
+          status?: string;
+        };
+        writeJson(response, 201, {
+          message: store.appendMessage({ ...input, sessionId: pathname.split("/")[3] }),
+        });
+        return;
+      }
+      if (request.method === "GET" && pathname === "/v1/providers") {
         writeJson(response, 200, { providers: await listProviders() });
         return;
       }
-      if (request.method === "POST" && request.url === "/v1/providers") {
+      if (request.method === "POST" && pathname === "/v1/providers") {
         const input = (await requestBody(request)) as ProviderInput;
         await validateProvider(input);
         writeJson(response, 201, { provider: await saveProvider(input) });
         return;
       }
-      if (request.method === "POST" && request.url === "/v1/chat/completions") {
+      if (request.method === "POST" && pathname === "/v1/chat/completions") {
         const input = (await requestBody(request)) as {
           messages: ChatMessage[];
           providerId: string;
@@ -86,6 +162,8 @@ export function createSidecar(port = 0): Promise<{ port: number; server: Server 
       writeJson(response, 400, { error: message });
     }
   });
+
+  server.once("close", () => database.close());
 
   const socketServer = new WebSocketServer({ server });
   socketServer.on("connection", (socket) => {

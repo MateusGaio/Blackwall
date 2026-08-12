@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { openDatabase } from "./db/database.js";
 import { withInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret } from "./secrets.js";
 
@@ -89,6 +90,13 @@ export async function saveProvider(
   document.providers = [...document.providers, provider];
   await encryptSecret(dataDirectory, provider.id, input.apiKey.trim());
   await writeDocument(dataDirectory, document);
+  const database = openDatabase(dataDirectory);
+  database.client
+    .prepare(
+      "INSERT OR REPLACE INTO providers (id, type, name, base_url, status, created_at, updated_at) VALUES (?, 'openai-compatible', ?, ?, 'connected', COALESCE((SELECT created_at FROM providers WHERE id = ?), ?), ?)",
+    )
+    .run(provider.id, provider.name, provider.baseUrl, provider.id, Date.now(), Date.now());
+  database.close();
   return provider;
 }
 
