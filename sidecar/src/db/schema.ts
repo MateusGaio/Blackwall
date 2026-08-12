@@ -113,7 +113,7 @@ export const attachments = sqliteTable("attachments", {
   ...timestamps,
 });
 
-const approvals = sqliteTable("approvals", {
+export const approvals = sqliteTable("approvals", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()

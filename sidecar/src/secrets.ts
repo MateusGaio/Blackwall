@@ -79,3 +79,10 @@ export async function decryptSecret(dataDirectory: string, name: string): Promis
   if (!value) throw new Error("A chave local do provedor não foi encontrada.");
   return value;
 }
+
+export async function removeSecret(dataDirectory: string, name: string): Promise<void> {
+  const secrets = await readSecrets(dataDirectory);
+  if (!(name in secrets)) return;
+  delete secrets[name];
+  await writeSecrets(dataDirectory, secrets);
+}

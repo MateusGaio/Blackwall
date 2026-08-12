@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import {
   type AttachmentInput,
@@ -10,17 +11,22 @@ import {
 } from "./attachments.js";
 import { type ChatMessage, sendChatMessage } from "./chat.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
+import { profiles, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
+  getProvider,
   listProviderModels,
   listProviders,
   listStoredProviderModels,
   type ProviderInput,
+  providerApiKey,
+  removeProvider,
   saveProvider,
   validateProvider,
 } from "./providers.js";
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
+import { type ApprovalDecision, executeTool, resolveApproval, type ToolInput } from "./tools.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
 const allowedOrigins = new Set([
@@ -50,7 +56,7 @@ function allowOrigin(
   if (origin && allowedOrigins.has(origin))
     response.setHeader("access-control-allow-origin", origin);
   response.setHeader("access-control-allow-headers", "content-type");
-  response.setHeader("access-control-allow-methods", "DELETE, GET, POST, OPTIONS");
+  response.setHeader("access-control-allow-methods", "DELETE, GET, PATCH, POST, OPTIONS");
 }
 
 function requestBody(request: import("node:http").IncomingMessage): Promise<unknown> {
@@ -143,6 +149,16 @@ export function createSidecar(
         writeJson(response, 201, { workspace: await store.createWorkspace(input) });
         return;
       }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/permission-mode$/.test(pathname)
+      ) {
+        const input = (await requestBody(request)) as { mode: PermissionMode };
+        writeJson(response, 200, {
+          workspace: store.setWorkspacePermissionMode(pathname.split("/")[3], input.mode),
+        });
+        return;
+      }
       if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/sessions$/.test(pathname)) {
         const workspaceId = pathname.split("/")[3];
         writeJson(response, 200, { sessions: store.listSessions(workspaceId) });
@@ -151,6 +167,17 @@ export function createSidecar(
       if (request.method === "POST" && pathname === "/v1/sessions") {
         const input = (await requestBody(request)) as { title?: string; workspaceId: string };
         writeJson(response, 201, { session: store.createSession(input) });
+        return;
+      }
+      if (request.method === "PATCH" && /^\/v1\/sessions\/[^/]+$/.test(pathname)) {
+        const input = (await requestBody(request)) as { title: string };
+        writeJson(response, 200, {
+          session: store.renameSession(pathname.split("/")[3], input.title),
+        });
+        return;
+      }
+      if (request.method === "DELETE" && /^\/v1\/sessions\/[^/]+$/.test(pathname)) {
+        writeJson(response, 200, { session: store.deleteSession(pathname.split("/")[3]) });
         return;
       }
       if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/select$/.test(pathname)) {
@@ -202,6 +229,31 @@ export function createSidecar(
         writeJson(response, 201, { provider: await saveProvider(input) });
         return;
       }
+      if (request.method === "POST" && pathname === "/v1/providers/test") {
+        const input = (await requestBody(request)) as ProviderInput;
+        await validateProvider(input);
+        writeJson(response, 200, { status: "connected" });
+        return;
+      }
+      if (request.method === "PATCH" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
+        const input = (await requestBody(request)) as ProviderInput;
+        const id = pathname.split("/")[3];
+        const existing = await getProvider(id);
+        await validateProvider({
+          ...input,
+          apiKey: input.apiKey ?? (await providerApiKey(id)),
+          id,
+          type: input.type ?? existing.type,
+        });
+        writeJson(response, 200, {
+          provider: await saveProvider({ ...input, id, type: input.type ?? existing.type }),
+        });
+        return;
+      }
+      if (request.method === "DELETE" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
+        writeJson(response, 200, { provider: await removeProvider(pathname.split("/")[3]) });
+        return;
+      }
       if (request.method === "POST" && pathname === "/v1/chat/completions") {
         const input = (await requestBody(request)) as {
           messages: ChatMessage[];
@@ -235,6 +287,7 @@ export function createSidecar(
       model?: string;
       providerId: string;
       requestId: string;
+      workspaceId?: string;
     },
   ) {
     const controller = new AbortController();
@@ -243,6 +296,20 @@ export function createSidecar(
     const providerIds = [input.providerId, ...providers.map((provider) => provider.id)]
       .filter((id, index, ids) => ids.indexOf(id) === index)
       .slice(0, 8);
+    const workspace = input.workspaceId
+      ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
+      : null;
+    const profile = workspace
+      ? database.db.select().from(profiles).where(eq(profiles.id, workspace.profileId)).get()
+      : null;
+    const systemMessages: ChatMessage[] = [];
+    if (profile?.soul) systemMessages.push({ content: profile.soul, role: "system" });
+    if (workspace?.soul) systemMessages.push({ content: workspace.soul, role: "system" });
+    const promptMessages = [
+      ...systemMessages,
+      ...input.messages.filter((message) => message.role === "system"),
+      ...input.messages.filter((message) => message.role !== "system"),
+    ];
     try {
       for (const providerId of providerIds) {
         if (controller.signal.aborted) return;
@@ -253,7 +320,7 @@ export function createSidecar(
         try {
           const result = await streamChatMessage(
             providerId,
-            input.messages,
+            promptMessages,
             input.model,
             (delta) => {
               content += delta;
@@ -339,6 +406,59 @@ export function createSidecar(
       }
       if (input.type === "chat.start" && input.requestId && typeof input.providerId === "string") {
         enqueueChat(socket, input as never);
+        return;
+      }
+      if (
+        input.type === "approval.resolve" &&
+        input.requestId &&
+        typeof input.decision === "string"
+      ) {
+        void resolveApproval(
+          input.requestId,
+          input.decision as ApprovalDecision,
+          storageDirectory,
+        ).catch((error) => {
+          socket.send(
+            JSON.stringify({
+              message:
+                error instanceof Error ? error.message : "Não foi possível resolver a autorização.",
+              requestId: input.requestId,
+              type: "tool.failed",
+            }),
+          );
+        });
+        return;
+      }
+      if (
+        input.type === "tool.execute" &&
+        input.requestId &&
+        typeof input.workspaceId === "string"
+      ) {
+        const toolInput = input as unknown as ToolInput;
+        void executeTool(toolInput, storageDirectory, {
+          onApproval: (approval) =>
+            socket.send(
+              JSON.stringify({
+                ...approval,
+                args: toolInput.args,
+                type: "approval.requested",
+              }),
+            ),
+        })
+          .then((result) =>
+            socket.send(
+              JSON.stringify({ requestId: input.requestId, result, type: "tool.completed" }),
+            ),
+          )
+          .catch((error) =>
+            socket.send(
+              JSON.stringify({
+                message: error instanceof Error ? error.message : "A ferramenta falhou.",
+                requestId: input.requestId,
+                type: "tool.failed",
+              }),
+            ),
+          );
       }
     });
     socket.on("close", () => {

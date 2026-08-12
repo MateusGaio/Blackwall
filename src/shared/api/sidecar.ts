@@ -64,6 +64,7 @@ type BootstrapInput = {
 
 type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
   apiKey?: string;
+  id?: string;
   type?: ConnectedProvider["type"];
 };
 export type ChatMessage = { content: string; id: string; role: "assistant" | "system" | "user" };
@@ -100,6 +101,30 @@ export async function connectProvider(input: ProviderInput): Promise<ConnectedPr
     method: "POST",
   });
   return response.provider;
+}
+
+export async function testProvider(input: Omit<ProviderInput, "id">): Promise<void> {
+  await request("/v1/providers/test", {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function updateProvider(
+  id: string,
+  input: Omit<ProviderInput, "id">,
+): Promise<ConnectedProvider> {
+  const response = await request<{ provider: ConnectedProvider }>(`/v1/providers/${id}`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
+  return response.provider;
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  await request(`/v1/providers/${id}`, { method: "DELETE" });
 }
 
 export type ProviderModel = {
@@ -168,11 +193,54 @@ export async function createSession(workspaceId: string, title?: string): Promis
   return response.session;
 }
 
+export async function createWorkspace(input: {
+  name: string;
+  permissionMode?: Workspace["permissionMode"];
+  profileId: string;
+  rootPath: string;
+  soul: string;
+}): Promise<Workspace> {
+  const response = await request<{ workspace: Workspace }>("/v1/workspaces", {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  return response.workspace;
+}
+
+export async function setWorkspacePermissionMode(
+  workspaceId: string,
+  mode: Workspace["permissionMode"],
+): Promise<Workspace> {
+  const response = await request<{ workspace: Workspace }>(
+    `/v1/workspaces/${workspaceId}/permission-mode`,
+    {
+      body: JSON.stringify({ mode }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.workspace;
+}
+
 export async function selectSession(sessionId: string): Promise<AppState> {
   return request(`/v1/sessions/${sessionId}/select`, {
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<Session> {
+  const response = await request<{ session: Session }>(`/v1/sessions/${sessionId}`, {
+    body: JSON.stringify({ title }),
+    headers: { "content-type": "application/json" },
+    method: "PATCH",
+  });
+  return response.session;
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  await request(`/v1/sessions/${sessionId}`, { method: "DELETE" });
 }
 
 export async function persistMessage(

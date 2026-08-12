@@ -443,6 +443,46 @@ button:disabled {
   white-space: nowrap;
 }
 
+.session-row {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+}
+
+.session-row .session-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-more,
+.session-delete {
+  background: transparent;
+  border: 0;
+  color: #65656b;
+  font-size: 0.72rem;
+  opacity: 0;
+  padding: 7px 3px;
+}
+
+.session-row:hover .session-more,
+.session-row:hover .session-delete,
+.session-more:focus-visible,
+.session-delete:focus-visible {
+  opacity: 1;
+}
+
+.session-more:hover,
+.session-more:focus-visible {
+  color: #f2f2f3;
+  outline: none;
+}
+
+.session-delete:hover,
+.session-delete:focus-visible {
+  color: #f08c8c;
+  outline: none;
+}
+
 .session-item:hover,
 .session-item:focus-visible,
 .session-item.is-active {
@@ -452,17 +492,217 @@ button:disabled {
 }
 
 .sidebar-settings {
-  background: transparent;
-  border: 0;
   border-top: 1px solid #252527;
   color: #89898e;
+  display: grid;
+  font-size: 0.72rem;
+  gap: 8px;
   margin-top: auto;
   padding: 16px 0 0;
+}
+
+.sidebar-settings select {
+  background: #141416;
+  border: 1px solid #353539;
+  color: #cfcfd2;
+  font-size: 0.72rem;
+  padding: 7px 8px;
+  width: 100%;
+}
+
+.sidebar-settings select:hover,
+.sidebar-settings select:focus-visible {
+  border-color: #a6a6ab;
+  outline: none;
+}
+
+.sidebar-settings:focus-within {
+  color: #f2f2f3;
+}
+
+.sidebar-config {
+  background: transparent;
+  border: 0;
+  color: #89898e;
+  padding: 0;
   text-align: left;
 }
 
-.sidebar-settings:hover,
-.sidebar-settings:focus-visible {
+.sidebar-config:hover,
+.sidebar-config:focus-visible {
+  color: #f2f2f3;
+  outline: none;
+}
+
+.settings-backdrop {
+  align-items: flex-start;
+  background: rgb(0 0 0 / 68%);
+  display: flex;
+  inset: 0;
+  justify-content: flex-end;
+  padding: 18px;
+  position: fixed;
+  z-index: 10;
+}
+
+.settings-panel {
+  animation: card-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  background: #101012;
+  border: 1px solid #353539;
+  height: min(100%, 760px);
+  max-width: 460px;
+  overflow-y: auto;
+  padding: 24px;
+  width: 100%;
+}
+
+.settings-panel-header {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.settings-panel-header h2 {
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  margin: 10px 0 0;
+}
+
+.provider-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.provider-row {
+  align-items: center;
+  border: 1px solid #2d2d31;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.provider-row > button:first-child {
+  background: transparent;
+  border: 0;
+  color: #e5e5e7;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.provider-row strong,
+.provider-row span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-row strong {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.provider-row span,
+.settings-empty {
+  color: #77777c;
+  font-size: 0.7rem;
+  margin: 4px 0 0;
+}
+
+.text-button {
+  background: transparent;
+  border: 0;
+  color: #b6b6bb;
+  font-size: 0.72rem;
+  padding: 3px 5px;
+}
+
+.text-button:hover,
+.text-button:focus-visible {
+  color: #f2f2f3;
+  outline: none;
+}
+
+.text-button.danger:hover,
+.text-button.danger:focus-visible {
+  color: #f08c8c;
+}
+
+.settings-form {
+  border-top: 1px solid #2d2d31;
+  padding-top: 20px;
+}
+
+.settings-actions {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.settings-status {
+  color: #9ecb9e;
+  font-size: 0.76rem;
+  margin: 10px 0 0;
+}
+
+.command-backdrop {
+  align-items: flex-start;
+  background: rgb(0 0 0 / 60%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding-top: 15vh;
+  position: fixed;
+  z-index: 12;
+}
+
+.command-palette {
+  animation: card-enter 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  background: #151517;
+  border: 1px solid #3b3b40;
+  box-shadow: 0 22px 80px rgb(0 0 0 / 45%);
+  max-width: 620px;
+  padding: 10px;
+  width: min(calc(100% - 32px), 620px);
+}
+
+.command-palette > input {
+  background: #101012;
+  border: 1px solid #353539;
+  color: #f2f2f3;
+  outline: none;
+  padding: 13px 14px;
+  width: 100%;
+}
+
+.command-palette > input:focus {
+  border-color: #a6a6ab;
+}
+
+.command-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.command-list button {
+  background: transparent;
+  border: 0;
+  color: #cfcfd2;
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.command-list button:hover,
+.command-list button:focus-visible {
+  background: #26262a;
   color: #f2f2f3;
   outline: none;
 }

@@ -1,19 +1,25 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { ProviderManager } from "../features/config/components/ProviderManager";
 import {
   type AppState,
   type Attachment,
   type ChatMessage,
   type ConnectedProvider,
   createSession,
+  createWorkspace,
+  deleteSession,
   getAppState,
+  listProviders,
   listStoredProviderModels,
   type ProviderModel,
   persistMessage,
   removeAttachment,
+  renameSession,
   searchAttachments,
   selectSession,
   setSessionModel,
+  setWorkspacePermissionMode,
   streamMessage,
   uploadAttachment,
 } from "../shared/api/sidecar";
@@ -27,6 +33,11 @@ type WorkspaceShellProps = {
 
 export default function WorkspaceShell({ appState, profileName, provider }: WorkspaceShellProps) {
   const [state, setState] = useState(appState);
+  const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
+  const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
+  const [showSettings, setShowSettings] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
@@ -43,26 +54,52 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const name = profileName.trim() || "você";
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
-  const selectedModel = activeSession?.selectedModel ?? provider?.model ?? models[0]?.id ?? "";
+  const selectedModel =
+    activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
 
   useEffect(() => {
-    if (!provider) return;
-    setModels([{ capabilities: [], id: provider.model, name: provider.model }]);
-    void listStoredProviderModels(provider.id)
+    void listProviders()
+      .then((available) => {
+        setProviders(available);
+        setActiveProvider((current) =>
+          current
+            ? (available.find((item) => item.id === current.id) ?? available[0] ?? null)
+            : (available[0] ?? null),
+        );
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!activeProvider) return;
+    setModels([{ capabilities: [], id: activeProvider.model, name: activeProvider.model }]);
+    void listStoredProviderModels(activeProvider.id)
       .then((available) =>
         setModels(
           available.length > 0
             ? available
-            : [{ capabilities: [], id: provider.model, name: provider.model }],
+            : [{ capabilities: [], id: activeProvider.model, name: activeProvider.model }],
         ),
       )
       .catch(() => undefined);
-  }, [provider]);
+  }, [activeProvider]);
+
+  useEffect(() => {
+    function onShortcut(event: globalThis.KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+      }
+      if (event.key === "Escape") setPaletteOpen(false);
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, []);
 
   async function changeModel(model: string) {
-    if (!activeSession || !provider) return;
+    if (!activeSession || !activeProvider) return;
     try {
-      const session = await setSessionModel(activeSession.id, model, provider.id);
+      const session = await setSessionModel(activeSession.id, model, activeProvider.id);
       setState((current) =>
         current
           ? {
@@ -101,11 +138,83 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     }
   }
 
+  async function newWorkspace() {
+    const profileId = state?.activeProfileId;
+    if (!profileId) return;
+    const name = window.prompt("Nome do novo workspace")?.trim();
+    const rootPath = window.prompt("Caminho absoluto da pasta")?.trim();
+    if (!name || !rootPath) return;
+    try {
+      const created = await createWorkspace({
+        name,
+        profileId,
+        rootPath,
+        soul: "Preserve o contexto e as convenções deste workspace.",
+      });
+      const session = await createSession(created.id);
+      const nextState = await selectSession(session.id);
+      setState(nextState);
+      setMessages(nextState.messages);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível criar o workspace.");
+    }
+  }
+
+  async function rename(sessionId: string, currentTitle: string) {
+    const title = window.prompt("Nome da sessão", currentTitle)?.trim();
+    if (!title || title === currentTitle) return;
+    try {
+      const updated = await renameSession(sessionId, title);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              sessions: current.sessions.map((item) => (item.id === updated.id ? updated : item)),
+            }
+          : current,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível renomear a sessão.");
+    }
+  }
+
+  async function remove(sessionId: string) {
+    if (!window.confirm("Excluir esta sessão e seu histórico?")) return;
+    try {
+      await deleteSession(sessionId);
+      const refreshed = await getAppState();
+      setState(refreshed);
+      setMessages(refreshed.messages);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível excluir a sessão.");
+    }
+  }
+
+  async function changePermissionMode(mode: NonNullable<typeof workspace>["permissionMode"]) {
+    if (!workspace) return;
+    try {
+      const updated = await setWorkspacePermissionMode(workspace.id, mode);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              workspaces: current.workspaces.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            }
+          : current,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível salvar as permissões.");
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
     const sessionId = state?.activeSessionId;
-    if (!content || !provider || !sessionId || isSending) return;
+    const selectedProvider = activeProvider;
+    if (!content || !selectedProvider || !sessionId || isSending) return;
     const nextMessages: ChatMessage[] = [
       ...messages,
       { content, id: crypto.randomUUID(), role: "user" },
@@ -131,7 +240,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           }
         : null;
       const stream = await streamMessage(
-        provider.id,
+        selectedProvider.id,
         contextMessage ? [...nextMessages, contextMessage] : nextMessages,
         selectedModel,
         workspace?.id ?? "default",
@@ -155,7 +264,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         await persistMessage(sessionId, {
           content: assistantMessage.content,
           model: result.provider?.model ?? selectedModel,
-          providerId: result.provider?.id ?? provider.id,
+          providerId: result.provider?.id ?? selectedProvider.id,
           role: assistantMessage.role,
           status: result.stopped ? "stopped" : "complete",
         });
@@ -231,7 +340,12 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         <div className="sidebar-section">
           <div className="sidebar-section-heading">
             <p className="eyebrow">Workspaces</p>
-            <button aria-label="Criar workspace" className="icon-button" type="button">
+            <button
+              aria-label="Criar workspace"
+              className="icon-button"
+              onClick={() => void newWorkspace()}
+              type="button"
+            >
               +
             </button>
           </div>
@@ -257,20 +371,55 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           </div>
           <nav aria-label="Sessões do workspace">
             {state?.sessions.map((session) => (
-              <button
-                className={`session-item ${session.id === activeSession?.id ? "is-active" : ""}`}
-                key={session.id}
-                onClick={() => void openSession(session.id)}
-                type="button"
-              >
-                {session.title}
-              </button>
+              <div className="session-row" key={session.id}>
+                <button
+                  className={`session-item ${session.id === activeSession?.id ? "is-active" : ""}`}
+                  onClick={() => void openSession(session.id)}
+                  onDoubleClick={() => void rename(session.id, session.title)}
+                  type="button"
+                >
+                  {session.title}
+                </button>
+                <button
+                  aria-label={`Renomear ${session.title}`}
+                  className="session-more"
+                  onClick={() => void rename(session.id, session.title)}
+                  type="button"
+                >
+                  ···
+                </button>
+                <button
+                  aria-label={`Excluir ${session.title}`}
+                  className="session-delete"
+                  onClick={() => void remove(session.id)}
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </nav>
         </div>
-        <button className="sidebar-settings" type="button">
-          Configurações
-        </button>
+        <label className="sidebar-settings">
+          <span>Permissões do workspace</span>
+          <select
+            aria-label="Modo de permissões"
+            disabled={!workspace}
+            onChange={(event) =>
+              void changePermissionMode(
+                event.target.value as NonNullable<typeof workspace>["permissionMode"],
+              )
+            }
+            value={workspace?.permissionMode ?? "ask"}
+          >
+            <option value="ask">Perguntar sempre</option>
+            <option value="automatic">Automático</option>
+            <option value="read-only">Somente leitura</option>
+          </select>
+          <button className="sidebar-config" onClick={() => setShowSettings(true)} type="button">
+            Configurações de provedores
+          </button>
+        </label>
       </aside>
 
       <section className="workspace-main">
@@ -280,8 +429,8 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             <p className="workspace-session-title">{activeSession?.title ?? "Nova conversa"}</p>
           </div>
           <div className="chat-controls">
-            <p className="eyebrow">{provider?.name ?? "sem provedor"}</p>
-            {provider && (
+            <p className="eyebrow">{activeProvider?.name ?? "sem provedor"}</p>
+            {activeProvider && (
               <label className="model-selector">
                 <span className="sr-only">Modelo</span>
                 <select
@@ -303,7 +452,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             <div className="empty-state">
               <p className="eyebrow">Pronto, {name}</p>
               <h1>Nenhuma conversa por ora — envie uma mensagem para começar.</h1>
-              <p>As respostas serão enviadas por {provider?.name ?? "seu provedor local"}.</p>
+              <p>As respostas serão enviadas por {activeProvider?.name ?? "seu provedor local"}.</p>
             </div>
           ) : (
             <ol className="message-list">
@@ -359,7 +508,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             </button>
             <textarea
               aria-label="Mensagem"
-              disabled={!provider || !activeSession || isSending}
+              disabled={!activeProvider || !activeSession || isSending}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleComposerKeyDown}
               placeholder="Envie uma mensagem…"
@@ -373,7 +522,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             ) : (
               <button
                 className="button button-primary"
-                disabled={!draft.trim() || !provider || !activeSession}
+                disabled={!draft.trim() || !activeProvider || !activeSession}
                 type="submit"
               >
                 Enviar
@@ -388,6 +537,60 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
           )}
         </section>
       </section>
+      {showSettings && (
+        <ProviderManager
+          onClose={() => setShowSettings(false)}
+          onProvidersChange={(next) => {
+            setProviders(next);
+            setActiveProvider((current) =>
+              current
+                ? (next.find((item) => item.id === current.id) ?? next[0] ?? null)
+                : (next[0] ?? null),
+            );
+          }}
+          onSelect={(next) => setActiveProvider(next)}
+          providers={providers}
+        />
+      )}
+      {paletteOpen && (
+        <div className="command-backdrop" role="presentation">
+          <section aria-label="Command palette" className="command-palette">
+            <input
+              aria-label="Pesquisar comandos"
+              onChange={(event) => setPaletteQuery(event.target.value)}
+              placeholder="Pesquisar sessões e ações…"
+              value={paletteQuery}
+            />
+            <div className="command-list">
+              <button
+                onClick={() => {
+                  setPaletteOpen(false);
+                  setShowSettings(true);
+                }}
+                type="button"
+              >
+                Abrir configurações
+              </button>
+              {state?.sessions
+                .filter((session) =>
+                  session.title.toLocaleLowerCase().includes(paletteQuery.toLocaleLowerCase()),
+                )
+                .map((session) => (
+                  <button
+                    key={session.id}
+                    onClick={() => {
+                      setPaletteOpen(false);
+                      void openSession(session.id);
+                    }}
+                    type="button"
+                  >
+                    Abrir sessão: {session.title}
+                  </button>
+                ))}
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

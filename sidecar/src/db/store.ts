@@ -191,6 +191,46 @@ export function createStore(database: DatabaseHandle) {
     return database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
   }
 
+  function setWorkspacePermissionMode(workspaceId: string, mode: PermissionMode) {
+    const workspace = database.db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .get();
+    if (!workspace) throw new Error("O workspace selecionado não existe.");
+    database.db
+      .update(workspaces)
+      .set({ permissionMode: permissionMode(mode), updatedAt: now() })
+      .where(eq(workspaces.id, workspaceId))
+      .run();
+    return database.db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+  }
+
+  function renameSession(sessionId: string, title: string) {
+    const nextTitle = title.trim();
+    if (!nextTitle) throw new Error("Informe um título para a sessão.");
+    const session = database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!session) throw new Error("A sessão selecionada não existe.");
+    database.db
+      .update(sessions)
+      .set({ title: nextTitle.slice(0, 120), updatedAt: now() })
+      .where(eq(sessions.id, sessionId))
+      .run();
+    return database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+  }
+
+  function deleteSession(sessionId: string) {
+    const session = database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!session) throw new Error("A sessão selecionada não existe.");
+    database.db.delete(sessions).where(eq(sessions.id, sessionId)).run();
+    if (setting(database, settingKeys.activeSessionId) === sessionId) {
+      const replacement = listSessions(session.workspaceId)[0];
+      if (replacement) saveSetting(database, settingKeys.activeSessionId, replacement.id);
+      else saveSetting(database, settingKeys.activeSessionId, "");
+    }
+    return { id: sessionId };
+  }
+
   function appendMessage(input: {
     content: string;
     model?: string | null;
@@ -225,6 +265,16 @@ export function createStore(database: DatabaseHandle) {
       updatedAt: timestamp,
     };
     database.db.insert(messages).values(message).run();
+    if (input.role === "user" && session.title === "Nova conversa") {
+      const generatedTitle = input.content.trim().replace(/\s+/g, " ").slice(0, 56);
+      if (generatedTitle) {
+        database.db
+          .update(sessions)
+          .set({ title: generatedTitle, updatedAt: timestamp })
+          .where(eq(sessions.id, session.id))
+          .run();
+      }
+    }
     database.db
       .update(sessions)
       .set({ updatedAt: timestamp })
@@ -310,7 +360,10 @@ export function createStore(database: DatabaseHandle) {
     listMessages,
     listSessions,
     listWorkspaces,
+    renameSession,
+    deleteSession,
     setSessionModel,
+    setWorkspacePermissionMode,
     selectSession,
   };
 }

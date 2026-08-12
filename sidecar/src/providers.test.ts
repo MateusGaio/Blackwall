@@ -8,6 +8,7 @@ import {
   listProviderModels,
   normalizeBaseUrl,
   providerApiKey,
+  removeProvider,
   saveProvider,
   validateProvider,
 } from "./providers.js";
@@ -93,5 +94,32 @@ describe("providers", () => {
       ),
     ).resolves.toEqual([{ capabilities: [], id: "qwen2.5-coder:7b", name: "qwen2.5-coder:7b" }]);
     expect(request).toHaveBeenCalledWith("http://127.0.0.1:11434/api/tags", expect.anything());
+  });
+
+  it("edita e remove um provedor sem colocar segredos no cadastro", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-edit-"));
+    directories.push(directory);
+    const provider = await saveProvider(
+      {
+        apiKey: "keep-me-encrypted",
+        baseUrl: "https://api.example.com/v1",
+        model: "first",
+        name: "Example",
+      },
+      directory,
+    );
+    const updated = await saveProvider(
+      {
+        baseUrl: "https://api.example.com/v1",
+        id: provider.id,
+        model: "second",
+        name: "Example updated",
+      },
+      directory,
+    );
+    expect(updated.id).toBe(provider.id);
+    await expect(providerApiKey(provider.id, directory)).resolves.toBe("keep-me-encrypted");
+    await expect(removeProvider(provider.id, directory)).resolves.toEqual({ id: provider.id });
+    await expect(getProvider(provider.id, directory)).rejects.toThrow("não existe");
   });
 });

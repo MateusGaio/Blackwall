@@ -5,13 +5,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "./db/database.js";
 import { withInstrumentation } from "./observability.js";
-import { decryptSecret, encryptSecret } from "./secrets.js";
+import { decryptSecret, encryptSecret, removeSecret } from "./secrets.js";
 
 export type ProviderInput = {
   apiKey?: string;
   baseUrl: string;
   model: string;
   name: string;
+  id?: string;
   type?: ProviderKind;
 };
 
@@ -105,15 +106,20 @@ export async function saveProvider(
   dataDirectory = providerDataDirectory(),
 ): Promise<Provider> {
   await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
+  const document = await readDocument(dataDirectory);
+  const existing = input.id
+    ? document.providers.find((candidate) => candidate.id === input.id)
+    : null;
   const provider: Provider = {
     baseUrl: normalizeBaseUrl(input.baseUrl),
-    id: randomUUID(),
+    id: input.id ?? randomUUID(),
     model: input.model.trim(),
     name: input.name.trim(),
-    type: input.type ?? "openai-compatible",
+    type: input.type ?? existing?.type ?? "openai-compatible",
   };
-  const document = await readDocument(dataDirectory);
-  document.providers = [...document.providers, provider];
+  document.providers = existing
+    ? document.providers.map((candidate) => (candidate.id === provider.id ? provider : candidate))
+    : [...document.providers, provider];
   if (input.apiKey?.trim()) {
     await encryptSecret(dataDirectory, provider.id, input.apiKey.trim());
   }
@@ -134,6 +140,19 @@ export async function saveProvider(
     );
   database.close();
   return provider;
+}
+
+export async function removeProvider(id: string, dataDirectory = providerDataDirectory()) {
+  const document = await readDocument(dataDirectory);
+  const provider = document.providers.find((candidate) => candidate.id === id);
+  if (!provider) throw new Error("O provedor selecionado não existe.");
+  document.providers = document.providers.filter((candidate) => candidate.id !== id);
+  await writeDocument(dataDirectory, document);
+  await removeSecret(dataDirectory, id);
+  const database = openDatabase(dataDirectory);
+  database.client.prepare("DELETE FROM providers WHERE id = ?").run(id);
+  database.close();
+  return { id };
 }
 
 export async function getProvider(
