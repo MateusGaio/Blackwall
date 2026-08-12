@@ -14,7 +14,9 @@ const dataDirectory = ownsDataDirectory
   ? await mkdtemp(join(tmpdir(), "blackwall-e2e-"))
   : process.env.BLACKWALL_DATA_DIR;
 if (dataDirectory) process.env.BLACKWALL_DATA_DIR = dataDirectory;
-const sidecarPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 0);
+// Development has one shared, deterministic sidecar. Both the browser at
+// localhost:1420 and Tauri dev use it, avoiding concurrent SQLite writers.
+const sidecarPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 1422);
 const { port, server } = await createSidecar(sidecarPort);
 const sidecarUrl = `http://${SIDECAR_HOST}:${port}`;
 

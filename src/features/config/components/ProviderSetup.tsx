@@ -85,23 +85,35 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
       <p className="provider-notice">
         A chave é validada uma vez e permanece criptografada apenas neste dispositivo.
       </p>
-      <label className="field-label" htmlFor="provider-type">
-        Tipo de provedor
-        <select
-          id="provider-type"
-          onChange={(event) => changeProviderType(event.target.value as typeof providerType)}
-          value={providerType}
-        >
-          <option value="openai-compatible">OpenAI-compatible</option>
-          <option value="ollama">Ollama local</option>
-        </select>
-      </label>
+      <fieldset className="field-label provider-type-fieldset">
+        <legend>Tipo de provedor</legend>
+        <div className="provider-type-picker">
+          <button
+            aria-pressed={providerType === "openai-compatible"}
+            className={providerType === "openai-compatible" ? "is-selected" : ""}
+            onClick={() => changeProviderType("openai-compatible")}
+            type="button"
+          >
+            <strong>API compatível</strong>
+            <span>OpenRouter, OpenCode Zen e endpoints compatíveis.</span>
+          </button>
+          <button
+            aria-pressed={providerType === "ollama"}
+            className={providerType === "ollama" ? "is-selected" : ""}
+            onClick={() => changeProviderType("ollama")}
+            type="button"
+          >
+            <strong>Ollama local</strong>
+            <span>Modelos instalados no seu computador.</span>
+          </button>
+        </div>
+      </fieldset>
       <label className="field-label" htmlFor="provider-name">
         Nome do provedor
         <input id="provider-name" onChange={(event) => setName(event.target.value)} value={name} />
       </label>
       <label className="field-label" htmlFor="provider-url">
-        Endpoint compatível com OpenAI
+        Endpoint
         <input
           id="provider-url"
           onChange={(event) => setBaseUrl(event.target.value)}
@@ -126,7 +138,11 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
           </button>
         </div>
         {models.length > 0 && (
-          <select onChange={(event) => setModel(event.target.value)} value={model}>
+          <select
+            aria-label="Modelo disponível"
+            onChange={(event) => setModel(event.target.value)}
+            value={model}
+          >
             {models.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
