@@ -108,4 +108,52 @@ describe("sidecar health", () => {
       sessions: [{ id: state.activeSessionId, workspaceName: "Project" }],
     });
   });
+
+  it("atualiza perfil e Soul do workspace pelas rotas locais", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-profile-api-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        profileName: "Ada",
+        profileSoul: "Profile",
+        workspaceName: "Project",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeWorkspaceId: string;
+    };
+    const profileResponse = await fetch(`${baseUrl}/v1/profiles/${state.activeProfileId}`, {
+      body: JSON.stringify({
+        avatarData: "data:image/png;base64,AAAA",
+        name: "Ada Lovelace",
+        soul: "Updated profile",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    expect(profileResponse.status).toBe(200);
+    await expect(profileResponse.json()).resolves.toMatchObject({
+      profile: { avatarData: "data:image/png;base64,AAAA", name: "Ada Lovelace" },
+    });
+    const soulResponse = await fetch(`${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/soul`, {
+      body: JSON.stringify({ soul: "Updated workspace" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    });
+    expect(soulResponse.status).toBe(200);
+    await expect(soulResponse.json()).resolves.toMatchObject({
+      workspace: { soul: "Updated workspace" },
+    });
+  });
 });

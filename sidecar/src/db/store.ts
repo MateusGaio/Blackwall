@@ -30,6 +30,18 @@ export type WorkspaceFile = {
   relativePath: string;
 };
 
+const avatarDataPattern = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+const maxAvatarDataLength = 3_000_000;
+
+function normalizeAvatarData(value: string | null | undefined) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (value.length > maxAvatarDataLength || !avatarDataPattern.test(value)) {
+    throw new Error("Escolha uma imagem PNG, JPEG, WebP ou GIF de até 2 MB.");
+  }
+  return value;
+}
+
 type AppState = {
   activeProfileId: string | null;
   activeWorkspaceId: string | null;
@@ -101,6 +113,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     if (!name || !soul) throw new Error("Informe o nome e a Soul do perfil.");
     const timestamp = now();
     const profile: Profile = {
+      avatarData: null,
       createdAt: timestamp,
       id: randomUUID(),
       locale: input.locale,
@@ -111,6 +124,31 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     database.db.insert(profiles).values(profile).run();
     saveSetting(database, settingKeys.activeProfileId, profile.id);
     return profile;
+  }
+
+  function updateProfile(
+    profileId: string,
+    input: { avatarData?: string | null; locale?: string; name?: string; soul?: string },
+  ) {
+    const profile = database.db.select().from(profiles).where(eq(profiles.id, profileId)).get();
+    if (!profile) throw new Error("O perfil selecionado não existe.");
+    const name = (input.name ?? profile.name).trim();
+    const soul = (input.soul ?? profile.soul).trim();
+    const locale = (input.locale ?? profile.locale).trim();
+    if (!name || !soul || !locale) throw new Error("Informe o nome, idioma e a Soul do perfil.");
+    const avatarData = normalizeAvatarData(input.avatarData);
+    database.db
+      .update(profiles)
+      .set({
+        ...(avatarData === undefined ? {} : { avatarData }),
+        locale,
+        name,
+        soul,
+        updatedAt: now(),
+      })
+      .where(eq(profiles.id, profileId))
+      .run();
+    return database.db.select().from(profiles).where(eq(profiles.id, profileId)).get();
   }
 
   async function createWorkspace(input: {
@@ -292,6 +330,23 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     database.db
       .update(workspaces)
       .set({ permissionMode: permissionMode(mode), updatedAt: now() })
+      .where(eq(workspaces.id, workspaceId))
+      .run();
+    return database.db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
+  }
+
+  function setWorkspaceSoul(workspaceId: string, soul: string) {
+    const nextSoul = soul.trim();
+    if (!nextSoul) throw new Error("Informe a Soul do workspace.");
+    const workspace = database.db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .get();
+    if (!workspace) throw new Error("O workspace selecionado não existe.");
+    database.db
+      .update(workspaces)
+      .set({ soul: nextSoul, updatedAt: now() })
       .where(eq(workspaces.id, workspaceId))
       .run();
     return database.db.select().from(workspaces).where(eq(workspaces.id, workspaceId)).get();
@@ -492,8 +547,10 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     renameSession,
     deleteSession,
     setSessionModel,
+    setWorkspaceSoul,
     setWorkspacePermissionMode,
     selectSession,
     selectWorkspace,
+    updateProfile,
   };
 }

@@ -156,27 +156,34 @@ export function applyMigrations(client: Database.Database) {
   }
 
   const profileColumn = client.prepare("SELECT id FROM _migrations WHERE id = 3").get();
-  if (profileColumn) return;
-  client.exec(
-    "ALTER TABLE sessions ADD COLUMN profile_id TEXT REFERENCES profiles(id) ON DELETE CASCADE",
-  );
-  client.exec(`
-    UPDATE sessions
-    SET profile_id = (
-      SELECT profile_id FROM workspaces WHERE workspaces.id = sessions.workspace_id
-    )
-    WHERE profile_id IS NULL AND workspace_id IS NOT NULL;
-    UPDATE sessions
-    SET profile_id = (
-      SELECT value FROM app_settings WHERE key = 'active_profile_id'
-    )
-    WHERE profile_id IS NULL;
-    UPDATE sessions
-    SET profile_id = (SELECT id FROM profiles ORDER BY updated_at DESC LIMIT 1)
-    WHERE profile_id IS NULL;
-  `);
-  client.exec(
-    "CREATE INDEX IF NOT EXISTS sessions_profile_updated ON sessions(profile_id, updated_at DESC)",
-  );
-  client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(3, Date.now());
+  if (!profileColumn) {
+    client.exec(
+      "ALTER TABLE sessions ADD COLUMN profile_id TEXT REFERENCES profiles(id) ON DELETE CASCADE",
+    );
+    client.exec(`
+      UPDATE sessions
+      SET profile_id = (
+        SELECT profile_id FROM workspaces WHERE workspaces.id = sessions.workspace_id
+      )
+      WHERE profile_id IS NULL AND workspace_id IS NOT NULL;
+      UPDATE sessions
+      SET profile_id = (
+        SELECT value FROM app_settings WHERE key = 'active_profile_id'
+      )
+      WHERE profile_id IS NULL;
+      UPDATE sessions
+      SET profile_id = (SELECT id FROM profiles ORDER BY updated_at DESC LIMIT 1)
+      WHERE profile_id IS NULL;
+    `);
+    client.exec(
+      "CREATE INDEX IF NOT EXISTS sessions_profile_updated ON sessions(profile_id, updated_at DESC)",
+    );
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(3, Date.now());
+  }
+
+  const avatarColumn = client.prepare("SELECT id FROM _migrations WHERE id = 4").get();
+  if (!avatarColumn) {
+    client.exec("ALTER TABLE profiles ADD COLUMN avatar_data TEXT");
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(4, Date.now());
+  }
 }

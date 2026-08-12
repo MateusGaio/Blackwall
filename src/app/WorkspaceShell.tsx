@@ -74,7 +74,8 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
 
-  const name = profileName.trim() || "você";
+  const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
+  const name = activeProfile?.name.trim() || profileName.trim() || "você";
   const profileLocale = state?.profiles.find(
     (profile) => profile.id === state.activeProfileId,
   )?.locale;
@@ -406,9 +407,13 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
     <main className={`workspace-shell ${showVault && workspace ? "has-vault" : ""}`}>
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
-          <span className="brand-mark" aria-hidden="true">
-            BW
-          </span>
+          {activeProfile?.avatarData ? (
+            <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
+          ) : (
+            <span className="brand-mark" aria-hidden="true">
+              BW
+            </span>
+          )}
           <div>
             <p className="eyebrow">Perfil</p>
             <strong>{name}</strong>
@@ -524,7 +529,7 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
         </div>
         <div className="sidebar-settings">
           <button className="sidebar-config" onClick={() => setShowSettings(true)} type="button">
-            Configurações de provedores
+            Configurações
           </button>
         </div>
       </aside>
@@ -748,8 +753,33 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
                 : (next[0] ?? null),
             );
           }}
+          onProfileChange={(updated) => {
+            setState((current) =>
+              current
+                ? {
+                    ...current,
+                    profiles: current.profiles.map((profile) =>
+                      profile.id === updated.id ? updated : profile,
+                    ),
+                  }
+                : current,
+            );
+          }}
           onSelect={(next) => setActiveProvider(next)}
+          onWorkspaceChange={(updated) => {
+            setState((current) =>
+              current
+                ? {
+                    ...current,
+                    workspaces: current.workspaces.map((item) =>
+                      item.id === updated.id ? updated : item,
+                    ),
+                  }
+                : current,
+            );
+          }}
           onWorkspaceSelected={activateWorkspace}
+          profile={activeProfile ?? null}
           profileId={state?.activeProfileId ?? null}
           providers={providers}
           workspaces={state?.workspaces ?? []}
