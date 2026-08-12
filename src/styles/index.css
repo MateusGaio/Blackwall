@@ -421,6 +421,35 @@ button:disabled {
   white-space: nowrap;
 }
 
+.workspace-picker {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace-picker select {
+  background: #141416;
+  border: 1px solid #353539;
+  color: #e5e5e7;
+  font-size: 0.82rem;
+  min-width: 0;
+  padding: 8px 9px;
+  width: 100%;
+}
+
+.workspace-picker select:focus-visible {
+  border-color: #a6a6ab;
+  outline: none;
+}
+
+.workspace-picker > span:last-child {
+  color: #77777c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar-sessions {
   min-height: 0;
 }

@@ -18,6 +18,7 @@ import {
   renameSession,
   searchAttachments,
   selectSession,
+  selectWorkspace,
   setSessionModel,
   setWorkspacePermissionMode,
   streamMessage,
@@ -121,6 +122,18 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
       setMessages(nextState.messages);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível abrir a sessão.");
+    }
+  }
+
+  async function openWorkspace(workspaceId: string) {
+    if (workspaceId === workspace?.id) return;
+    setError("");
+    try {
+      const nextState = await selectWorkspace(workspaceId);
+      setState(nextState);
+      setMessages(nextState.messages);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
     }
   }
 
@@ -350,10 +363,21 @@ export default function WorkspaceShell({ appState, profileName, provider }: Work
             </button>
           </div>
           {workspace && (
-            <div className="workspace-item is-active">
-              <strong>{workspace.name}</strong>
+            <label className="workspace-picker">
+              <span className="sr-only">Workspace atual</span>
+              <select
+                aria-label="Workspace atual"
+                onChange={(event) => void openWorkspace(event.target.value)}
+                value={workspace.id}
+              >
+                {state?.workspaces.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
               <span>{workspace.rootPath}</span>
-            </div>
+            </label>
           )}
         </div>
         <div className="sidebar-section sidebar-sessions">

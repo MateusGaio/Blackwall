@@ -230,6 +230,13 @@ export async function selectSession(sessionId: string): Promise<AppState> {
   });
 }
 
+export async function selectWorkspace(workspaceId: string): Promise<AppState> {
+  return request(`/v1/workspaces/${workspaceId}/select`, {
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
 export async function renameSession(sessionId: string, title: string): Promise<Session> {
   const response = await request<{ session: Session }>(`/v1/sessions/${sessionId}`, {
     body: JSON.stringify({ title }),

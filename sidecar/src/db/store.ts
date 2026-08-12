@@ -350,6 +350,21 @@ export function createStore(database: DatabaseHandle) {
     return getState();
   }
 
+  function selectWorkspace(id: string) {
+    const workspace = database.db.select().from(workspaces).where(eq(workspaces.id, id)).get();
+    if (!workspace) throw new Error("O workspace selecionado não existe.");
+    const session = listSessions(id)[0] ?? createSession({ workspaceId: id });
+    saveSetting(database, settingKeys.activeProfileId, workspace.profileId);
+    saveSetting(database, settingKeys.activeWorkspaceId, id);
+    saveSetting(database, settingKeys.activeSessionId, session.id);
+    database.db
+      .update(workspaces)
+      .set({ lastOpenedAt: now(), updatedAt: now() })
+      .where(eq(workspaces.id, id))
+      .run();
+    return getState();
+  }
+
   return {
     appendMessage,
     bootstrap,
@@ -365,5 +380,6 @@ export function createStore(database: DatabaseHandle) {
     setSessionModel,
     setWorkspacePermissionMode,
     selectSession,
+    selectWorkspace,
   };
 }

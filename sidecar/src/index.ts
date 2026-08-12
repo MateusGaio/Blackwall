@@ -184,6 +184,10 @@ export function createSidecar(
         writeJson(response, 200, store.selectSession(pathname.split("/")[3]));
         return;
       }
+      if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/select$/.test(pathname)) {
+        writeJson(response, 200, store.selectWorkspace(pathname.split("/")[3]));
+        return;
+      }
       if (request.method === "GET" && /^\/v1\/sessions\/[^/]+\/messages$/.test(pathname)) {
         writeJson(response, 200, { messages: store.listMessages(pathname.split("/")[3]) });
         return;
