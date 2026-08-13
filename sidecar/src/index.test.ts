@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -173,5 +173,80 @@ describe("sidecar health", () => {
     await expect(soulResponse.json()).resolves.toMatchObject({
       workspace: { soul: "Updated workspace" },
     });
+  });
+
+  it("solicita autorização e libera a leitura do workspace pelo WebSocket", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-tool-api-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    await writeFile(join(workspaceRoot, "README.md"), "# Local context\n", "utf8");
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        profileName: "Ada",
+        profileSoul: "Profile",
+        workspaceName: "Project",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+    const queued: Record<string, unknown>[] = [];
+    const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+    client.on("message", (raw) => {
+      const message = JSON.parse(String(raw)) as Record<string, unknown>;
+      const messageType = String(message.type ?? message.topic);
+      const resolveMessage = waiters.get(messageType);
+      if (resolveMessage) {
+        waiters.delete(messageType);
+        resolveMessage(message);
+      } else {
+        queued.push(message);
+      }
+    });
+    const waitFor = (type: string) => {
+      const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+      if (index >= 0) return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+      return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+    };
+    await once(client, "open");
+    await waitFor("system:ready");
+    client.send(
+      JSON.stringify({
+        args: { path: "." },
+        requestId: "workspace-access-request",
+        sessionId: state.activeSessionId,
+        tool: "list_directory",
+        type: "tool.execute",
+        workspaceId: state.activeWorkspaceId,
+      }),
+    );
+    await expect(waitFor("approval.requested")).resolves.toMatchObject({
+      args: { path: "." },
+      requestId: "workspace-access-request",
+      tool: "list_directory",
+    });
+    client.send(
+      JSON.stringify({
+        decision: "allow_once",
+        requestId: "workspace-access-request",
+        type: "approval.resolve",
+      }),
+    );
+    await expect(waitFor("tool.completed")).resolves.toMatchObject({
+      result: { entries: [{ name: "README.md", type: "file" }] },
+      requestId: "workspace-access-request",
+    });
+    client.close();
   });
 });
