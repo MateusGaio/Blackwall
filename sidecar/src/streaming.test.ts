@@ -180,4 +180,49 @@ describe("streaming de provedores", () => {
       { arguments: '{"path":"README.md"}', id: "tool-call-0", name: "read_file" },
     ]);
   });
+
+  it("envia argumentos estruturados ao Ollama ao continuar um ciclo de ferramenta", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-ollama-follow-up-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5-coder:7b",
+      name: "Ollama",
+      type: "ollama",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines(['{"message":{"content":"continuando"}}']),
+      ) as unknown as typeof fetch;
+    await streamChatMessage(
+      provider.id,
+      [
+        {
+          content: "",
+          role: "assistant",
+          tool_calls: [
+            {
+              function: { arguments: '{"path":"README.md"}', name: "read_file" },
+              id: "call-1",
+              type: "function",
+            },
+          ],
+        },
+        {
+          content: '{"content":"ok"}',
+          name: "read_file",
+          role: "tool",
+          tool_call_id: "call-1",
+        },
+      ],
+      undefined,
+      () => undefined,
+      new AbortController().signal,
+      request,
+    );
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+    expect(body.messages[0].tool_calls[0].function.arguments).toEqual({ path: "README.md" });
+  });
 });

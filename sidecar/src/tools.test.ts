@@ -56,6 +56,17 @@ describe("ferramentas locais e permissões", () => {
     await expect(
       executeTool(
         {
+          args: { path: "" },
+          sessionId: state.activeSessionId,
+          tool: "list_directory",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      ),
+    ).resolves.toEqual({ entries: [] });
+    await expect(
+      executeTool(
+        {
           args: { content: "blocked", path: "blocked.txt" },
           tool: "create_or_update_file",
           workspaceId: state.activeWorkspaceId as string,

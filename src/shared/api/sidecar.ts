@@ -500,6 +500,15 @@ export type StreamHandlers = {
   onRetry?: (message: string) => void;
 };
 
+export function isStreamEventForRequest(
+  eventRequestId: string | undefined,
+  requestId: string,
+): boolean {
+  return (
+    !eventRequestId || eventRequestId === requestId || eventRequestId.startsWith(`${requestId}:`)
+  );
+}
+
 type ActiveStream = {
   done: Promise<StreamResult>;
   stop: () => void;
@@ -561,7 +570,7 @@ export async function streamMessage(
     };
     // A socket normally carries one request, but keeping the guard here makes
     // multiplexed/late events harmless when the user changes sessions.
-    if (message.requestId && message.requestId !== requestId) return;
+    if (!isStreamEventForRequest(message.requestId, requestId)) return;
     if (message.type === "chat.delta" && message.delta) {
       content += message.delta;
       handlers.onDelta(message.delta);

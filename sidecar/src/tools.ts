@@ -240,7 +240,7 @@ export async function executeTool(
   const root = await workspaceRoot(workspace);
   switch (input.tool) {
     case "list_directory": {
-      const path = await safePath(root, String(input.args.path ?? "."));
+      const path = await safePath(root, String(input.args.path || "."));
       const entries = await readdir(path, { withFileTypes: true });
       return {
         entries: entries.map((entry) => ({
@@ -259,7 +259,7 @@ export async function executeTool(
     case "search_text": {
       const query = String(input.args.query ?? "");
       if (!query.trim()) throw new Error("Informe o texto a pesquisar.");
-      const start = await safePath(root, String(input.args.path ?? "."));
+      const start = await safePath(root, String(input.args.path || "."));
       const matches: Array<{ line: number; path: string; text: string }> = [];
       async function walk(directory: string) {
         if (matches.length >= 100) return;

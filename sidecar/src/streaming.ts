@@ -17,9 +17,16 @@ import {
 
 export type StreamMessage = {
   content: string;
+  name?: string;
   role: "assistant" | "system" | "tool" | "user";
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    function: { arguments: string | Record<string, unknown>; name: string };
+    id: string;
+    type: "function";
+  }>;
 };
 type StreamDelta = (content: string) => void;
 type FetchLike = typeof fetch;
@@ -59,6 +66,30 @@ export function isRetryableProviderError(error: unknown): boolean {
 
 type ParsedToolCall = { arguments: string; id: string; name?: string };
 type ParsedChunk = { content?: string; toolCalls?: ParsedToolCall[] };
+
+function messagesForProvider(messages: StreamMessage[], ollama: boolean): StreamMessage[] {
+  if (!ollama) return messages;
+  return messages.map((message) => {
+    if (!message.tool_calls?.length) return message;
+    return {
+      ...message,
+      tool_calls: message.tool_calls.map((call) => {
+        let argumentsValue: string | Record<string, unknown> = call.function.arguments;
+        if (typeof argumentsValue === "string") {
+          try {
+            const parsed = JSON.parse(argumentsValue) as unknown;
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              argumentsValue = parsed as Record<string, unknown>;
+            }
+          } catch {
+            // Keep malformed arguments as text so the provider can return a useful error.
+          }
+        }
+        return { ...call, function: { ...call.function, arguments: argumentsValue } };
+      }),
+    };
+  });
+}
 
 function parseLine(line: string, ollama: boolean): ParsedChunk | null {
   const value = ollama
@@ -189,7 +220,12 @@ export async function streamChatMessage(
     name: provider.name,
     type: provider.type,
   });
-  const requestInit = adapter.chatRequest(model, messages, signal, options);
+  const requestInit = adapter.chatRequest(
+    model,
+    messagesForProvider(messages, ollama),
+    signal,
+    options,
+  );
   const response = await withAsyncInstrumentation("provider.chat.stream", () =>
     request(requestInit.endpoint, requestInit),
   );
