@@ -1148,7 +1148,11 @@ export default function WorkspaceShell({
               ))}
               {isSending && (
                 <li className="message message-assistant message-streaming">
-                  {streamingContent || streamingStatus}
+                  {streamingContent ? (
+                    <SafeMarkdown content={streamingContent} locale={isEnglish ? "en" : "pt-BR"} />
+                  ) : (
+                    streamingStatus
+                  )}
                   <span aria-hidden="true" className="streaming-cursor" />
                 </li>
               )}
