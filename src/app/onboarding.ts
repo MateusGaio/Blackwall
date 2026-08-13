@@ -5,7 +5,11 @@ export const onboardingSteps = [
   { id: "workspace", label: "Workspace", title: "Onde vamos trabalhar?" },
   { id: "folder", label: "Pasta", title: "Escolha a pasta do projeto." },
   { id: "soul", label: "Soul", title: "Comece com uma Soul pronta." },
-  { id: "workspace-soul", label: "Soul do workspace", title: "Dê uma identidade ao workspace." },
+  {
+    id: "workspace-soul",
+    label: "Contexto do workspace",
+    title: "Dê contexto ao workspace.",
+  },
   { id: "provider", label: "Provedor", title: "Conecte sua primeira inteligência." },
   { id: "vault", label: "Vault", title: "Conhecimento que continua com você." },
 ] as const;

@@ -69,7 +69,10 @@ function ProfileChooser({
             : "Privado por padrão. Seu contexto continua no seu computador."}
         </p>
       </aside>
-      <section className="onboarding-area profile-chooser-area" aria-label="Escolha de perfil">
+      <section
+        className="onboarding-area profile-chooser-area"
+        aria-label={isEnglish ? "Choose a profile" : "Escolha de perfil"}
+      >
         <div className="profile-chooser-card">
           <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
           <h1>{isEnglish ? "Who is using Blackwall?" : "Quem está usando o Blackwall?"}</h1>
@@ -178,7 +181,7 @@ function OnboardingPanel({
         profile: "What should we call you?",
         workspace: "Where will we work?",
         folder: "Choose the project folder.",
-        "workspace-soul": "Give your workspace an identity.",
+        "workspace-soul": "Give your workspace context.",
         provider: "Connect your first intelligence.",
         soul: "Start with a ready-made Soul.",
         vault: "Knowledge that stays with you.",
@@ -190,7 +193,7 @@ function OnboardingPanel({
         profile: "Profile",
         workspace: "Workspace",
         folder: "Folder",
-        "workspace-soul": "Workspace Soul",
+        "workspace-soul": "Workspace context",
         provider: "Provider",
         soul: "Soul",
         vault: "Vault",
@@ -253,7 +256,7 @@ function OnboardingPanel({
                 aria-pressed={locale === "pt-BR"}
                 type="button"
               >
-                Português do Brasil
+                {isEnglish ? "Portuguese (Brazil)" : "Português do Brasil"}
                 <span>PT-BR</span>
               </button>
               <button
@@ -358,22 +361,29 @@ function OnboardingPanel({
             />
           )}
           {step.id === "workspace-soul" && (
-            <SoulPicker
-              hint={
-                isEnglish
-                  ? "This Soul is combined with your profile Soul in every session."
-                  : "Esta Soul é combinada com a Soul do seu perfil em todas as sessões."
-              }
-              id="workspace-soul-prompt"
-              label={isEnglish ? "Workspace Soul" : "Soul do workspace"}
-              locale={locale}
-              onChange={onWorkspaceSoulChange}
-              value={workspaceSoul}
-            />
+            <label className="field-label" htmlFor="workspace-soul-prompt">
+              {isEnglish ? "Workspace context" : "Contexto do workspace"}
+              <textarea
+                id="workspace-soul-prompt"
+                onChange={(event) => onWorkspaceSoulChange(event.target.value)}
+                placeholder={
+                  isEnglish
+                    ? "Describe the project, conventions and goals…"
+                    : "Descreva o projeto, as convenções e os objetivos…"
+                }
+                rows={6}
+                value={workspaceSoul}
+              />
+              <span className="field-hint">
+                {isEnglish
+                  ? "Add context that should guide conversations in this workspace."
+                  : "Adicione o contexto que deve orientar as conversas neste workspace."}
+              </span>
+            </label>
           )}
           {step.id === "provider" && (
             <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
-              <ProviderSetup onConnected={onProviderConnected} />
+              <ProviderSetup locale={locale} onConnected={onProviderConnected} />
             </Suspense>
           )}
           {step.id === "vault" && (
@@ -458,7 +468,7 @@ export function App() {
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [folderSelection, setFolderSelection] = useState<FolderSelection | null>(null);
   const [startWithoutWorkspace, setStartWithoutWorkspace] = useState(false);
-  const [workspaceSoul, setWorkspaceSoul] = useState(soul);
+  const [workspaceSoul, setWorkspaceSoul] = useState("");
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
 
@@ -548,7 +558,7 @@ export function App() {
     setWorkspaceRootPath("");
     setFolderSelection(null);
     setStartWithoutWorkspace(false);
-    setWorkspaceSoul(defaultProfileSoul);
+    setWorkspaceSoul("");
     setProvider(null);
   }
 
@@ -574,7 +584,7 @@ export function App() {
       setLocale(profile.locale === "en" ? "en" : "pt-BR");
       setWorkspaceName(workspace?.name ?? "");
       setWorkspaceRootPath(workspace?.rootPath ?? "");
-      setWorkspaceSoul(workspace?.soul ?? profile.soul);
+      setWorkspaceSoul(workspace?.soul ?? "");
       setStartWithoutWorkspace(!workspace);
       setProvider(
         providers.find((item) => item.id === activeSession?.selectedProviderId) ??
@@ -742,7 +752,7 @@ export function App() {
       }}
       onWorkspaceSoulChange={setWorkspaceSoul}
       onPickFolder={() => {
-        void pickDirectory().then((selection) => {
+        void pickDirectory(locale).then((selection) => {
           if (!selection) return;
           setFolderSelection(selection);
           setStartWithoutWorkspace(false);

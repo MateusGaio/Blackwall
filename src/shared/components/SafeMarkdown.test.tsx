@@ -30,4 +30,19 @@ describe("SafeMarkdown", () => {
     expect(markup).toContain('class="markdown-broken-link"');
     expect(markup).not.toContain('target="_blank"');
   });
+
+  it("localiza ações do Markdown quando o perfil está em inglês", () => {
+    const markup = renderToStaticMarkup(
+      <SafeMarkdown
+        content={"[Missing note](missing.md)\n\n```ts\nconst value = 1;\n```"}
+        currentPath="index.md"
+        files={[{ content: "# Index", headings: ["Index"], path: "index.md", title: "Index" }]}
+        locale="en"
+        onLocalLink={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain('title="Note not found in the Vault"');
+    expect(markup).toContain(">Copy</button>");
+  });
 });

@@ -10,10 +10,11 @@ type SafeMarkdownProps = {
   content: string;
   currentPath?: string;
   files?: VaultFile[];
+  locale?: "pt-BR" | "en";
   onLocalLink?: (path: string) => void;
 };
 
-function CodeBlock({ children }: { children: ReactNode }) {
+function CodeBlock({ children, locale }: { children: ReactNode; locale: "pt-BR" | "en" }) {
   const [copied, setCopied] = useState(false);
   const textContent = (node: ReactNode): string => {
     if (typeof node === "string" || typeof node === "number") return String(node);
@@ -31,14 +32,20 @@ function CodeBlock({ children }: { children: ReactNode }) {
         }}
         type="button"
       >
-        {copied ? "Copiado" : "Copiar"}
+        {copied ? (locale === "en" ? "Copied" : "Copiado") : locale === "en" ? "Copy" : "Copiar"}
       </button>
       <pre>{children}</pre>
     </div>
   );
 }
 
-export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: SafeMarkdownProps) {
+export function SafeMarkdown({
+  content,
+  currentPath,
+  files = [],
+  locale = "pt-BR",
+  onLocalLink,
+}: SafeMarkdownProps) {
   const source = wikilinksToMarkdown(content);
   return (
     <div className="safe-markdown">
@@ -67,7 +74,12 @@ export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: 
               !/^[a-z][a-z\d+.-]*:/i.test(href);
             if (isRelativeLink) {
               return (
-                <span className="markdown-broken-link" title="Nota não encontrada no Vault">
+                <span
+                  className="markdown-broken-link"
+                  title={
+                    locale === "en" ? "Note not found in the Vault" : "Nota não encontrada no Vault"
+                  }
+                >
                   {children}
                 </span>
               );
@@ -78,7 +90,7 @@ export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: 
               </a>
             );
           },
-          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+          pre: ({ children }) => <CodeBlock locale={locale}>{children}</CodeBlock>,
         }}
         rehypePlugins={[rehypeSanitize]}
         remarkPlugins={[remarkGfm]}

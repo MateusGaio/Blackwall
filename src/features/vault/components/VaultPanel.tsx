@@ -22,6 +22,7 @@ import {
 } from "../graph-preferences";
 
 type VaultPanelProps = {
+  locale: "pt-BR" | "en";
   onCollapse: () => void;
   onTabChange: (tab: VaultTab) => void;
   tab: VaultTab;
@@ -54,13 +55,16 @@ function GraphIcon({ kind }: { kind: "settings" }) {
 
 function GraphView({
   graph,
+  locale,
   onOpenNote,
   workspaceId,
 }: {
   graph: VaultGraph;
+  locale: "pt-BR" | "en";
   onOpenNote: (path: string) => void;
   workspaceId: string;
 }) {
+  const isEnglish = locale === "en";
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawRef = useRef<() => void>(() => undefined);
   const nodesRef = useRef<GraphNode[]>([]);
@@ -240,7 +244,13 @@ function GraphView({
   ]);
 
   if (!graph.nodes.length) {
-    return <p className="vault-empty">Adicione links entre notas Markdown para formar o grafo.</p>;
+    return (
+      <p className="vault-empty">
+        {isEnglish
+          ? "Add links between Markdown notes to build the graph."
+          : "Adicione links entre notas Markdown para formar o grafo."}
+      </p>
+    );
   }
 
   function updatePreferences(next: Partial<GraphPreferences>) {
@@ -269,9 +279,15 @@ function GraphView({
   }
 
   return (
-    <div aria-label="Grafo de links Markdown" className="vault-graph" role="img">
+    <div
+      aria-label={isEnglish ? "Markdown link graph" : "Grafo de links Markdown"}
+      className="vault-graph"
+      role="img"
+    >
       <canvas
-        aria-label="Grafo interativo de links Markdown"
+        aria-label={
+          isEnglish ? "Interactive Markdown link graph" : "Grafo interativo de links Markdown"
+        }
         className="vault-graph-canvas"
         onPointerDown={(event) => {
           const point = pointFor(event);
@@ -348,7 +364,7 @@ function GraphView({
       />
       <button
         aria-expanded={settingsOpen}
-        aria-label="Configurar física do grafo"
+        aria-label={isEnglish ? "Configure graph physics" : "Configurar física do grafo"}
         className="graph-settings-toggle"
         onClick={() => setSettingsOpen((current) => !current)}
         type="button"
@@ -356,21 +372,25 @@ function GraphView({
         <GraphIcon kind="settings" />
       </button>
       {settingsOpen && (
-        <section aria-label="Configurações da física" className="graph-settings-popover">
+        <section
+          aria-label={isEnglish ? "Physics settings" : "Configurações da física"}
+          className="graph-settings-popover"
+        >
           <label>
-            Agrupar por
+            {isEnglish ? "Group by" : "Agrupar por"}
             <select
               onChange={(event) =>
                 updatePreferences({ groupBy: event.target.value as GraphPreferences["groupBy"] })
               }
               value={preferences.groupBy}
             >
-              <option value="folder">Pasta</option>
+              <option value="folder">{isEnglish ? "Folder" : "Pasta"}</option>
               <option value="tag">Tag</option>
             </select>
           </label>
           <label>
-            Força de repulsão <output>{Math.abs(preferences.chargeStrength)}</output>
+            {isEnglish ? "Repulsion strength" : "Força de repulsão"}{" "}
+            <output>{Math.abs(preferences.chargeStrength)}</output>
             <input
               max="-40"
               min="-600"
@@ -383,7 +403,8 @@ function GraphView({
             />
           </label>
           <label>
-            Distância de link <output>{preferences.linkDistance}</output>
+            {isEnglish ? "Link distance" : "Distância de link"}{" "}
+            <output>{preferences.linkDistance}</output>
             <input
               max="160"
               min="20"
@@ -394,7 +415,8 @@ function GraphView({
             />
           </label>
           <label>
-            Força central <output>{preferences.centerStrength.toFixed(2)}</output>
+            {isEnglish ? "Center strength" : "Força central"}{" "}
+            <output>{preferences.centerStrength.toFixed(2)}</output>
             <input
               max="0.3"
               min="0.01"
@@ -407,12 +429,12 @@ function GraphView({
             />
           </label>
           <div className="graph-group-colors">
-            <p>Cores dos grupos</p>
+            <p>{isEnglish ? "Group colors" : "Cores dos grupos"}</p>
             {groups.map((group) => (
               <label key={group}>
                 <span>{group}</span>
                 <input
-                  aria-label={`Cor de ${group}`}
+                  aria-label={`${isEnglish ? "Color for" : "Cor de"} ${group}`}
                   onChange={(event) =>
                     updatePreferences({
                       colors: { ...preferences.colors, [group]: event.target.value },
@@ -425,7 +447,7 @@ function GraphView({
             ))}
           </div>
           <button onClick={() => setPreferences(defaultGraphPreferences)} type="button">
-            Restaurar padrão
+            {isEnglish ? "Reset defaults" : "Restaurar padrão"}
           </button>
         </section>
       )}
@@ -434,7 +456,8 @@ function GraphView({
   );
 }
 
-export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultPanelProps) {
+export function VaultPanel({ locale, onCollapse, onTabChange, tab, workspaceId }: VaultPanelProps) {
+  const isEnglish = locale === "en";
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState("");
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
@@ -452,12 +475,18 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
       })
       .catch((reason) => {
         if (!cancelled)
-          setError(reason instanceof Error ? reason.message : "Não foi possível ler o Vault.");
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : isEnglish
+                ? "Could not read the Vault."
+                : "Não foi possível ler o Vault.",
+          );
       });
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [isEnglish, workspaceId]);
 
   const selectedNote = graph?.files.find((file) => file.path === selectedNotePath) ?? null;
 
@@ -475,14 +504,17 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
   }
 
   return (
-    <aside aria-label="Vault do workspace" className="vault-panel">
+    <aside
+      aria-label={isEnglish ? "Workspace Vault" : "Vault do workspace"}
+      className="vault-panel"
+    >
       <header className="vault-panel-header">
         <strong>Vault</strong>
         <button
-          aria-label="Recolher Vault"
+          aria-label={isEnglish ? "Collapse Vault" : "Recolher Vault"}
           className="vault-collapse-button"
           onClick={onCollapse}
-          title="Recolher Vault"
+          title={isEnglish ? "Collapse Vault" : "Recolher Vault"}
           type="button"
         >
           <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -490,7 +522,11 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
           </svg>
         </button>
       </header>
-      <div className="vault-tabs" role="tablist" aria-label="Visualização do Vault">
+      <div
+        className="vault-tabs"
+        role="tablist"
+        aria-label={isEnglish ? "Vault view" : "Visualização do Vault"}
+      >
         <button
           aria-selected={tab === "files"}
           className={tab === "files" ? "is-active" : ""}
@@ -498,7 +534,7 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
           role="tab"
           type="button"
         >
-          Arquivos
+          {isEnglish ? "Files" : "Arquivos"}
         </button>
         <button
           aria-selected={tab === "graph"}
@@ -507,7 +543,7 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
           role="tab"
           type="button"
         >
-          Grafo
+          {isEnglish ? "Graph" : "Grafo"}
         </button>
       </div>
       {!graph && !error && <div aria-busy="true" className="vault-loading skeleton" />}
@@ -519,10 +555,13 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
       {graph &&
         tab === "files" &&
         (selectedNote ? (
-          <section aria-label={`Nota ${selectedNote.title}`} className="vault-note-reader">
+          <section
+            aria-label={`${isEnglish ? "Note" : "Nota"} ${selectedNote.title}`}
+            className="vault-note-reader"
+          >
             <div className="vault-note-toolbar">
               <button className="text-button" onClick={closeNote} type="button">
-                ← Arquivos
+                ← {isEnglish ? "Files" : "Arquivos"}
               </button>
             </div>
             <header>
@@ -534,6 +573,7 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
                 content={selectedNote.content}
                 currentPath={selectedNote.path}
                 files={graph.files}
+                locale={locale}
                 onLocalLink={openNote}
               />
             </article>
@@ -561,13 +601,22 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
             ))}
           </ul>
         ) : (
-          <p className="vault-empty">Nenhum arquivo Markdown foi encontrado nesta pasta.</p>
+          <p className="vault-empty">
+            {isEnglish
+              ? "No Markdown files were found in this folder."
+              : "Nenhum arquivo Markdown foi encontrado nesta pasta."}
+          </p>
         ))}
       {graph && tab === "graph" && (
         <div className="vault-graph-frame">
-          <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
+          <GraphView
+            graph={graph}
+            locale={locale}
+            onOpenNote={openNote}
+            workspaceId={workspaceId}
+          />
           <p className="vault-count" aria-live="polite">
-            {graph.files.length} arquivos · {graph.edges.length} links
+            {graph.files.length} {isEnglish ? "files" : "arquivos"} · {graph.edges.length} links
           </p>
         </div>
       )}

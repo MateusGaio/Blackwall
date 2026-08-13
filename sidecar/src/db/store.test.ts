@@ -117,16 +117,15 @@ describe("persistência local", () => {
     );
     expect(profile?.avatarData).toBe("data:image/png;base64,AAAA");
     expect(profile?.name).toBe("Ada Lovelace");
-    expect(() => store.setWorkspaceSoul(state.activeWorkspaceId as string, "  ")).toThrow(
-      "Soul do workspace",
-    );
+    const clearedWorkspace = store.setWorkspaceSoul(state.activeWorkspaceId as string, "  ");
     expect(workspace?.soul).toBe("Respeite as convenções do projeto.");
+    expect(clearedWorkspace?.soul).toBe("");
     database.close();
 
     const restored = openDatabase(directory);
     const restoredState = createStore(restored).getState();
     expect(restoredState.profiles[0]?.avatarData).toBeNull();
-    expect(restoredState.workspaces[0]?.soul).toBe("Respeite as convenções do projeto.");
+    expect(restoredState.workspaces[0]?.soul).toBe("");
     restored.close();
   });
 
@@ -244,6 +243,24 @@ describe("persistência local", () => {
     expect(workspaces.map((workspace) => workspace.name)).toEqual(
       expect.arrayContaining(["Primeiro workspace", "Segundo workspace"]),
     );
+    database.close();
+  });
+
+  it("permite criar workspace sem contexto inicial", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-empty-workspace-context-"));
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const profile = await store.createProfile({ locale: "en", name: "Grace", soul: "Profile" });
+    const workspace = await store.createWorkspace({
+      name: "Empty context",
+      profileId: profile.id,
+      rootPath: workspaceRoot,
+      soul: "",
+    });
+    expect(workspace.soul).toBe("");
     database.close();
   });
 

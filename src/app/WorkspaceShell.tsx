@@ -165,10 +165,11 @@ export default function WorkspaceShell({
   const vaultResizeRef = useRef<{ startWidth: number; startX: number } | null>(null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
-  const name = activeProfile?.name.trim() || profileName.trim() || "você";
   const profileLocale = state?.profiles.find(
     (profile) => profile.id === state.activeProfileId,
   )?.locale;
+  const isEnglish = profileLocale === "en";
+  const name = activeProfile?.name.trim() || profileName.trim() || (isEnglish ? "you" : "você");
   const greeting = greetingForTime(new Date(), profileLocale);
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
@@ -316,7 +317,13 @@ export default function WorkspaceShell({
           : current,
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível trocar o modelo.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not change the model."
+            : "Não foi possível trocar o modelo.",
+      );
     }
   }
 
@@ -338,7 +345,13 @@ export default function WorkspaceShell({
           : current,
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível trocar o provedor.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not change the provider."
+            : "Não foi possível trocar o provedor.",
+      );
     }
   }
 
@@ -359,7 +372,13 @@ export default function WorkspaceShell({
           : (providers[0] ?? null),
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível abrir a sessão.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not open the session."
+            : "Não foi possível abrir a sessão.",
+      );
     }
   }
 
@@ -382,7 +401,13 @@ export default function WorkspaceShell({
       );
       if (wasWithoutWorkspace) setShowVault(true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not open the workspace."
+            : "Não foi possível abrir o workspace.",
+      );
     }
   }
 
@@ -394,7 +419,13 @@ export default function WorkspaceShell({
       const session = await createSession(workspace?.id ?? null, undefined, state.activeProfileId);
       await openSession(session.id);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível criar a sessão.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not create the session."
+            : "Não foi possível criar a sessão.",
+      );
     } finally {
       setIsCreatingSession(false);
     }
@@ -508,7 +539,13 @@ export default function WorkspaceShell({
       setState(refreshed);
       setMessages(refreshed.messages);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível excluir a sessão.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not delete the session."
+            : "Não foi possível excluir a sessão.",
+      );
     }
   }
 
@@ -723,7 +760,10 @@ export default function WorkspaceShell({
       className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
       style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
     >
-      <aside className="workspace-sidebar" aria-label="Navegação do workspace">
+      <aside
+        className="workspace-sidebar"
+        aria-label={isEnglish ? "Workspace navigation" : "Navegação do workspace"}
+      >
         <div className="sidebar-heading">
           <span aria-label="Blackwall" className="sidebar-brand-mark" role="img">
             BW
@@ -735,20 +775,39 @@ export default function WorkspaceShell({
             <strong>{name}</strong>
           </div>
           <button
-            aria-label={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
+            aria-label={
+              sidebarCollapsed
+                ? isEnglish
+                  ? "Show sidebar"
+                  : "Mostrar sidebar"
+                : isEnglish
+                  ? "Hide sidebar"
+                  : "Esconder sidebar"
+            }
             aria-pressed={sidebarCollapsed}
             className="sidebar-toggle"
             onClick={() => setSidebarCollapsed((current) => !current)}
-            title={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
+            title={
+              sidebarCollapsed
+                ? isEnglish
+                  ? "Show sidebar"
+                  : "Mostrar sidebar"
+                : isEnglish
+                  ? "Hide sidebar"
+                  : "Esconder sidebar"
+            }
             type="button"
           >
             <CompactIcon kind="panel" />
           </button>
         </div>
         {sidebarCollapsed && (
-          <nav aria-label="Atalhos da sidebar" className="sidebar-rail">
+          <nav
+            aria-label={isEnglish ? "Sidebar shortcuts" : "Atalhos da sidebar"}
+            className="sidebar-rail"
+          >
             <button
-              aria-label="Abrir workspaces"
+              aria-label={isEnglish ? "Open workspaces" : "Abrir workspaces"}
               onClick={() => expandSidebar("workspace")}
               title="Workspaces"
               type="button"
@@ -756,18 +815,18 @@ export default function WorkspaceShell({
               <CompactIcon kind="workspace" />
             </button>
             <button
-              aria-label="Abrir sessões recentes"
+              aria-label={isEnglish ? "Open recent sessions" : "Abrir sessões recentes"}
               onClick={() => expandSidebar("recent")}
-              title="Recentes"
+              title={isEnglish ? "Recent" : "Recentes"}
               type="button"
             >
               <CompactIcon kind="recent" />
             </button>
             <button
-              aria-label="Abrir configurações"
+              aria-label={isEnglish ? "Open settings" : "Abrir configurações"}
               className="sidebar-rail-settings"
               onClick={() => expandSidebar("settings")}
-              title="Configurações"
+              title={isEnglish ? "Settings" : "Configurações"}
               type="button"
             >
               <CompactIcon kind="settings" />
@@ -778,7 +837,7 @@ export default function WorkspaceShell({
           <div className="sidebar-section-heading">
             <p className="eyebrow">Workspaces</p>
             <button
-              aria-label="Criar workspace"
+              aria-label={isEnglish ? "Create workspace" : "Criar workspace"}
               className="icon-button"
               onClick={() => void newWorkspace()}
               type="button"
@@ -788,10 +847,12 @@ export default function WorkspaceShell({
           </div>
           {workspace && (
             <label className="workspace-picker">
-              <span className="workspace-picker-label">Workspace atual</span>
+              <span className="workspace-picker-label">
+                {isEnglish ? "Current workspace" : "Workspace atual"}
+              </span>
               <span className="workspace-picker-control">
                 <select
-                  aria-label="Workspace atual"
+                  aria-label={isEnglish ? "Current workspace" : "Workspace atual"}
                   onChange={(event) => void openWorkspace(event.target.value)}
                   ref={workspacePickerRef}
                   value={workspace.id}
@@ -811,19 +872,23 @@ export default function WorkspaceShell({
           )}
           {!workspace && (
             <div className="workspace-empty">
-              <strong>Sem workspace</strong>
-              <span>Conversa sem contexto de arquivos.</span>
+              <strong>{isEnglish ? "No workspace" : "Sem workspace"}</strong>
+              <span>
+                {isEnglish
+                  ? "Conversation without file context."
+                  : "Conversa sem contexto de arquivos."}
+              </span>
               <button className="sidebar-config" onClick={() => void newWorkspace()} type="button">
-                Adicionar workspace
+                {isEnglish ? "Add workspace" : "Adicionar workspace"}
               </button>
             </div>
           )}
         </div>
         <div className="sidebar-section sidebar-sessions">
           <div className="sidebar-section-heading">
-            <p className="eyebrow">Recentes</p>
+            <p className="eyebrow">{isEnglish ? "Recent" : "Recentes"}</p>
             <button
-              aria-label="Nova sessão"
+              aria-label={isEnglish ? "New session" : "Nova sessão"}
               className="icon-button"
               disabled={isCreatingSession || !state?.activeProfileId}
               onClick={() => void newSession()}
@@ -832,7 +897,11 @@ export default function WorkspaceShell({
               {isCreatingSession ? "…" : "+"}
             </button>
           </div>
-          <nav aria-label="Sessões recentes" ref={recentSessionsRef} tabIndex={-1}>
+          <nav
+            aria-label={isEnglish ? "Recent sessions" : "Sessões recentes"}
+            ref={recentSessionsRef}
+            tabIndex={-1}
+          >
             {recentSessions.map((session) => (
               <div className="session-row" data-session-menu key={session.id}>
                 <button
@@ -843,13 +912,15 @@ export default function WorkspaceShell({
                   <span aria-hidden="true" className="session-icon" />
                   <span className="session-copy">
                     <strong>{session.title}</strong>
-                    <small>{session.workspaceName ?? "Sem workspace"}</small>
+                    <small>
+                      {session.workspaceName ?? (isEnglish ? "No workspace" : "Sem workspace")}
+                    </small>
                   </span>
                 </button>
                 <button
                   aria-expanded={openSessionMenuId === session.id}
                   aria-haspopup="menu"
-                  aria-label={`Ações de ${session.title}`}
+                  aria-label={`${isEnglish ? "Actions for" : "Ações de"} ${session.title}`}
                   className="session-more"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -880,7 +951,7 @@ export default function WorkspaceShell({
             ref={settingsButtonRef}
             type="button"
           >
-            Configurações
+            {isEnglish ? "Settings" : "Configurações"}
           </button>
         </div>
         {openSessionMenuId && sessionMenuPosition && (
@@ -901,7 +972,7 @@ export default function WorkspaceShell({
               role="menuitem"
               type="button"
             >
-              Renomear
+              {isEnglish ? "Rename" : "Renomear"}
             </button>
             <button
               className="session-menu-danger"
@@ -915,7 +986,7 @@ export default function WorkspaceShell({
               role="menuitem"
               type="button"
             >
-              Excluir
+              {isEnglish ? "Delete" : "Excluir"}
             </button>
           </div>
         )}
@@ -924,20 +995,24 @@ export default function WorkspaceShell({
       <section className="workspace-main">
         <header className="workspace-header">
           <div>
-            <p className="eyebrow">{workspace?.name ?? "Sem workspace"}</p>
-            <p className="workspace-session-title">{activeSession?.title ?? "Nova conversa"}</p>
+            <p className="eyebrow">
+              {workspace?.name ?? (isEnglish ? "No workspace" : "Sem workspace")}
+            </p>
+            <p className="workspace-session-title">
+              {activeSession?.title ?? (isEnglish ? "New conversation" : "Nova conversa")}
+            </p>
           </div>
           <div className="chat-controls">
             {providers.length > 0 ? (
               <label className="provider-selector">
-                <span className="sr-only">Provedor</span>
+                <span className="sr-only">{isEnglish ? "Provider" : "Provedor"}</span>
                 <select
-                  aria-label="Selecionar provedor"
+                  aria-label={isEnglish ? "Select provider" : "Selecionar provedor"}
                   onChange={(event) => {
                     const nextProvider = providers.find((item) => item.id === event.target.value);
                     if (nextProvider) void selectProvider(nextProvider);
                   }}
-                  title="Selecionar provedor"
+                  title={isEnglish ? "Select provider" : "Selecionar provedor"}
                   value={activeProvider?.id ?? ""}
                 >
                   {providers.map((item) => (
@@ -948,15 +1023,15 @@ export default function WorkspaceShell({
                 </select>
               </label>
             ) : (
-              <p className="eyebrow">sem provedor</p>
+              <p className="eyebrow">{isEnglish ? "no provider" : "sem provedor"}</p>
             )}
             {activeProvider && (
               <label className="model-selector">
-                <span className="sr-only">Modelo</span>
+                <span className="sr-only">{isEnglish ? "Model" : "Modelo"}</span>
                 <select
-                  aria-label="Selecionar modelo"
+                  aria-label={isEnglish ? "Select model" : "Selecionar modelo"}
                   onChange={(event) => void changeModel(event.target.value)}
-                  title="Selecionar modelo"
+                  title={isEnglish ? "Select model" : "Selecionar modelo"}
                   value={selectedModel}
                 >
                   {models.map((model) => (
@@ -973,7 +1048,9 @@ export default function WorkspaceShell({
               onClick={() => {
                 if (!workspace) {
                   setResourceNotice(
-                    "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
+                    isEnglish
+                      ? "Select a folder to configure your workspace and use the Vault and graph."
+                      : "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
                   );
                   return;
                 }
@@ -991,7 +1068,7 @@ export default function WorkspaceShell({
         </header>
         <section
           className={`chat-shell ${messages.length === 0 ? "is-empty" : ""}`}
-          aria-label="Conversa"
+          aria-label={isEnglish ? "Conversation" : "Conversa"}
         >
           {messages.length === 0 ? (
             <div className="empty-state">
@@ -1000,8 +1077,12 @@ export default function WorkspaceShell({
               </h1>
               <p>
                 {workspace
-                  ? "O que vamos construir hoje?"
-                  : "Converse livremente. Adicione uma pasta quando quiser usar arquivos e o Vault."}
+                  ? isEnglish
+                    ? "What will we build today?"
+                    : "O que vamos construir hoje?"
+                  : isEnglish
+                    ? "Chat freely. Add a folder whenever you want to use files and the Vault."
+                    : "Converse livremente. Adicione uma pasta quando quiser usar arquivos e o Vault."}
               </p>
             </div>
           ) : (
@@ -1018,7 +1099,7 @@ export default function WorkspaceShell({
                       }}
                     >
                       <textarea
-                        aria-label="Editar mensagem"
+                        aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
                         onChange={(event) => setEditingMessageDraft(event.target.value)}
                         value={editingMessageDraft}
                       />
@@ -1028,16 +1109,16 @@ export default function WorkspaceShell({
                           onClick={() => setEditingMessageId(null)}
                           type="button"
                         >
-                          Cancelar
+                          {isEnglish ? "Cancel" : "Cancelar"}
                         </button>
                         <button className="button button-primary" type="submit">
-                          Salvar e regenerar
+                          {isEnglish ? "Save and regenerate" : "Salvar e regenerar"}
                         </button>
                       </div>
                     </form>
                   ) : (
                     <>
-                      <SafeMarkdown content={message.content} />
+                      <SafeMarkdown content={message.content} locale={isEnglish ? "en" : "pt-BR"} />
                       <div className="message-actions">
                         {message.role === "user" && (
                           <button
@@ -1048,7 +1129,7 @@ export default function WorkspaceShell({
                             }}
                             type="button"
                           >
-                            Editar
+                            {isEnglish ? "Edit" : "Editar"}
                           </button>
                         )}
                         {message.role === "assistant" && message.id === messages.at(-1)?.id && (
@@ -1057,7 +1138,7 @@ export default function WorkspaceShell({
                             onClick={() => void regenerate()}
                             type="button"
                           >
-                            Regenerar
+                            {isEnglish ? "Regenerate" : "Regenerar"}
                           </button>
                         )}
                       </div>
@@ -1074,12 +1155,15 @@ export default function WorkspaceShell({
             </ol>
           )}
           {attachments.length > 0 && (
-            <ul className="attachment-list" aria-label="Anexos indexados">
+            <ul
+              className="attachment-list"
+              aria-label={isEnglish ? "Indexed attachments" : "Anexos indexados"}
+            >
               {attachments.map((attachment) => (
                 <li className="attachment-chip" key={attachment.id}>
                   <span>{attachment.filename}</span>
                   <button
-                    aria-label={`Remover ${attachment.filename}`}
+                    aria-label={`${isEnglish ? "Remove" : "Remover"} ${attachment.filename}`}
                     onClick={() => setAttachmentToRemove(attachment)}
                     type="button"
                   >
@@ -1102,7 +1186,7 @@ export default function WorkspaceShell({
               type="file"
             />
             <button
-              aria-label="Anexar arquivo"
+              aria-label={isEnglish ? "Attach file" : "Anexar arquivo"}
               className="composer-attach"
               disabled={!activeSession || !workspace || isSending}
               onClick={() => fileInput.current?.click()}
@@ -1115,15 +1199,21 @@ export default function WorkspaceShell({
                 <button
                   aria-expanded={permissionOpen}
                   aria-haspopup="menu"
-                  aria-label="Modo de permissões"
+                  aria-label={isEnglish ? "Permission mode" : "Modo de permissões"}
                   className="composer-permission"
                   onClick={() => setPermissionOpen((current) => !current)}
                   title={`Permissões: ${
                     workspace.permissionMode === "ask"
-                      ? "Perguntar sempre"
+                      ? isEnglish
+                        ? "Ask every time"
+                        : "Perguntar sempre"
                       : workspace.permissionMode === "automatic"
-                        ? "Automático"
-                        : "Somente leitura"
+                        ? isEnglish
+                          ? "Automatic"
+                          : "Automático"
+                        : isEnglish
+                          ? "Read-only"
+                          : "Somente leitura"
                   }`}
                   type="button"
                 >
@@ -1134,12 +1224,12 @@ export default function WorkspaceShell({
                 </button>
                 {permissionOpen && (
                   <div className="permission-popover" role="menu">
-                    <p>Permissões</p>
+                    <p>{isEnglish ? "Permissions" : "Permissões"}</p>
                     {(
                       [
-                        ["ask", "Perguntar sempre"],
-                        ["automatic", "Automático"],
-                        ["read-only", "Somente leitura"],
+                        ["ask", isEnglish ? "Ask every time" : "Perguntar sempre"],
+                        ["automatic", isEnglish ? "Automatic" : "Automático"],
+                        ["read-only", isEnglish ? "Read-only" : "Somente leitura"],
                       ] as const
                     ).map(([mode, label]) => (
                       <button
@@ -1165,20 +1255,20 @@ export default function WorkspaceShell({
               </div>
             )}
             <textarea
-              aria-label="Mensagem"
+              aria-label={isEnglish ? "Message" : "Mensagem"}
               disabled={!activeProvider || !activeSession || isSending}
               onChange={(event) => {
                 setDraft(event.target.value);
                 resizeComposer(event.target);
               }}
               onKeyDown={handleComposerKeyDown}
-              placeholder="Envie uma mensagem…"
+              placeholder={isEnglish ? "Send a message…" : "Envie uma mensagem…"}
               rows={1}
               value={draft}
             />
             {isSending ? (
               <button className="button button-secondary" onClick={stopGeneration} type="button">
-                Parar
+                {isEnglish ? "Stop" : "Parar"}
               </button>
             ) : (
               <button
@@ -1186,7 +1276,7 @@ export default function WorkspaceShell({
                 disabled={!draft.trim() || !activeProvider || !activeSession}
                 type="submit"
               >
-                Enviar
+                {isEnglish ? "Send" : "Enviar"}
               </button>
             )}
           </form>
@@ -1195,7 +1285,9 @@ export default function WorkspaceShell({
             <div className="resource-gate" role="alert">
               <span>{resourceNotice}</span>
               <button className="text-button" onClick={newWorkspace} type="button">
-                Adicionar workspace nas configurações
+                {isEnglish
+                  ? "Add a workspace in settings"
+                  : "Adicionar workspace nas configurações"}
               </button>
             </div>
           )}
@@ -1210,7 +1302,7 @@ export default function WorkspaceShell({
         <div className={`vault-slot ${isResizingVault ? "is-resizing" : ""}`}>
           {!vaultCollapsed && (
             <hr
-              aria-label="Redimensionar painel do Vault"
+              aria-label={isEnglish ? "Resize Vault panel" : "Redimensionar painel do Vault"}
               aria-orientation="vertical"
               aria-valuemax={maximumVaultWidth}
               aria-valuemin={minimumVaultWidth}
@@ -1234,25 +1326,28 @@ export default function WorkspaceShell({
             />
           )}
           {vaultCollapsed ? (
-            <aside aria-label="Vault recolhido" className="vault-rail">
+            <aside
+              aria-label={isEnglish ? "Collapsed Vault" : "Vault recolhido"}
+              className="vault-rail"
+            >
               <button
-                aria-label="Abrir arquivos do Vault"
+                aria-label={isEnglish ? "Open Vault files" : "Abrir arquivos do Vault"}
                 onClick={() => {
                   setVaultTab("files");
                   setVaultCollapsed(false);
                 }}
-                title="Arquivos"
+                title={isEnglish ? "Files" : "Arquivos"}
                 type="button"
               >
                 <CompactIcon kind="files" />
               </button>
               <button
-                aria-label="Abrir grafo do Vault"
+                aria-label={isEnglish ? "Open Vault graph" : "Abrir grafo do Vault"}
                 onClick={() => {
                   setVaultTab("graph");
                   setVaultCollapsed(false);
                 }}
-                title="Grafo"
+                title={isEnglish ? "Graph" : "Grafo"}
                 type="button"
               >
                 <CompactIcon kind="graph" />
@@ -1263,6 +1358,7 @@ export default function WorkspaceShell({
               fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}
             >
               <VaultPanel
+                locale={isEnglish ? "en" : "pt-BR"}
                 onCollapse={() => setVaultCollapsed(true)}
                 onTabChange={setVaultTab}
                 tab={vaultTab}
@@ -1320,28 +1416,38 @@ export default function WorkspaceShell({
       )}
       {sessionToDelete && (
         <ConfirmDialog
-          confirmLabel="Excluir sessão"
-          description="As mensagens desta conversa serão removidas deste dispositivo."
+          confirmLabel={isEnglish ? "Delete session" : "Excluir sessão"}
+          description={
+            isEnglish
+              ? "The messages in this conversation will be removed from this device."
+              : "As mensagens desta conversa serão removidas deste dispositivo."
+          }
           onCancel={() => setSessionToDelete(null)}
           onConfirm={() => {
             const session = sessionToDelete;
             setSessionToDelete(null);
             void remove(session.id);
           }}
-          title={`Excluir ${sessionToDelete.title}?`}
+          headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
+          title={`${isEnglish ? "Delete" : "Excluir"} ${sessionToDelete.title}?`}
         />
       )}
       {attachmentToRemove && (
         <ConfirmDialog
-          confirmLabel="Remover anexo"
-          description="O arquivo e seu índice local serão removidos deste dispositivo."
+          confirmLabel={isEnglish ? "Remove attachment" : "Remover anexo"}
+          description={
+            isEnglish
+              ? "The file and its local index will be removed from this device."
+              : "O arquivo e seu índice local serão removidos deste dispositivo."
+          }
           onCancel={() => setAttachmentToRemove(null)}
           onConfirm={() => {
             const attachment = attachmentToRemove;
             setAttachmentToRemove(null);
             void detachFile(attachment);
           }}
-          title={`Remover ${attachmentToRemove.filename}?`}
+          headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
+          title={`${isEnglish ? "Remove" : "Remover"} ${attachmentToRemove.filename}?`}
         />
       )}
       {sessionToRename && (
@@ -1352,8 +1458,10 @@ export default function WorkspaceShell({
             className="confirm-dialog"
             role="dialog"
           >
-            <p className="eyebrow">Sessão</p>
-            <h2 id="rename-session-title">Renomear conversa</h2>
+            <p className="eyebrow">{isEnglish ? "Session" : "Sessão"}</p>
+            <h2 id="rename-session-title">
+              {isEnglish ? "Rename conversation" : "Renomear conversa"}
+            </h2>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -1361,7 +1469,7 @@ export default function WorkspaceShell({
               }}
             >
               <label className="settings-field">
-                <span>Novo nome</span>
+                <span>{isEnglish ? "New name" : "Novo nome"}</span>
                 <input
                   onChange={(event) => setRenameDraft(event.target.value)}
                   value={renameDraft}
@@ -1373,14 +1481,14 @@ export default function WorkspaceShell({
                   onClick={() => setSessionToRename(null)}
                   type="button"
                 >
-                  Cancelar
+                  {isEnglish ? "Cancel" : "Cancelar"}
                 </button>
                 <button
                   className="button button-primary"
                   disabled={!renameDraft.trim()}
                   type="submit"
                 >
-                  Salvar
+                  {isEnglish ? "Save" : "Salvar"}
                 </button>
               </footer>
             </form>
@@ -1389,11 +1497,16 @@ export default function WorkspaceShell({
       )}
       {paletteOpen && (
         <div className="command-backdrop" role="presentation">
-          <section aria-label="Command palette" className="command-palette">
+          <section
+            aria-label={isEnglish ? "Command palette" : "Paleta de comandos"}
+            className="command-palette"
+          >
             <input
-              aria-label="Pesquisar comandos"
+              aria-label={isEnglish ? "Search commands" : "Pesquisar comandos"}
               onChange={(event) => setPaletteQuery(event.target.value)}
-              placeholder="Pesquisar sessões e ações…"
+              placeholder={
+                isEnglish ? "Search sessions and actions…" : "Pesquisar sessões e ações…"
+              }
               value={paletteQuery}
             />
             <div className="command-list">
@@ -1404,7 +1517,7 @@ export default function WorkspaceShell({
                 }}
                 type="button"
               >
-                Abrir configurações
+                {isEnglish ? "Open settings" : "Abrir configurações"}
               </button>
               {recentSessions
                 .filter((session) =>
@@ -1419,7 +1532,8 @@ export default function WorkspaceShell({
                     }}
                     type="button"
                   >
-                    Abrir sessão: {session.title}
+                    {isEnglish ? "Open session: " : "Abrir sessão: "}
+                    {session.title}
                   </button>
                 ))}
             </div>

@@ -5,6 +5,7 @@ type ConfirmDialogProps = {
   cancelLabel?: string;
   confirmLabel?: string;
   description: string;
+  headingLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
   title: string;
@@ -14,6 +15,7 @@ export function ConfirmDialog({
   cancelLabel = "Cancelar",
   confirmLabel = "Confirmar",
   description,
+  headingLabel = "Confirmação",
   onCancel,
   onConfirm,
   title,
@@ -38,7 +40,7 @@ export function ConfirmDialog({
         className="confirm-dialog"
         role="dialog"
       >
-        <p className="eyebrow">Confirmação</p>
+        <p className="eyebrow">{headingLabel}</p>
         <h2 id="confirm-dialog-title">{title}</h2>
         <p id="confirm-dialog-description">{description}</p>
         <footer className="confirm-dialog-actions">

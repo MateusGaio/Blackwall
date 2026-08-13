@@ -8,10 +8,12 @@ import {
 } from "../../../shared/api/sidecar";
 
 type ProviderSetupProps = {
+  locale: "pt-BR" | "en";
   onConnected: (provider: ConnectedProvider) => void;
 };
 
-export function ProviderSetup({ onConnected }: ProviderSetupProps) {
+export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
+  const isEnglish = locale === "en";
   const [name, setName] = useState("OpenRouter");
   const [baseUrl, setBaseUrl] = useState("https://openrouter.ai/api/v1");
   const [model, setModel] = useState("openai/gpt-4o-mini");
@@ -53,7 +55,13 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
       setModels(discovered);
       if (!model && discovered[0]) setModel(discovered[0].id);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível listar os modelos.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not list models."
+            : "Não foi possível listar os modelos.",
+      );
     } finally {
       setIsDiscovering(false);
     }
@@ -74,7 +82,13 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
         }),
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível conectar o provedor.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not connect the provider."
+            : "Não foi possível conectar o provedor.",
+      );
     } finally {
       setIsConnecting(false);
     }
@@ -83,10 +97,12 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
   return (
     <form className="provider-form" onSubmit={submit}>
       <p className="provider-notice">
-        A chave é validada uma vez e permanece criptografada apenas neste dispositivo.
+        {isEnglish
+          ? "The key is validated once and remains encrypted on this device only."
+          : "A chave é validada uma vez e permanece criptografada apenas neste dispositivo."}
       </p>
       <fieldset className="field-label provider-type-fieldset">
-        <legend>Tipo de provedor</legend>
+        <legend>{isEnglish ? "Provider type" : "Tipo de provedor"}</legend>
         <div className="provider-type-picker">
           <button
             aria-pressed={providerType === "openai-compatible"}
@@ -94,8 +110,12 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
             onClick={() => changeProviderType("openai-compatible")}
             type="button"
           >
-            <strong>API compatível</strong>
-            <span>OpenRouter, OpenCode Zen e endpoints compatíveis.</span>
+            <strong>{isEnglish ? "Compatible API" : "API compatível"}</strong>
+            <span>
+              {isEnglish
+                ? "OpenRouter, OpenCode Zen and compatible endpoints."
+                : "OpenRouter, OpenCode Zen e endpoints compatíveis."}
+            </span>
           </button>
           <button
             aria-pressed={providerType === "ollama"}
@@ -104,12 +124,16 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
             type="button"
           >
             <strong>Ollama local</strong>
-            <span>Modelos instalados no seu computador.</span>
+            <span>
+              {isEnglish
+                ? "Models installed on your computer."
+                : "Modelos instalados no seu computador."}
+            </span>
           </button>
         </div>
       </fieldset>
       <label className="field-label" htmlFor="provider-name">
-        Nome do provedor
+        {isEnglish ? "Provider name" : "Nome do provedor"}
         <input id="provider-name" onChange={(event) => setName(event.target.value)} value={name} />
       </label>
       <label className="field-label" htmlFor="provider-url">
@@ -121,7 +145,7 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
         />
       </label>
       <label className="field-label" htmlFor="provider-model">
-        Modelo
+        {isEnglish ? "Model" : "Modelo"}
         <div className="model-input-row">
           <input
             id="provider-model"
@@ -134,12 +158,12 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
             onClick={() => void discoverModels()}
             type="button"
           >
-            {isDiscovering ? "Listando…" : "Listar"}
+            {isDiscovering ? (isEnglish ? "Listing…" : "Listando…") : isEnglish ? "List" : "Listar"}
           </button>
         </div>
         {models.length > 0 && (
           <select
-            aria-label="Modelo disponível"
+            aria-label={isEnglish ? "Available model" : "Modelo disponível"}
             onChange={(event) => setModel(event.target.value)}
             value={model}
           >
@@ -153,7 +177,7 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
       </label>
       {providerType === "openai-compatible" && (
         <label className="field-label" htmlFor="provider-key">
-          Chave de API
+          {isEnglish ? "API key" : "Chave de API"}
           <input
             autoComplete="off"
             id="provider-key"
@@ -175,7 +199,13 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
         }
         type="submit"
       >
-        {isConnecting ? "Verificando conexão…" : "Conectar e continuar"}
+        {isConnecting
+          ? isEnglish
+            ? "Checking connection…"
+            : "Verificando conexão…"
+          : isEnglish
+            ? "Connect and continue"
+            : "Conectar e continuar"}
       </button>
     </form>
   );

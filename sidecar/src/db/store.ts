@@ -168,7 +168,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   }) {
     const name = input.name.trim();
     const soul = input.soul.trim();
-    if (!name || !soul) throw new Error("Informe o nome e a Soul do workspace.");
+    if (!name) throw new Error("Informe o nome do workspace.");
     const profile = database.db
       .select()
       .from(profiles)
@@ -202,7 +202,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   }) {
     const name = input.name.trim();
     const soul = input.soul.trim();
-    if (!name || !soul) throw new Error("Informe o nome e a Soul do workspace.");
+    if (!name) throw new Error("Informe o nome do workspace.");
     const profile = database.db
       .select()
       .from(profiles)
@@ -345,7 +345,6 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
 
   function setWorkspaceSoul(workspaceId: string, soul: string) {
     const nextSoul = soul.trim();
-    if (!nextSoul) throw new Error("Informe a Soul do workspace.");
     const workspace = database.db
       .select()
       .from(workspaces)
