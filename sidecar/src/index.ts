@@ -454,12 +454,19 @@ export function createSidecar(
           role: message.role as ChatMessage["role"],
         }))
       : input.messages;
+    const toolContextMessages = storedMessages
+      .filter((message) => message.role === "tool")
+      .map((message) => ({
+        content: `Blackwall local workspace context:\n${message.content}`,
+        role: "system" as const,
+      }));
     const promptMessages = [
       ...systemMessages,
+      ...toolContextMessages,
       ...(input.sessionId
         ? input.messages.filter((message) => message.role === "system")
         : storedMessages.filter((message) => message.role === "system")),
-      ...storedMessages.filter((message) => message.role !== "system"),
+      ...storedMessages.filter((message) => message.role !== "system" && message.role !== "tool"),
     ];
     const persistStream = (
       content: string,

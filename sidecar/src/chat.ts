@@ -3,7 +3,10 @@
 import { withInstrumentation } from "./observability.js";
 import { getProvider, type Provider, providerApiKey } from "./providers.js";
 
-export type ChatMessage = { content: string; role: "assistant" | "system" | "user" };
+export type ChatMessage = {
+  content: string;
+  role: "assistant" | "system" | "tool" | "user";
+};
 type FetchLike = typeof fetch;
 
 export async function sendChatMessage(
