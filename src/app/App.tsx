@@ -319,11 +319,11 @@ function OnboardingPanel({
                 type="button"
               >
                 <span>
-                  {isEnglish ? "Start without a workspace" : "Iniciar sem workspace"}
+                  {isEnglish ? "Start without a workspace" : "Começar sem um workspace"}
                   <small>
                     {isEnglish
-                      ? "You can add a project folder later"
-                      : "Você poderá adicionar uma pasta depois"}
+                      ? "Add a project folder later"
+                      : "Adicione uma pasta de projeto depois"}
                   </small>
                 </span>
                 <span>{startWithoutWorkspace ? "✓" : ""}</span>

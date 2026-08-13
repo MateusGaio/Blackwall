@@ -312,6 +312,21 @@ button:disabled {
   font-size: 0.7rem;
 }
 
+.choice > span:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.choice > span:first-child small {
+  color: #89898f;
+  font-family: inherit;
+  font-size: 0.68rem;
+}
+
+.choice.is-selected > span:first-child small {
+  color: #55555b;
+}
+
 .soul-picker {
   display: grid;
   gap: 10px;
