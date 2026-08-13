@@ -271,7 +271,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .select()
       .from(sessions)
       .where(workspaceId ? eq(sessions.workspaceId, workspaceId) : isNull(sessions.workspaceId))
-      .orderBy(desc(sessions.updatedAt))
+      .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .all();
   }
 
@@ -291,7 +291,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .from(sessions)
       .leftJoin(workspaces, eq(sessions.workspaceId, workspaces.id))
       .where(eq(sessions.profileId, profileId))
-      .orderBy(desc(sessions.updatedAt))
+      .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .limit(Math.max(1, Math.min(limit, 100)))
       .all();
   }
@@ -566,7 +566,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .select()
       .from(sessions)
       .where(eq(sessions.profileId, profileId))
-      .orderBy(desc(sessions.updatedAt))
+      .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .get();
     const workspace = session
       ? session.workspaceId

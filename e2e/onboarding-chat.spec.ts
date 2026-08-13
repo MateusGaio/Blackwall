@@ -42,6 +42,11 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
     const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
     await expect(vaultToggle).toBeVisible();
+    await expect(page.getByText("Workspace atual", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Abrir configurações da Soul do workspace/i }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("img", { name: "Blackwall" })).toBeVisible();
     // Com um workspace ativo, o Vault já inicia aberto. Só alternamos o
     // botão quando o painel não estiver presente (por exemplo, após uma
     // preferência de recolhimento persistida).
@@ -53,8 +58,18 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
     const graphCanvas = page.locator(".vault-graph-canvas");
     await expect(graphCanvas).toBeVisible();
     const graphHeight = await graphCanvas.evaluate((element) => element.getBoundingClientRect().height);
-    const slotHeight = await page.locator(".vault-slot").evaluate((element) => element.getBoundingClientRect().height);
+    const graphBackground = await page.locator(".vault-graph").evaluate((element) =>
+      getComputedStyle(element).backgroundColor,
+    );
+    const slotHeight = await page
+      .locator(".vault-slot")
+      .evaluate((element) => element.getBoundingClientRect().height);
     expect(graphHeight).toBeGreaterThan(slotHeight * 0.55);
+    expect(graphBackground).toBe("rgb(10, 10, 11)");
+    await page.getByRole("button", { name: "Esconder sidebar" }).click();
+    await expect(page.getByRole("button", { name: "Mostrar sidebar" })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Blackwall" })).toBeHidden();
+    await page.getByRole("button", { name: "Mostrar sidebar" }).click();
   }
   const composer = page.getByLabel("Mensagem");
   await composer.fill("Olá Blackwall");

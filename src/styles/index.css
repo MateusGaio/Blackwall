@@ -2,6 +2,9 @@
 @import "tailwindcss";
 
 :root {
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --radius-surface: 10px;
   color: #f2f2f3;
   background: #0a0a0b;
   font-family:
@@ -132,6 +135,7 @@ button:disabled {
 .onboarding-card {
   animation: card-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
   border: 1px solid #2e2e31;
+  border-radius: var(--radius-panel);
   min-height: 340px;
   padding: clamp(26px, 5vw, 48px);
 }
@@ -154,6 +158,7 @@ button:disabled {
 .profile-chooser-card {
   animation: card-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
   border: 1px solid #2e2e31;
+  border-radius: var(--radius-panel);
   padding: clamp(26px, 5vw, 48px);
 }
 
@@ -516,6 +521,7 @@ button:disabled {
 }
 .button {
   border: 1px solid transparent;
+  border-radius: var(--radius-control);
   min-height: 40px;
   padding: 0 16px;
   transition:
@@ -669,6 +675,30 @@ button:disabled {
   gap: 10px;
 }
 
+.sidebar-heading {
+  min-height: 52px;
+}
+
+.sidebar-brand-mark {
+  align-items: center;
+  background: #f2f2f3;
+  border-radius: var(--radius-control);
+  color: #0a0a0b;
+  display: inline-flex;
+  flex: 0 0 28px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  height: 28px;
+  justify-content: center;
+  letter-spacing: -0.08em;
+  width: 28px;
+}
+
+.sidebar-heading .sidebar-toggle {
+  margin-left: auto;
+}
+
 .sidebar-heading strong {
   display: block;
   font-size: 0.88rem;
@@ -708,6 +738,7 @@ button:disabled {
 .icon-button {
   background: transparent;
   border: 1px solid #353539;
+  border-radius: var(--radius-control);
   color: #b6b6bb;
   height: 24px;
   line-height: 1;
@@ -748,13 +779,27 @@ button:disabled {
   gap: 6px;
 }
 
+.workspace-picker-label {
+  color: #77777c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.63rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workspace-picker-control {
+  position: relative;
+}
+
 .workspace-picker select {
+  appearance: none;
   background: #141416;
   border: 1px solid #353539;
+  border-radius: var(--radius-control);
   color: #e5e5e7;
   font-size: 0.82rem;
   min-width: 0;
-  padding: 8px 9px;
+  padding: 9px 32px 9px 11px;
   width: 100%;
 }
 
@@ -772,9 +817,19 @@ button:disabled {
   white-space: nowrap;
 }
 
+.workspace-picker-chevron {
+  color: #89898e;
+  pointer-events: none;
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-54%);
+}
+
 .workspace-empty {
   background: #141416;
   border: 1px solid #2e2e31;
+  border-radius: var(--radius-surface);
   display: grid;
   gap: 7px;
   padding: 12px;
@@ -821,7 +876,7 @@ button:disabled {
 .session-item {
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   color: #a5a5aa;
   display: flex;
   gap: 9px;
@@ -916,7 +971,7 @@ button:disabled {
   animation: card-enter 120ms ease-out both;
   background: #1a1a1d;
   border: 1px solid #39393e;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   box-shadow: 0 12px 30px rgb(0 0 0 / 32%);
   display: grid;
   gap: 2px;
@@ -938,7 +993,7 @@ button:disabled {
 .session-menu button {
   background: transparent;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   color: #cfcfd2;
   padding: 8px 9px;
   text-align: left;
@@ -1431,37 +1486,11 @@ button:disabled {
 .model-selector select {
   background: #141416;
   border: 1px solid #353539;
+  border-radius: var(--radius-control);
   color: #cfcfd2;
   font-size: 0.76rem;
   max-width: 220px;
   padding: 7px 9px;
-}
-
-.soul-indicator {
-  background: transparent;
-  border: 1px solid #353539;
-  border-radius: 999px;
-  color: #a5a5aa;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.63rem;
-  line-height: 1;
-  max-width: 132px;
-  overflow: hidden;
-  padding: 7px 9px;
-  text-overflow: ellipsis;
-  transition:
-    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 160ms cubic-bezier(0.22, 1, 0.36, 1);
-  white-space: nowrap;
-}
-
-.soul-indicator:hover,
-.soul-indicator:focus-visible {
-  background: #1a1a1d;
-  border-color: #a6a6ab;
-  color: #f2f2f3;
-  outline: none;
 }
 
 .sr-only {
@@ -1504,6 +1533,7 @@ button:disabled {
 .header-toggle {
   background: transparent;
   border: 1px solid #353539;
+  border-radius: var(--radius-control);
   color: #a5a5aa;
   font-size: 0.72rem;
   padding: 7px 10px;
@@ -1779,8 +1809,9 @@ button:disabled {
 }
 
 .vault-graph {
-  background: radial-gradient(circle, #17171a 0, #101012 68%);
+  background: #0a0a0b;
   border: 1px solid #252527;
+  border-radius: var(--radius-surface);
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -1808,6 +1839,7 @@ button:disabled {
   align-items: center;
   background: #141416;
   border: 1px solid #3d3d43;
+  border-radius: var(--radius-control);
   color: #b6b6bb;
   display: inline-flex;
   height: 30px;
@@ -2529,6 +2561,14 @@ button:disabled {
 .sidebar-collapsed .sidebar-heading {
   justify-content: center;
   width: 100%;
+}
+
+.sidebar-collapsed .sidebar-brand-mark {
+  display: none;
+}
+
+.sidebar-collapsed .sidebar-heading .sidebar-toggle {
+  margin-left: 0;
 }
 
 .sidebar-collapsed .sidebar-profile-summary,

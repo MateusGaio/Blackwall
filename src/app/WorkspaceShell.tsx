@@ -49,7 +49,6 @@ import {
   writeBooleanPreference,
   writeNumberPreference,
 } from "./panel-preferences";
-import { activeSoulMeta } from "./soul";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
@@ -169,8 +168,9 @@ export default function WorkspaceShell({
   const greeting = greetingForTime(new Date(), profileLocale);
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
-  const recentSessions = state?.recentSessions ?? [];
-  const { label: activeSoulLabel, soul: activeSoul } = activeSoulMeta(activeProfile, workspace);
+  const recentSessions = [...(state?.recentSessions ?? [])].sort(
+    (left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt,
+  );
   const selectedModel =
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
 
@@ -568,6 +568,9 @@ export default function WorkspaceShell({
     setDraft("");
     setResourceNotice("");
     await persistMessage(sessionId, { content, role: "user", status: "complete" });
+    // Atualiza a lista de Recentes assim que a conversa recebe atividade,
+    // antes mesmo de a resposta do modelo terminar de chegar.
+    setState(await getAppState());
     const relevantAttachments = workspace
       ? await searchAttachments(workspace.id, content.slice(0, 160)).catch(() => [])
       : [];
@@ -668,6 +671,16 @@ export default function WorkspaceShell({
     >
       <aside className="workspace-sidebar" aria-label="Navegação do workspace">
         <div className="sidebar-heading">
+          <span aria-label="Blackwall" className="sidebar-brand-mark" role="img">
+            BW
+          </span>
+          <div className="sidebar-profile-summary">
+            {activeProfile?.avatarData ? (
+              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
+            ) : null}
+            <p className="eyebrow">Perfil</p>
+            <strong>{name}</strong>
+          </div>
           <button
             aria-label={sidebarCollapsed ? "Mostrar sidebar" : "Esconder sidebar"}
             aria-pressed={sidebarCollapsed}
@@ -678,13 +691,6 @@ export default function WorkspaceShell({
           >
             <CompactIcon kind="panel" />
           </button>
-          <div className="sidebar-profile-summary">
-            {activeProfile?.avatarData ? (
-              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
-            ) : null}
-            <p className="eyebrow">Perfil</p>
-            <strong>{name}</strong>
-          </div>
         </div>
         {sidebarCollapsed && (
           <nav aria-label="Atalhos da sidebar" className="sidebar-rail">
@@ -729,19 +735,24 @@ export default function WorkspaceShell({
           </div>
           {workspace && (
             <label className="workspace-picker">
-              <span className="sr-only">Workspace atual</span>
-              <select
-                aria-label="Workspace atual"
-                onChange={(event) => void openWorkspace(event.target.value)}
-                ref={workspacePickerRef}
-                value={workspace.id}
-              >
-                {state?.workspaces.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+              <span className="workspace-picker-label">Workspace atual</span>
+              <span className="workspace-picker-control">
+                <select
+                  aria-label="Workspace atual"
+                  onChange={(event) => void openWorkspace(event.target.value)}
+                  ref={workspacePickerRef}
+                  value={workspace.id}
+                >
+                  {state?.workspaces.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                <span aria-hidden="true" className="workspace-picker-chevron">
+                  ⌄
+                </span>
+              </span>
               <span>{workspace.rootPath}</span>
             </label>
           )}
@@ -865,15 +876,6 @@ export default function WorkspaceShell({
           </div>
           <div className="chat-controls">
             <p className="eyebrow">{activeProvider?.name ?? "sem provedor"}</p>
-            <button
-              aria-label={`Abrir configurações da ${activeSoulLabel.toLowerCase()}`}
-              className="soul-indicator"
-              onClick={() => setShowSettings(true)}
-              title={activeSoul || activeSoulLabel}
-              type="button"
-            >
-              {activeSoulLabel}
-            </button>
             {activeProvider && (
               <label className="model-selector">
                 <span className="sr-only">Modelo</span>

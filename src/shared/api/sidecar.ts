@@ -40,6 +40,7 @@ export type VaultGraph = {
 };
 
 export type Session = {
+  createdAt: number;
   id: string;
   profileId: string | null;
   selectedModel: string | null;
