@@ -64,6 +64,7 @@ export const models = sqliteTable(
     displayName: text("display_name").notNull(),
     capabilities: text("capabilities").notNull().default("[]"),
     available: integer("available", { mode: "boolean" }).notNull().default(true),
+    toolMode: text("tool_mode").notNull().default("auto"),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => ({
@@ -94,6 +95,9 @@ export const messages = sqliteTable("messages", {
   status: text("status").notNull().default("complete"),
   providerId: text("provider_id"),
   model: text("model"),
+  toolCalls: text("tool_calls"),
+  toolName: text("tool_name"),
+  toolCallId: text("tool_call_id"),
   sequence: integer("sequence").notNull(),
   ...timestamps,
 });

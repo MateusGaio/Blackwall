@@ -15,6 +15,7 @@ import {
   discoverProviderModels,
   type Profile,
   type ProviderModel,
+  setProviderModelToolMode,
   setWorkspaceSoul,
   testProvider,
   updateProfile,
@@ -91,6 +92,7 @@ export function ProviderManager({
   const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [isListingModels, setIsListingModels] = useState(false);
+  const [toolMode, setToolMode] = useState<ProviderModel["toolMode"]>("auto");
   const runtime = currentRuntime();
 
   const activeWorkspace =
@@ -146,6 +148,9 @@ export function ProviderManager({
         type: form.type,
       });
       setProviderModels(listed);
+      setToolMode(
+        listed.find((model) => model.id === (form.model || listed[0]?.id))?.toolMode ?? "auto",
+      );
       if (!form.model && listed[0]) updateForm("model", listed[0].id);
       if (!listed.length)
         setStatus(
@@ -163,6 +168,23 @@ export function ProviderManager({
       );
     } finally {
       setIsListingModels(false);
+    }
+  }
+
+  async function changeToolMode(next: ProviderModel["toolMode"]) {
+    setToolMode(next);
+    if (!editingId || !form.model || !next) return;
+    try {
+      await setProviderModelToolMode(editingId, form.model, next);
+      setStatus(isEnglish ? "Tool mode saved." : "Modo de ferramentas salvo.");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not save tool mode."
+            : "Não foi possível salvar o modo de ferramentas.",
+      );
     }
   }
 
@@ -733,6 +755,23 @@ export function ProviderManager({
                     {model.name}
                   </option>
                 ))}
+              </select>
+            )}
+            {editingId && providerModels.length > 0 && (
+              <select
+                aria-label={isEnglish ? "Tool calling mode" : "Modo de ferramentas"}
+                onChange={(event) =>
+                  void changeToolMode(event.target.value as ProviderModel["toolMode"])
+                }
+                value={toolMode}
+              >
+                <option value="auto">
+                  {isEnglish ? "Native tools (automatic)" : "Ferramentas nativas (automático)"}
+                </option>
+                <option value="compatibility">
+                  {isEnglish ? "Compatibility JSON (opt-in)" : "JSON de compatibilidade (opt-in)"}
+                </option>
+                <option value="disabled">{isEnglish ? "Disabled" : "Desativado"}</option>
               </select>
             )}
           </label>

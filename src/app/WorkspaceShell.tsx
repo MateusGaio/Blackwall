@@ -19,7 +19,6 @@ import {
   createSession,
   deleteSession,
   editSessionMessage,
-  executeWorkspaceTool,
   getAppState,
   listAttachments,
   listProviders,
@@ -52,11 +51,6 @@ import {
   writeBooleanPreference,
   writeNumberPreference,
 } from "./panel-preferences";
-import {
-  formatWorkspaceToolResult,
-  modelRequestsWorkspaceAccess,
-  type WorkspaceAccessPrompt,
-} from "./workspace-access";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
@@ -151,9 +145,6 @@ export default function WorkspaceShell({
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
   const [permissionError, setPermissionError] = useState("");
-  const [workspaceAccessPrompt, setWorkspaceAccessPrompt] = useState<WorkspaceAccessPrompt | null>(
-    null,
-  );
   const [toolApproval, setToolApproval] = useState<WorkspaceToolApproval | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
@@ -168,7 +159,6 @@ export default function WorkspaceShell({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
   const pendingToolDecision = useRef<((decision: WorkspaceToolDecision) => void) | null>(null);
-  const workspaceAccessAttempts = useRef(new Set<string>());
   const streamingContentRef = useRef("");
   const messageListRef = useRef<HTMLOListElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
@@ -593,67 +583,6 @@ export default function WorkspaceShell({
     resolveDecision?.(decision);
   }
 
-  async function requestWorkspaceAccess(prompt: WorkspaceAccessPrompt) {
-    if (
-      !workspace ||
-      workspace.id !== prompt.workspaceId ||
-      activeSessionIdRef.current !== prompt.sessionId
-    )
-      return;
-    setWorkspaceAccessPrompt(prompt);
-    setError("");
-    try {
-      const result = await executeWorkspaceTool(
-        {
-          args: { path: "." },
-          requestId: crypto.randomUUID(),
-          sessionId: prompt.sessionId,
-          tool: "list_directory",
-          workspaceId: workspace.id,
-        },
-        {
-          onApproval: (approval, resolveDecision) => {
-            pendingToolDecision.current = resolveDecision;
-            setToolApproval(approval);
-          },
-        },
-      );
-      if (activeSessionIdRef.current !== prompt.sessionId) return;
-      const current = await getAppState();
-      if (
-        current.activeSessionId !== prompt.sessionId ||
-        current.activeWorkspaceId !== prompt.workspaceId
-      )
-        return;
-      const toolContent = formatWorkspaceToolResult(result, isEnglish);
-      await persistMessage(prompt.sessionId, {
-        content: toolContent,
-        role: "tool",
-        status: "complete",
-      });
-      const refreshed = await getAppState();
-      setState(refreshed);
-      if (activeSessionIdRef.current === prompt.sessionId) setMessages(refreshed.messages);
-      await generateResponse(refreshed.messages as ChatMessage[], prompt.sessionId);
-    } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "";
-      setError(
-        message === "A ação foi negada pelo usuário."
-          ? isEnglish
-            ? "Workspace access was denied."
-            : "O acesso ao workspace foi negado."
-          : message ||
-              (isEnglish
-                ? "The workspace context could not be loaded."
-                : "Não foi possível carregar o contexto do workspace."),
-      );
-    } finally {
-      setToolApproval(null);
-      pendingToolDecision.current = null;
-      setWorkspaceAccessPrompt(null);
-    }
-  }
-
   async function generateResponse(promptMessages: ChatMessage[], sessionId: string) {
     if (!activeProvider || isSending) return;
     setError("");
@@ -665,7 +594,6 @@ export default function WorkspaceShell({
     const requestModel = selectedModel;
     const requestWorkspaceId = workspace?.id ?? "default";
     const requestProfileId = state?.activeProfileId;
-    let accessPrompt: WorkspaceAccessPrompt | null = null;
     try {
       const stream = await streamMessage(
         requestProvider.id,
@@ -681,6 +609,23 @@ export default function WorkspaceShell({
           },
           onRetry: (message) => {
             if (activeSessionIdRef.current === sessionId) setStreamingStatus(message);
+          },
+          onApproval: (approval, resolveDecision) => {
+            if (activeSessionIdRef.current !== sessionId) {
+              resolveDecision("deny");
+              return;
+            }
+            pendingToolDecision.current = resolveDecision;
+            setToolApproval(approval);
+            setStreamingStatus(isEnglish ? "Waiting for permission…" : "Aguardando autorização…");
+          },
+          onToolStarted: (tool) => {
+            if (activeSessionIdRef.current === sessionId)
+              setStreamingStatus(`${isEnglish ? "Running" : "Executando"} ${tool}…`);
+          },
+          onToolCompleted: () => {
+            if (activeSessionIdRef.current === sessionId)
+              setStreamingStatus(isEnglish ? "Continuing…" : "Continuando…");
           },
         },
         requestProfileId ?? undefined,
@@ -702,26 +647,6 @@ export default function WorkspaceShell({
       setState(refreshed);
       if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
       if (result.failed && result.error) setError(result.error);
-      const lastUserMessage = [...promptMessages]
-        .reverse()
-        .find((message) => message.role === "user");
-      const accessKey = `${sessionId}:${lastUserMessage?.content ?? ""}`;
-      if (
-        workspace &&
-        !result.failed &&
-        !result.stopped &&
-        lastUserMessage &&
-        modelRequestsWorkspaceAccess(assistantContent) &&
-        !workspaceAccessAttempts.current.has(accessKey)
-      ) {
-        workspaceAccessAttempts.current.add(accessKey);
-        accessPrompt = {
-          path: workspace.rootPath,
-          prompt: lastUserMessage.content,
-          sessionId,
-          workspaceId: workspace.id,
-        };
-      }
     } catch (reason) {
       const partial = streamingContentRef.current.trim();
       if (partial) {
@@ -745,10 +670,6 @@ export default function WorkspaceShell({
       streamingContentRef.current = "";
       setStreamingStatus("");
       setIsSending(false);
-      const promptToRequest = accessPrompt;
-      if (promptToRequest) {
-        window.setTimeout(() => void requestWorkspaceAccess(promptToRequest), 0);
-      }
     }
   }
 
@@ -1284,40 +1205,24 @@ export default function WorkspaceShell({
               ))}
             </ul>
           )}
-          {workspaceAccessPrompt && (
-            <section
-              aria-live="polite"
-              className="workspace-access-request"
-              role={toolApproval ? "alertdialog" : "status"}
-            >
+          {toolApproval && (
+            <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
               <p className="eyebrow">
-                {toolApproval
-                  ? isEnglish
-                    ? "Workspace access requested"
-                    : "Acesso ao workspace solicitado"
-                  : isEnglish
-                    ? "Preparing workspace context…"
-                    : "Preparando o contexto do workspace…"}
+                {isEnglish ? "Permission requested" : "Autorização solicitada"}
               </p>
-              <p>
-                {toolApproval
-                  ? isEnglish
-                    ? "Blackwall wants to read the project folder and continue your request."
-                    : "O Blackwall quer ler a pasta do projeto e continuar sua solicitação."
-                  : isEnglish
-                    ? "Waiting for the local permission check."
-                    : "Aguardando a verificação de permissão local."}
-              </p>
-              <code>{workspaceAccessPrompt.path}</code>
-              {toolApproval && (
-                <div className="workspace-access-actions">
-                  <button
-                    className="button button-primary"
-                    onClick={() => resolveToolDecision("allow_once")}
-                    type="button"
-                  >
-                    {isEnglish ? "Allow once" : "Permitir uma vez"}
-                  </button>
+              <strong>{toolApproval.tool}</strong>
+              <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
+              <div className="workspace-access-actions">
+                <button
+                  className="button button-primary"
+                  onClick={() => resolveToolDecision("allow_once")}
+                  type="button"
+                >
+                  {isEnglish ? "Allow once" : "Permitir uma vez"}
+                </button>
+                {!["apply_patch", "create_or_update_file", "execute_command"].includes(
+                  toolApproval.tool,
+                ) && (
                   <button
                     className="button button-secondary"
                     onClick={() => resolveToolDecision("allow_session")}
@@ -1325,15 +1230,15 @@ export default function WorkspaceShell({
                   >
                     {isEnglish ? "Allow this session" : "Permitir nesta sessão"}
                   </button>
-                  <button
-                    className="text-button"
-                    onClick={() => resolveToolDecision("deny")}
-                    type="button"
-                  >
-                    {isEnglish ? "Deny" : "Negar"}
-                  </button>
-                </div>
-              )}
+                )}
+                <button
+                  className="text-button"
+                  onClick={() => resolveToolDecision("deny")}
+                  type="button"
+                >
+                  {isEnglish ? "Deny" : "Negar"}
+                </button>
+              </div>
             </section>
           )}
           <form className="composer" onSubmit={submit}>

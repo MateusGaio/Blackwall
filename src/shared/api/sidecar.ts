@@ -1,6 +1,8 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { sidecarUrl } from "../../platform/runtime";
 
+export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
+
 export type ConnectedProvider = {
   baseUrl: string;
   id: string;
@@ -99,6 +101,9 @@ export type ChatMessage = {
   content: string;
   id: string;
   role: "assistant" | "system" | "tool" | "user";
+  toolCallId?: string;
+  toolCalls?: ToolCall[];
+  toolName?: string;
 };
 
 export type WorkspaceToolName =
@@ -119,80 +124,6 @@ export type WorkspaceToolApproval = {
 };
 
 export type WorkspaceToolDecision = "allow_once" | "allow_session" | "deny";
-
-type WorkspaceToolHandlers = {
-  onApproval: (
-    approval: WorkspaceToolApproval,
-    resolve: (decision: WorkspaceToolDecision) => void,
-  ) => void;
-};
-
-export async function executeWorkspaceTool(
-  input: {
-    args: Record<string, unknown>;
-    requestId?: string;
-    sessionId?: string | null;
-    tool: WorkspaceToolName;
-    workspaceId: string;
-  },
-  handlers: WorkspaceToolHandlers,
-): Promise<unknown> {
-  const baseUrl = await sidecarUrl();
-  if (!baseUrl) throw new Error("O sidecar local não está disponível.");
-  const socket = new WebSocket(baseUrl.replace(/^http/, "ws"));
-  const requestId = input.requestId ?? crypto.randomUUID();
-
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (callback: () => void) => {
-      if (settled) return;
-      settled = true;
-      callback();
-      socket.close();
-    };
-    const sendDecision = (decision: WorkspaceToolDecision) => {
-      if (settled || socket.readyState !== WebSocket.OPEN) return;
-      socket.send(JSON.stringify({ decision, requestId, type: "approval.resolve" }));
-    };
-
-    socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({ ...input, requestId, type: "tool.execute" }));
-    });
-    socket.addEventListener("message", (event) => {
-      const message = JSON.parse(String(event.data)) as {
-        args?: Record<string, unknown>;
-        error?: string;
-        message?: string;
-        requestId?: string;
-        result?: unknown;
-        type?: string;
-      };
-      if (message.requestId !== requestId) return;
-      if (message.type === "approval.requested") {
-        handlers.onApproval(
-          {
-            args: message.args ?? input.args,
-            id: String((message as { id?: string }).id ?? crypto.randomUUID()),
-            requestId,
-            sessionId: input.sessionId ?? null,
-            tool: input.tool,
-            workspaceId: input.workspaceId,
-          },
-          sendDecision,
-        );
-      }
-      if (message.type === "tool.completed") {
-        finish(() => resolve(message.result));
-      }
-      if (message.type === "tool.failed") {
-        finish(() => reject(new Error(message.message ?? message.error ?? "A ferramenta falhou.")));
-      }
-    });
-    socket.addEventListener("error", () => {
-      finish(() => reject(new Error("A conexão local foi interrompida.")));
-    });
-  });
-}
 
 export type Attachment = {
   byteSize: number;
@@ -264,6 +195,7 @@ export type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
+  toolMode?: "auto" | "compatibility" | "disabled";
 };
 
 export async function discoverProviderModels(
@@ -283,6 +215,21 @@ export async function listStoredProviderModels(providerId: string): Promise<Prov
     { method: "GET" },
   );
   return response.models;
+}
+
+export async function setProviderModelToolMode(
+  providerId: string,
+  modelId: string,
+  toolMode: ProviderModel["toolMode"],
+): Promise<void> {
+  await request(
+    `/v1/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/tool-mode`,
+    {
+      body: JSON.stringify({ toolMode: toolMode ?? "auto" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
 }
 
 export async function setSessionModel(
@@ -440,6 +387,9 @@ export async function persistMessage(
     providerId?: string | null;
     role: StoredMessage["role"];
     status?: string;
+    toolCallId?: string | null;
+    toolCalls?: ToolCall[] | null;
+    toolName?: string | null;
   },
 ): Promise<StoredMessage> {
   const response = await request<{ message: StoredMessage }>(`/v1/sessions/${sessionId}/messages`, {
@@ -529,17 +479,24 @@ export async function removeAttachment(attachmentId: string): Promise<void> {
   await request(`/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
 }
 
-type StreamResult = {
+export type StreamResult = {
   content: string;
   error?: string;
   failed?: boolean;
   persisted?: boolean;
   provider: ConnectedProvider | null;
   stopped?: boolean;
+  toolCalls?: ToolCall[];
 };
 
-type StreamHandlers = {
+export type StreamHandlers = {
   onDelta: (delta: string) => void;
+  onApproval?: (
+    approval: WorkspaceToolApproval,
+    resolve: (decision: WorkspaceToolDecision) => void,
+  ) => void;
+  onToolCompleted?: (result: unknown, callId?: string) => void;
+  onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
   onRetry?: (message: string) => void;
 };
 
@@ -593,19 +550,57 @@ export async function streamMessage(
       message?: string;
       provider?: ConnectedProvider;
       persisted?: boolean;
+      requestId?: string;
+      args?: Record<string, unknown>;
+      callId?: string;
+      id?: string;
+      result?: unknown;
+      sessionId?: string;
+      tool?: WorkspaceToolName;
       type?: string;
     };
+    // A socket normally carries one request, but keeping the guard here makes
+    // multiplexed/late events harmless when the user changes sessions.
+    if (message.requestId && message.requestId !== requestId) return;
     if (message.type === "chat.delta" && message.delta) {
       content += message.delta;
       handlers.onDelta(message.delta);
     }
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? "Tentando novamente…");
+    if (message.type === "tool.started" && message.tool)
+      handlers.onToolStarted?.(message.tool, message.args ?? {}, message.callId);
+    if (message.type === "approval.requested" && message.tool && handlers.onApproval) {
+      handlers.onApproval(
+        {
+          args: message.args ?? {},
+          id: message.id ?? crypto.randomUUID(),
+          requestId: message.requestId ?? requestId,
+          sessionId: message.sessionId ?? sessionId ?? null,
+          tool: message.tool,
+          workspaceId,
+        },
+        (decision) => {
+          if (socket.readyState === WebSocket.OPEN)
+            socket.send(
+              JSON.stringify({
+                decision,
+                requestId: message.requestId ?? requestId,
+                type: "approval.resolve",
+              }),
+            );
+        },
+      );
+    }
+    if (message.type === "tool.completed") {
+      handlers.onToolCompleted?.(message.result, message.callId);
+    }
     if (message.type === "chat.completed") {
       resolveDone({
         content: message.content ?? content,
         persisted: message.persisted,
         provider: message.provider ?? null,
+        toolCalls: [],
       });
       socket.close();
     }

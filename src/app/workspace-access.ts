@@ -1,12 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-export type WorkspaceAccessPrompt = {
-  path: string;
-  prompt: string;
-  sessionId: string;
-  workspaceId: string;
-};
-
 export function modelRequestsWorkspaceAccess(content: string) {
   const lower = content.toLocaleLowerCase();
   const asksForAccess =

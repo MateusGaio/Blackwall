@@ -10,6 +10,18 @@ const maxReadBytes = 1_000_000;
 const maxCommandOutput = 64_000;
 const commandTimeoutMs = 15_000;
 
+const commandEnvironmentKeys = [
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "USER",
+];
+
 export type ToolName =
   | "apply_patch"
   | "create_or_update_file"
@@ -163,7 +175,7 @@ export async function resolveApproval(
     .where(eq(approvals.id, approval.id))
     .run();
   database.close();
-  if (decision === "allow_session") {
+  if (decision === "allow_session" && !isDestructive(approval.tool as ToolName)) {
     sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
   }
   const pending = pendingApprovals.get(requestId);
@@ -173,6 +185,28 @@ export async function resolveApproval(
     pending.resolve(decision);
   }
   return { requestId, decision };
+}
+
+/**
+ * Closing a browser window or switching away from a chat must not leave an
+ * approval promise alive. Pending requests are explicitly denied and marked
+ * as such in SQLite so a later reconnect cannot resume an old action.
+ */
+export function cancelPendingApprovals(requestId: string, storageDirectory = dataDirectory()) {
+  const database = openDatabase(storageDirectory);
+  database.client
+    .prepare(
+      "UPDATE approvals SET resolved_at = ?, status = 'denied' WHERE status = 'pending' AND (request_id = ? OR request_id LIKE ?)",
+    )
+    .run(Date.now(), requestId, `${requestId}:%`);
+  database.close();
+
+  for (const [pendingRequestId, pending] of pendingApprovals) {
+    if (pendingRequestId !== requestId && !pendingRequestId.startsWith(`${requestId}:`)) continue;
+    clearTimeout(pending.timer);
+    pendingApprovals.delete(pendingRequestId);
+    pending.resolve("deny");
+  }
 }
 
 export async function executeTool(
@@ -277,9 +311,14 @@ export async function executeTool(
       if (!command) throw new Error("Informe um comando estruturado.");
       const cwd = await safePath(root, String(input.args.cwd ?? "."));
       const { spawn } = await import("node:child_process");
+      const env = Object.fromEntries(
+        commandEnvironmentKeys.flatMap((key) =>
+          process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
+        ),
+      );
       return new Promise<{ code: number | null; stderr: string; stdout: string }>(
         (resolveCommand, reject) => {
-          const child = spawn(command, args, { cwd, shell: false });
+          const child = spawn(command, args, { cwd, env, shell: false });
           let stdout = "";
           let stderr = "";
           const timer = setTimeout(() => {

@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "./db/database.js";
 import { createStore } from "./db/store.js";
-import { type ApprovalRequest, executeTool, resolveApproval } from "./tools.js";
+import {
+  type ApprovalRequest,
+  cancelPendingApprovals,
+  executeTool,
+  resolveApproval,
+} from "./tools.js";
 
 const directories: string[] = [];
 
@@ -93,5 +98,55 @@ describe("ferramentas locais e permissões", () => {
         directory,
       ),
     ).rejects.toThrow("fora da pasta");
+  });
+
+  it("sanitiza o ambiente dos comandos e nega aprovações canceladas", async () => {
+    const { directory, state } = await fixture("ask");
+    const previousSecret = process.env.BLACKWALL_TEST_SECRET;
+    process.env.BLACKWALL_TEST_SECRET = "must-not-cross-the-boundary";
+    try {
+      let approval: ApprovalRequest | undefined;
+      const execution = executeTool(
+        {
+          args: {
+            args: ["-e", "console.log(process.env.BLACKWALL_TEST_SECRET ?? '')"],
+            command: process.execPath,
+          },
+          requestId: "request-sanitized",
+          sessionId: state.activeSessionId,
+          tool: "execute_command",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        { onApproval: (request) => (approval = request) },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(approval?.requestId).toBe("request-sanitized");
+      cancelPendingApprovals("request-sanitized", directory);
+      await expect(execution).rejects.toThrow("negada");
+
+      const allowedExecution = executeTool(
+        {
+          args: {
+            args: ["-e", "console.log(process.env.BLACKWALL_TEST_SECRET ?? '')"],
+            command: process.execPath,
+          },
+          requestId: "request-sanitized-allowed",
+          sessionId: state.activeSessionId,
+          tool: "execute_command",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        { onApproval: () => undefined },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await resolveApproval("request-sanitized-allowed", "allow_once", directory);
+      const result = await allowedExecution;
+      expect(result.code).toBe(0);
+      expect(result.stdout).not.toContain("must-not-cross-the-boundary");
+    } finally {
+      if (previousSecret === undefined) delete process.env.BLACKWALL_TEST_SECRET;
+      else process.env.BLACKWALL_TEST_SECRET = previousSecret;
+    }
   });
 });

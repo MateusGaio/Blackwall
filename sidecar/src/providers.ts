@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { and, eq } from "drizzle-orm";
 import { openDatabase } from "./db/database.js";
+import { models } from "./db/schema.js";
 import { withAsyncInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret, removeSecret } from "./secrets.js";
+import type { ToolDefinition, ToolMode } from "./tool-contract.js";
 
 export type ProviderInput = {
   apiKey?: string;
@@ -22,10 +25,11 @@ export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
   type: ProviderKind;
 };
 
-type ProviderModel = {
+export type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
+  toolMode?: ToolMode;
 };
 
 /**
@@ -33,7 +37,7 @@ type ProviderModel = {
  * Keeping transport details here prevents the router from making assumptions
  * about OpenAI-compatible and Ollama endpoints.
  */
-interface ProviderAdapter {
+export interface ProviderAdapter {
   readonly kind: ProviderKind;
   validate(request?: FetchLike): Promise<void>;
   listModels(request?: FetchLike): Promise<ProviderModel[]>;
@@ -41,6 +45,7 @@ interface ProviderAdapter {
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
+    options?: { toolMode?: ToolMode; tools?: ToolDefinition[] },
   ): RequestInit & {
     endpoint: string;
   };
@@ -138,6 +143,7 @@ abstract class BaseProviderAdapter implements ProviderAdapter {
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
+    options?: { toolMode?: ToolMode; tools?: ToolDefinition[] },
   ): RequestInit & {
     endpoint: string;
   };
@@ -169,10 +175,20 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
       .filter((model) => model.id);
   }
 
-  chatRequest(model: string, messages: unknown[], signal?: AbortSignal) {
+  chatRequest(
+    model: string,
+    messages: unknown[],
+    signal?: AbortSignal,
+    options: { toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+  ) {
+    const body: Record<string, unknown> = { messages, model, stream: true };
+    if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
+      body.tool_choice = "auto";
+      body.tools = options.tools;
+    }
     return {
       endpoint: this.endpoint("/chat/completions"),
-      body: JSON.stringify({ messages, model, stream: true }),
+      body: JSON.stringify(body),
       headers: { ...this.headers(), "content-type": "application/json" },
       method: "POST" as const,
       signal,
@@ -216,10 +232,18 @@ class OllamaProvider extends BaseProviderAdapter {
       .filter((model) => model.id);
   }
 
-  chatRequest(model: string, messages: unknown[], signal?: AbortSignal) {
+  chatRequest(
+    model: string,
+    messages: unknown[],
+    signal?: AbortSignal,
+    options: { toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+  ) {
+    const body: Record<string, unknown> = { messages, model, stream: true };
+    if ((options.toolMode ?? "auto") === "auto" && options.tools?.length)
+      body.tools = options.tools;
     return {
       endpoint: this.endpoint("/api/chat"),
-      body: JSON.stringify({ messages, model, stream: true }),
+      body: JSON.stringify(body),
       headers: { ...this.headers(), "content-type": "application/json" },
       method: "POST" as const,
       signal,
@@ -396,7 +420,7 @@ export async function syncProviderModels(
   const database = openDatabase(dataDirectory);
   const timestamp = Date.now();
   const upsert = database.client.prepare(
-    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, updated_at = excluded.updated_at",
+    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, tool_mode, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, updated_at = excluded.updated_at",
   );
   const save = database.client.transaction(() => {
     database.client
@@ -449,7 +473,7 @@ export async function listStoredProviderModels(
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
   const provider = await getProvider(id, dataDirectory);
-  return listProviderModels(
+  const listed = await listProviderModels(
     {
       apiKey: await providerApiKey(id, dataDirectory),
       baseUrl: provider.baseUrl,
@@ -459,4 +483,30 @@ export async function listStoredProviderModels(
     },
     request,
   );
+  const database = openDatabase(dataDirectory);
+  const stored = database.db.select().from(models).where(eq(models.providerId, id)).all();
+  database.close();
+  return listed.map((model) => ({
+    ...model,
+    toolMode: stored.find((row) => row.modelId === model.id)?.toolMode as ToolMode | undefined,
+  }));
+}
+
+export function setModelToolMode(
+  providerId: string,
+  modelId: string,
+  toolMode: ToolMode,
+  dataDirectory = providerDataDirectory(),
+) {
+  if (toolMode !== "auto" && toolMode !== "compatibility" && toolMode !== "disabled")
+    throw new Error("Modo de ferramentas inválido.");
+  const database = openDatabase(dataDirectory);
+  const result = database.db
+    .update(models)
+    .set({ toolMode, updatedAt: Date.now() })
+    .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+    .run();
+  database.close();
+  if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
+  return { providerId, modelId, toolMode };
 }

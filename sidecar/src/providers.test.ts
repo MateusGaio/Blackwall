@@ -243,6 +243,38 @@ describe("providers", () => {
     expect(new ProviderHttpError(429).retryable).toBe(true);
   });
 
+  it("envia o contrato de ferramentas apenas quando o modelo permite", () => {
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.example.com/v1",
+      model: "model",
+      name: "Example",
+    });
+    const tools = [
+      {
+        function: {
+          description: "Read a file",
+          name: "read_file" as const,
+          parameters: { type: "object" },
+          strict: true as const,
+        },
+        type: "function" as const,
+      },
+    ];
+    const native = adapter.chatRequest("model", [], undefined, { toolMode: "auto", tools });
+    expect(JSON.parse(String(native.body))).toMatchObject({ tool_choice: "auto", tools });
+    const disabled = adapter.chatRequest("model", [], undefined, {
+      toolMode: "disabled",
+      tools,
+    });
+    expect(JSON.parse(String(disabled.body))).not.toHaveProperty("tools");
+    const compatibility = adapter.chatRequest("model", [], undefined, {
+      toolMode: "compatibility",
+      tools,
+    });
+    expect(JSON.parse(String(compatibility.body))).not.toHaveProperty("tools");
+  });
+
   it("sincroniza modelos no SQLite e preserva a ordem configurada da rota", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-models-"));
     directories.push(directory);

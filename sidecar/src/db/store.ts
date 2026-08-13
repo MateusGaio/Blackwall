@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import type { ToolCall } from "../tool-contract.js";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
 import {
   appSettings,
@@ -18,7 +19,8 @@ export type PermissionMode = "ask" | "automatic" | "read-only";
 type Profile = typeof profiles.$inferSelect;
 type Workspace = typeof workspaces.$inferSelect;
 type Session = typeof sessions.$inferSelect;
-type StoredMessage = typeof messages.$inferSelect;
+type StoredMessageRow = typeof messages.$inferSelect;
+export type StoredMessage = Omit<StoredMessageRow, "toolCalls"> & { toolCalls: ToolCall[] };
 type SessionSummary = Session & { workspaceName: string | null };
 
 export type BootstrapInput = {
@@ -82,6 +84,19 @@ function saveSetting(store: DatabaseHandle, key: string, value: string) {
     .values({ key, updatedAt: now(), value })
     .onConflictDoUpdate({ target: appSettings.key, set: { updatedAt: now(), value } })
     .run();
+}
+
+function deserializeMessage(row: StoredMessageRow): StoredMessage {
+  let toolCalls: ToolCall[] = [];
+  if (row.toolCalls) {
+    try {
+      const value = JSON.parse(row.toolCalls) as unknown;
+      if (Array.isArray(value)) toolCalls = value as ToolCall[];
+    } catch {
+      toolCalls = [];
+    }
+  }
+  return { ...row, toolCalls };
 }
 
 async function workspaceRoot(rootPath: string): Promise<string> {
@@ -310,7 +325,8 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .from(messages)
       .where(eq(messages.sessionId, sessionId))
       .orderBy(asc(messages.sequence))
-      .all();
+      .all()
+      .map(deserializeMessage);
   }
 
   function setSessionModel(sessionId: string, model: string, providerId?: string | null) {
@@ -391,6 +407,9 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     role: "assistant" | "system" | "tool" | "user";
     sessionId: string;
     status?: string;
+    toolCallId?: string | null;
+    toolCalls?: ToolCall[] | null;
+    toolName?: string | null;
   }) {
     const session = database.db
       .select()
@@ -405,7 +424,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .orderBy(desc(messages.sequence))
       .get();
     const timestamp = now();
-    const message: StoredMessage = {
+    const messageRow: StoredMessageRow = {
       content: input.content,
       createdAt: timestamp,
       id: randomUUID(),
@@ -415,9 +434,12 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       sequence: (lastMessage?.sequence ?? 0) + 1,
       sessionId: input.sessionId,
       status: input.status ?? "complete",
+      toolCalls: input.toolCalls?.length ? JSON.stringify(input.toolCalls) : null,
+      toolCallId: input.toolCallId ?? null,
+      toolName: input.toolName ?? null,
       updatedAt: timestamp,
     };
-    database.db.insert(messages).values(message).run();
+    database.db.insert(messages).values(messageRow).run();
     if (input.role === "user" && session.title === "Nova conversa") {
       const generatedTitle = input.content.trim().replace(/\s+/g, " ").slice(0, 56);
       if (generatedTitle) {
@@ -433,7 +455,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .set({ updatedAt: timestamp })
       .where(eq(sessions.id, session.id))
       .run();
-    return message;
+    return deserializeMessage(messageRow);
   }
 
   function editUserMessage(sessionId: string, messageId: string, content: string) {

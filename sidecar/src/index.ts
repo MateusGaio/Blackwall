@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import {
   type AttachmentInput,
@@ -14,7 +14,7 @@ import {
 } from "./attachments.js";
 import { type ChatMessage, sendChatMessage } from "./chat.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
-import { profiles, routerEntries, workspaces } from "./db/schema.js";
+import { models, profiles, routerEntries, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
@@ -28,11 +28,24 @@ import {
   resolveProviderModelInput,
   routeCandidates,
   saveProvider,
+  setModelToolMode,
   syncProviderModels,
   validateProvider,
 } from "./providers.js";
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
-import { type ApprovalDecision, executeTool, resolveApproval, type ToolInput } from "./tools.js";
+import {
+  isToolName,
+  parseToolArguments,
+  type ToolMode,
+  workspaceToolDefinitions,
+} from "./tool-contract.js";
+import {
+  type ApprovalDecision,
+  cancelPendingApprovals,
+  executeTool,
+  resolveApproval,
+  type ToolInput,
+} from "./tools.js";
 import { scanVault } from "./vault.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
@@ -80,6 +93,29 @@ function requestBody(request: import("node:http").IncomingMessage): Promise<unkn
     });
     request.on("error", reject);
   });
+}
+
+function providerMessage(message: ChatMessage): ChatMessage {
+  if (message.toolCalls?.length) {
+    return {
+      content: message.content,
+      role: "assistant",
+      tool_calls: message.toolCalls.map((call) => ({
+        function: { arguments: call.arguments, name: call.name },
+        id: call.id,
+        type: "function" as const,
+      })),
+    };
+  }
+  if (message.role === "tool" && message.toolCallId) {
+    return {
+      content: message.content,
+      name: message.name,
+      role: "tool",
+      tool_call_id: message.toolCallId,
+    };
+  }
+  return { content: message.content, role: message.role };
 }
 
 export function createSidecar(
@@ -282,6 +318,9 @@ export function createSidecar(
           providerId?: string | null;
           role: "assistant" | "system" | "tool" | "user";
           status?: string;
+          toolCallId?: string | null;
+          toolCalls?: import("./tool-contract.js").ToolCall[] | null;
+          toolName?: string | null;
         };
         writeJson(response, 201, {
           message: store.appendMessage({ ...input, sessionId: pathname.split("/")[3] }),
@@ -312,7 +351,10 @@ export function createSidecar(
           (await requestBody(request)) as ProviderInput,
           storageDirectory,
         );
-        writeJson(response, 200, { models: await listProviderModels(input) });
+        const listed = input.id
+          ? await syncProviderModels(input.id, input, storageDirectory)
+          : await listProviderModels(input);
+        writeJson(response, 200, { models: listed });
         return;
       }
       if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
@@ -334,6 +376,22 @@ export function createSidecar(
               name: provider.name,
               type: provider.type,
             },
+            storageDirectory,
+          ),
+        });
+        return;
+      }
+      if (
+        request.method === "PATCH" &&
+        /^\/v1\/providers\/[^/]+\/models\/[^/]+\/tool-mode$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const input = (await requestBody(request)) as { toolMode: ToolMode };
+        writeJson(response, 200, {
+          model: setModelToolMode(
+            parts[3],
+            decodeURIComponent(parts[5]),
+            input.toolMode,
             storageDirectory,
           ),
         });
@@ -404,7 +462,10 @@ export function createSidecar(
   server.once("close", () => database.close());
 
   const socketServer = new WebSocketServer({ server });
-  const activeRequests = new Map<string, AbortController>();
+  const activeRequests = new Map<
+    string,
+    { controller: AbortController; socket: import("ws").WebSocket }
+  >();
   const queues = new Map<string, Promise<void>>();
 
   async function executeChat(
@@ -420,7 +481,7 @@ export function createSidecar(
     },
   ) {
     const controller = new AbortController();
-    activeRequests.set(input.requestId, controller);
+    activeRequests.set(input.requestId, { controller, socket });
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
       : null;
@@ -451,22 +512,26 @@ export function createSidecar(
     const storedMessages = input.sessionId
       ? store.listMessages(input.sessionId).map((message) => ({
           content: message.content,
+          name: message.toolName ?? undefined,
           role: message.role as ChatMessage["role"],
+          toolCallId: message.toolCallId ?? undefined,
+          toolCalls: message.toolCalls,
         }))
       : input.messages;
-    const toolContextMessages = storedMessages
-      .filter((message) => message.role === "tool")
-      .map((message) => ({
-        content: `Blackwall local workspace context:\n${message.content}`,
-        role: "system" as const,
-      }));
+    const toolInstruction: ChatMessage | null = input.workspaceId
+      ? {
+          content:
+            "Blackwall possui ferramentas locais seguras. Quando precisar conhecer ou alterar arquivos, solicite a ferramenta apropriada; não diga que não possui acesso ao filesystem. Respeite as autorizações do usuário e nunca invente resultados.",
+          role: "system",
+        }
+      : null;
     const promptMessages = [
       ...systemMessages,
-      ...toolContextMessages,
+      ...(toolInstruction ? [toolInstruction] : []),
       ...(input.sessionId
         ? input.messages.filter((message) => message.role === "system")
         : storedMessages.filter((message) => message.role === "system")),
-      ...storedMessages.filter((message) => message.role !== "system" && message.role !== "tool"),
+      ...storedMessages.filter((message) => message.role !== "system"),
     ];
     const persistStream = (
       content: string,
@@ -496,36 +561,189 @@ export function createSidecar(
           }),
         );
         let content = "";
+        let transcript: ChatMessage[] = promptMessages.map(providerMessage);
+        let toolCount = 0;
         try {
-          const result = await streamChatMessage(
-            candidate.providerId,
-            promptMessages,
-            candidate.model,
-            (delta) => {
-              content += delta;
+          const modelRecord = database.db
+            .select({ toolMode: models.toolMode })
+            .from(models)
+            .where(
+              and(
+                eq(models.providerId, candidate.providerId),
+                eq(models.modelId, candidate.model ?? ""),
+              ),
+            )
+            .get();
+          const toolMode = (modelRecord?.toolMode as ToolMode | undefined) ?? "auto";
+          if (toolMode === "compatibility") {
+            transcript = [
+              {
+                content:
+                  'Para solicitar uma ferramenta, responda exclusivamente com JSON no formato {"tool":"nome","args":{...}}. Não inclua Markdown, explicações ou comandos fora desse envelope.',
+                role: "system",
+              },
+              ...transcript,
+            ];
+          }
+          while (true) {
+            const result = await streamChatMessage(
+              candidate.providerId,
+              transcript,
+              candidate.model,
+              (delta) => {
+                content += delta;
+                socket.send(
+                  JSON.stringify({
+                    delta,
+                    requestId: input.requestId,
+                    sessionId: input.sessionId,
+                    type: "chat.delta",
+                  }),
+                );
+              },
+              controller.signal,
+              fetch,
+              storageDirectory,
+              {
+                toolMode,
+                tools: input.workspaceId ? workspaceToolDefinitions : [],
+              },
+            );
+            if (result.toolCalls.length && !input.workspaceId)
+              throw new Error("Selecione um workspace antes de usar ferramentas locais.");
+            if (result.toolCalls.length && toolMode === "disabled")
+              throw new Error("As ferramentas estão desativadas para este modelo.");
+            if (!result.toolCalls.length) {
+              if (result.content && !content) {
+                content = result.content;
+                socket.send(
+                  JSON.stringify({
+                    delta: result.content,
+                    requestId: input.requestId,
+                    sessionId: input.sessionId,
+                    type: "chat.delta",
+                  }),
+                );
+              }
+              persistStream(content, result.provider.id, candidate.model, "complete");
               socket.send(
                 JSON.stringify({
-                  delta,
+                  content,
+                  persisted: Boolean(input.sessionId),
+                  provider: result.provider,
                   requestId: input.requestId,
-                  type: "chat.delta",
+                  sessionId: input.sessionId,
+                  type: "chat.completed",
                 }),
               );
-            },
-            controller.signal,
-            fetch,
-            storageDirectory,
-          );
-          persistStream(content, result.provider.id, candidate.model, "complete");
-          socket.send(
-            JSON.stringify({
-              content,
-              persisted: Boolean(input.sessionId),
-              provider: result.provider,
-              requestId: input.requestId,
-              type: "chat.completed",
-            }),
-          );
-          return;
+              return;
+            }
+            for (const call of result.toolCalls) {
+              if (controller.signal.aborted) return;
+              const activeWorkspaceId = input.workspaceId;
+              if (!activeWorkspaceId)
+                throw new Error("Selecione um workspace antes de usar ferramentas locais.");
+              toolCount += 1;
+              if (toolCount > 8)
+                throw new Error("O limite de oito ferramentas por turno foi atingido.");
+              if (!isToolName(call.name))
+                throw new Error(`A ferramenta ${call.name} não é permitida.`);
+              const args = parseToolArguments(call.name, call.arguments);
+              socket.send(
+                JSON.stringify({
+                  args,
+                  callId: call.id,
+                  requestId: input.requestId,
+                  sessionId: input.sessionId,
+                  tool: call.name,
+                  type: "tool.started",
+                }),
+              );
+              let toolResult: unknown;
+              let toolError = false;
+              const toolRequestId = `${input.requestId}:${call.id}`;
+              try {
+                toolResult = await executeTool(
+                  {
+                    args,
+                    requestId: toolRequestId,
+                    sessionId: input.sessionId,
+                    tool: call.name,
+                    workspaceId: activeWorkspaceId,
+                  },
+                  storageDirectory,
+                  {
+                    onApproval: (approval) =>
+                      socket.send(
+                        JSON.stringify({
+                          ...approval,
+                          args,
+                          callId: call.id,
+                          requestId: toolRequestId,
+                          sessionId: input.sessionId,
+                          type: "approval.requested",
+                        }),
+                      ),
+                  },
+                );
+              } catch (error) {
+                toolError = true;
+                toolResult = {
+                  error: error instanceof Error ? error.message : "A ferramenta falhou.",
+                };
+              }
+              if (input.sessionId) {
+                store.appendMessage({
+                  content: "",
+                  model: candidate.model,
+                  providerId: candidate.providerId,
+                  role: "assistant",
+                  sessionId: input.sessionId,
+                  status: "complete",
+                  toolCalls: [call],
+                });
+                store.appendMessage({
+                  content: JSON.stringify(toolResult),
+                  model: candidate.model,
+                  providerId: candidate.providerId,
+                  role: "tool",
+                  sessionId: input.sessionId,
+                  status: toolError ? "failed" : "complete",
+                  toolCallId: call.id,
+                  toolName: call.name,
+                });
+              }
+              socket.send(
+                JSON.stringify({
+                  callId: call.id,
+                  requestId: input.requestId,
+                  result: toolResult,
+                  sessionId: input.sessionId,
+                  type: toolError ? "tool.failed" : "tool.completed",
+                }),
+              );
+              transcript = [
+                ...transcript,
+                {
+                  content: "",
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      function: { arguments: call.arguments, name: call.name },
+                      id: call.id,
+                      type: "function",
+                    },
+                  ],
+                },
+                {
+                  content: JSON.stringify(toolResult),
+                  name: call.name,
+                  role: "tool",
+                  tool_call_id: call.id,
+                },
+              ];
+            }
+          }
         } catch (error) {
           if (controller.signal.aborted) {
             persistStream(content, candidate.providerId, candidate.model, "stopped");
@@ -567,7 +785,8 @@ export function createSidecar(
         }
       }
     } finally {
-      activeRequests.delete(input.requestId);
+      const active = activeRequests.get(input.requestId);
+      if (active?.controller === controller) activeRequests.delete(input.requestId);
     }
   }
 
@@ -607,8 +826,10 @@ export function createSidecar(
       }
       if (input.type === "chat.stop" && input.requestId) {
         const active = activeRequests.get(input.requestId);
-        if (active) active.abort();
-        else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
+        if (active) {
+          active.controller.abort();
+          cancelPendingApprovals(input.requestId, storageDirectory);
+        } else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
         return;
       }
       if (input.type === "chat.start" && input.requestId && typeof input.providerId === "string") {
@@ -669,7 +890,11 @@ export function createSidecar(
       }
     });
     socket.on("close", () => {
-      for (const controller of activeRequests.values()) controller.abort();
+      for (const [requestId, active] of activeRequests) {
+        if (active.socket !== socket) continue;
+        active.controller.abort();
+        cancelPendingApprovals(requestId, storageDirectory);
+      }
     });
   });
 
