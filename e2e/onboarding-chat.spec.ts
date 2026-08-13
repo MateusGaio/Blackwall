@@ -40,6 +40,15 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
       page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }),
     ).toBeVisible({ timeout: 5_000 });
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
+    const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
+    await expect(vaultToggle).toBeVisible();
+    await vaultToggle.click();
+    await page.getByRole("tab", { name: "Grafo", exact: true }).click();
+    const graphCanvas = page.locator(".vault-graph-canvas");
+    await expect(graphCanvas).toBeVisible();
+    const graphHeight = await graphCanvas.evaluate((element) => element.getBoundingClientRect().height);
+    const slotHeight = await page.locator(".vault-slot").evaluate((element) => element.getBoundingClientRect().height);
+    expect(graphHeight).toBeGreaterThan(slotHeight * 0.55);
   }
   const composer = page.getByLabel("Mensagem");
   await composer.fill("Olá Blackwall");

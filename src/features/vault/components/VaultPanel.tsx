@@ -564,12 +564,12 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
           <p className="vault-empty">Nenhum arquivo Markdown foi encontrado nesta pasta.</p>
         ))}
       {graph && tab === "graph" && (
-        <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
-      )}
-      {graph && tab === "graph" && (
-        <p className="vault-count">
-          {graph.files.length} arquivos · {graph.edges.length} links
-        </p>
+        <div className="vault-graph-frame">
+          <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
+          <p className="vault-count">
+            {graph.files.length} arquivos · {graph.edges.length} links
+          </p>
+        </div>
       )}
     </aside>
   );

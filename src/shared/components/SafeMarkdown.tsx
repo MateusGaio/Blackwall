@@ -57,6 +57,21 @@ export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: 
                 </button>
               );
             }
+            const isRelativeLink =
+              Boolean(onLocalLink) &&
+              Boolean(href) &&
+              !href.startsWith("#") &&
+              !href.startsWith("/") &&
+              !href.startsWith("\\") &&
+              !href.startsWith("//") &&
+              !/^[a-z][a-z\d+.-]*:/i.test(href);
+            if (isRelativeLink) {
+              return (
+                <span className="markdown-broken-link" title="Nota não encontrada no Vault">
+                  {children}
+                </span>
+              );
+            }
             return (
               <a href={href} rel="noreferrer noopener" target="_blank">
                 {children}
