@@ -312,6 +312,90 @@ button:disabled {
   font-size: 0.7rem;
 }
 
+.soul-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.soul-picker-label {
+  color: #a5a5aa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.soul-preset-list {
+  border: 0;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.soul-preset-option {
+  background: #111113;
+  border: 1px solid #303034;
+  border-radius: var(--radius-surface);
+  color: #a5a5aa;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  text-align: left;
+  transition:
+    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.soul-preset-option:hover,
+.soul-preset-option:focus-visible,
+.soul-preset-option.is-selected {
+  border-color: #a6a6ab;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.soul-preset-option.is-selected {
+  background: #1b1b1e;
+}
+
+.soul-preset-option strong {
+  font-size: 0.82rem;
+  font-weight: 550;
+}
+
+.soul-preset-option small {
+  color: #77777c;
+  font-size: 0.67rem;
+  line-height: 1.4;
+}
+
+.soul-preset-option.is-selected small,
+.soul-preset-option:hover small,
+.soul-preset-option:focus-visible small {
+  color: #a5a5aa;
+}
+
+.soul-picker-editor {
+  background: #111113;
+  border: 1px solid #303034;
+  border-radius: var(--radius-surface);
+  color: #f2f2f3;
+  font: inherit;
+  line-height: 1.5;
+  min-height: 132px;
+  outline: none;
+  padding: 14px 15px;
+  resize: vertical;
+  transition: border-color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.soul-picker-editor:focus {
+  border-color: #a6a6ab;
+}
+
 .field-label {
   color: #a5a5aa;
   display: grid;
@@ -2558,6 +2642,9 @@ button:disabled {
     padding: 34px 20px;
   }
   .provider-type-picker {
+    grid-template-columns: 1fr;
+  }
+  .soul-preset-list {
     grid-template-columns: 1fr;
   }
   .workspace-shell {

@@ -13,12 +13,14 @@ import {
   selectProfile,
   signOutProfile,
 } from "../shared/api/sidecar";
+import { SoulPicker } from "../shared/components/SoulPicker";
 import {
   clampOnboardingStep,
   detectInitialLocale,
   type OnboardingStep,
   onboardingSteps,
 } from "./onboarding";
+import { DEFAULT_SOUL_PROMPT } from "./souls";
 
 const WorkspaceShell = lazy(async () => import("./WorkspaceShell"));
 const ProviderSetup = lazy(async () => {
@@ -342,36 +344,32 @@ function OnboardingPanel({
             </div>
           )}
           {step.id === "soul" && (
-            <label className="field-label" htmlFor="soul-prompt">
-              {isEnglish ? "Profile Soul" : "Soul do perfil"}
-              <textarea
-                id="soul-prompt"
-                onChange={(event) => onSoulChange(event.target.value)}
-                rows={5}
-                value={soul}
-              />
-              <span className="field-hint">
-                {isEnglish
-                  ? "This Soul guides your profile in every workspace."
-                  : "Esta Soul orienta seu perfil em todos os workspaces."}
-              </span>
-            </label>
+            <SoulPicker
+              hint={
+                isEnglish
+                  ? "This Soul guides your profile in every workspace. You can edit any preset."
+                  : "Esta Soul orienta seu perfil em todos os workspaces. Você pode editar qualquer preset."
+              }
+              id="soul-prompt"
+              label={isEnglish ? "Profile Soul" : "Soul do perfil"}
+              locale={locale}
+              onChange={onSoulChange}
+              value={soul}
+            />
           )}
           {step.id === "workspace-soul" && (
-            <label className="field-label" htmlFor="workspace-soul-prompt">
-              {isEnglish ? "Workspace Soul" : "Soul do workspace"}
-              <textarea
-                id="workspace-soul-prompt"
-                onChange={(event) => onWorkspaceSoulChange(event.target.value)}
-                rows={5}
-                value={workspaceSoul}
-              />
-              <span className="field-hint">
-                {isEnglish
+            <SoulPicker
+              hint={
+                isEnglish
                   ? "This Soul is combined with your profile Soul in every session."
-                  : "Esta Soul é combinada com a Soul do seu perfil em todas as sessões."}
-              </span>
-            </label>
+                  : "Esta Soul é combinada com a Soul do seu perfil em todas as sessões."
+              }
+              id="workspace-soul-prompt"
+              label={isEnglish ? "Workspace Soul" : "Soul do workspace"}
+              locale={locale}
+              onChange={onWorkspaceSoulChange}
+              value={workspaceSoul}
+            />
           )}
           {step.id === "provider" && (
             <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
@@ -454,13 +452,7 @@ export function App() {
     detectInitialLocale(navigator.language),
   );
   const [profileName, setProfileName] = useState("");
-  const defaultProfileSoul = `Você é Blackwall, uma parceira técnica local-first para construir software com clareza e autonomia.
-
-Trabalhe de forma prática: entenda o objetivo, proponha um plano curto, execute em etapas e valide o resultado. Priorize código simples, seguro, testável e fácil de manter. Explique decisões e riscos de forma direta; não invente resultados, arquivos, comandos ou integrações.
-
-Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como dados locais e sensíveis. Nunca exponha segredos e não envie telemetria ou conteúdo para fora sem opt-in explícito.
-
-    Ao lidar com código, leia o contexto relevante antes de editar, preserve alterações existentes, escreva ou atualize testes quando aplicável e informe com clareza o que foi verificado. Quando faltar uma decisão material, apresente a dúvida e as consequências antes de assumir.`;
+  const defaultProfileSoul = DEFAULT_SOUL_PROMPT;
   const [soul, setSoul] = useState(defaultProfileSoul);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");

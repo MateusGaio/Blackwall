@@ -22,6 +22,7 @@ import {
   type Workspace,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
+import { SoulPicker } from "../../../shared/components/SoulPicker";
 
 type ProviderManagerProps = {
   activeWorkspaceId: string | null;
@@ -94,6 +95,7 @@ export function ProviderManager({
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+  const profileLocale = profile?.locale === "en" ? "en" : "pt-BR";
 
   useEffect(() => {
     setProfileName(profile?.name ?? "");
@@ -401,15 +403,15 @@ export function ProviderManager({
             )}
             <small>PNG, JPEG, WebP ou GIF · até 2 MB · fica somente neste dispositivo</small>
           </div>
-          <label className="field-label" htmlFor="settings-profile-soul">
-            Soul do perfil
-            <textarea
-              id="settings-profile-soul"
-              onChange={(event) => setProfileSoul(event.target.value)}
-              rows={4}
-              value={profileSoul}
-            />
-          </label>
+          <SoulPicker
+            hint="Escolha uma personalidade pronta ou escreva seu próprio prompt."
+            id="settings-profile-soul"
+            label="Soul do perfil"
+            locale={profileLocale}
+            onChange={setProfileSoul}
+            rows={4}
+            value={profileSoul}
+          />
           <div className="settings-actions">
             <button
               className="button button-primary"
@@ -493,15 +495,15 @@ export function ProviderManager({
           </form>
           {activeWorkspace && (
             <form className="workspace-soul-form" onSubmit={saveWorkspaceSoulDraft}>
-              <label className="field-label" htmlFor="settings-workspace-soul">
-                Soul do workspace selecionado
-                <textarea
-                  id="settings-workspace-soul"
-                  onChange={(event) => setWorkspaceSoulDraft(event.target.value)}
-                  rows={4}
-                  value={workspaceSoul}
-                />
-              </label>
+              <SoulPicker
+                hint="A Soul do workspace é combinada com a Soul do perfil em cada sessão."
+                id="settings-workspace-soul"
+                label="Soul do workspace selecionado"
+                locale={profileLocale}
+                onChange={setWorkspaceSoulDraft}
+                rows={4}
+                value={workspaceSoul}
+              />
               <button
                 className="button button-secondary"
                 disabled={isSaving || !workspaceSoul.trim()}
