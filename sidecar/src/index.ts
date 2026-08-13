@@ -182,6 +182,10 @@ export function createSidecar(
         });
         return;
       }
+      if (request.method === "DELETE" && /^\/v1\/profiles\/[^/]+$/.test(pathname)) {
+        writeJson(response, 200, await store.deleteProfile(pathname.split("/")[3]));
+        return;
+      }
       if (request.method === "GET" && pathname === "/v1/workspaces") {
         const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
           "profileId",
@@ -300,7 +304,7 @@ export function createSidecar(
         return;
       }
       if (request.method === "GET" && pathname === "/v1/providers") {
-        writeJson(response, 200, { providers: await listProviders() });
+        writeJson(response, 200, { providers: await listProviders(storageDirectory) });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/models") {
@@ -313,7 +317,7 @@ export function createSidecar(
       }
       if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
         writeJson(response, 200, {
-          models: await listStoredProviderModels(pathname.split("/")[3]),
+          models: await listStoredProviderModels(pathname.split("/")[3], storageDirectory),
         });
         return;
       }
@@ -345,7 +349,7 @@ export function createSidecar(
       if (request.method === "POST" && pathname === "/v1/providers") {
         const input = (await requestBody(request)) as ProviderInput;
         await validateProvider(input);
-        writeJson(response, 201, { provider: await saveProvider(input) });
+        writeJson(response, 201, { provider: await saveProvider(input, storageDirectory) });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/test") {
@@ -357,20 +361,25 @@ export function createSidecar(
       if (request.method === "PATCH" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
         const input = (await requestBody(request)) as ProviderInput;
         const id = pathname.split("/")[3];
-        const existing = await getProvider(id);
+        const existing = await getProvider(id, storageDirectory);
         await validateProvider({
           ...input,
-          apiKey: input.apiKey ?? (await providerApiKey(id)),
+          apiKey: input.apiKey ?? (await providerApiKey(id, storageDirectory)),
           id,
           type: input.type ?? existing.type,
         });
         writeJson(response, 200, {
-          provider: await saveProvider({ ...input, id, type: input.type ?? existing.type }),
+          provider: await saveProvider(
+            { ...input, id, type: input.type ?? existing.type },
+            storageDirectory,
+          ),
         });
         return;
       }
       if (request.method === "DELETE" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
-        writeJson(response, 200, { provider: await removeProvider(pathname.split("/")[3]) });
+        writeJson(response, 200, {
+          provider: await removeProvider(pathname.split("/")[3], storageDirectory),
+        });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/chat/completions") {
@@ -525,8 +534,15 @@ export function createSidecar(
           }
           if (!isRetryableProviderError(error) || candidate === candidates.at(-1)) {
             const message = error instanceof Error ? error.message : "Falha no provedor.";
+            persistStream(content, candidate.providerId, candidate.model, "failed");
             socket.send(
-              JSON.stringify({ message, requestId: input.requestId, type: "chat.failed" }),
+              JSON.stringify({
+                content,
+                message,
+                persisted: Boolean(input.sessionId),
+                requestId: input.requestId,
+                type: "chat.failed",
+              }),
             );
             return;
           }

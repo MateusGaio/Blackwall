@@ -14,9 +14,11 @@ type StreamDelta = (content: string) => void;
 type FetchLike = typeof fetch;
 
 class ProviderRequestError extends ProviderHttpError {
-  constructor(status: number) {
+  constructor(status: number, detail = "") {
     super(status, "obter uma resposta");
     this.name = "ProviderRequestError";
+    const normalizedDetail = detail.replace(/\s+/g, " ").trim().slice(0, 500);
+    if (normalizedDetail) this.message = `${this.message} Detalhe do provedor: ${normalizedDetail}`;
   }
 }
 
@@ -28,14 +30,24 @@ export function isRetryableProviderError(error: unknown): boolean {
 }
 
 function parseLine(line: string, ollama: boolean): string | null {
-  const value = ollama ? line : line.startsWith("data:") ? line.slice(5).trim() : "";
+  const value = ollama
+    ? line
+    : line.startsWith("data:")
+      ? line.slice(5).trim()
+      : line.startsWith("{")
+        ? line
+        : "";
   if (!value || value === "[DONE]") return null;
   try {
     const body = JSON.parse(value) as {
-      choices?: Array<{ delta?: { content?: string } }>;
+      choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
       message?: { content?: string };
     };
-    return (ollama ? body.message?.content : body.choices?.[0]?.delta?.content) ?? null;
+    return (
+      (ollama
+        ? body.message?.content
+        : (body.choices?.[0]?.delta?.content ?? body.choices?.[0]?.message?.content)) ?? null
+    );
   } catch {
     return null;
   }
@@ -89,7 +101,10 @@ export async function streamChatMessage(
   const response = await withAsyncInstrumentation("provider.chat.stream", () =>
     request(requestInit.endpoint, requestInit),
   );
-  if (!response.ok) throw new ProviderRequestError(response.status);
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new ProviderRequestError(response.status, detail);
+  }
   if (!response.body) throw new Error("O provedor não abriu um canal de streaming.");
   await readStream(response.body, ollama, onDelta);
   return { provider };

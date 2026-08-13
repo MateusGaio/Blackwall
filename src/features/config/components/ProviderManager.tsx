@@ -26,6 +26,7 @@ import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 type ProviderManagerProps = {
   activeWorkspaceId: string | null;
   onClose: () => void;
+  onDeleteProfile: (profileId: string) => Promise<void>;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
   onProfileChange: (profile: Profile) => void;
   onSignOut: () => Promise<void>;
@@ -57,6 +58,7 @@ const emptyForm: ProviderForm = {
 export function ProviderManager({
   activeWorkspaceId,
   onClose,
+  onDeleteProfile,
   onProvidersChange,
   onProfileChange,
   onSignOut,
@@ -77,6 +79,8 @@ export function ProviderManager({
   const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
+  const [isDeletingProfile, setIsDeletingProfile] = useState(false);
+  const [profileToDelete, setProfileToDelete] = useState<Profile | null>(null);
   const [profileName, setProfileName] = useState(profile?.name ?? "");
   const [profileSoul, setProfileSoul] = useState(profile?.soul ?? "");
   const [profileAvatar, setProfileAvatar] = useState<string | null>(profile?.avatarData ?? null);
@@ -260,6 +264,21 @@ export function ProviderManager({
       reset();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível remover o provedor.");
+    }
+  }
+
+  async function removeProfile() {
+    if (!profile) return;
+    setIsDeletingProfile(true);
+    setProfileError("");
+    try {
+      await onDeleteProfile(profile.id);
+    } catch (reason) {
+      setProfileError(
+        reason instanceof Error ? reason.message : "Não foi possível excluir o perfil.",
+      );
+    } finally {
+      setIsDeletingProfile(false);
     }
   }
 
@@ -623,6 +642,16 @@ export function ProviderManager({
             >
               Sair do perfil
             </button>
+            {profile && (
+              <button
+                className="text-button danger settings-delete-profile"
+                disabled={isDeletingProfile}
+                onClick={() => setProfileToDelete(profile)}
+                type="button"
+              >
+                Excluir perfil
+              </button>
+            )}
           </div>
           {status && <p className="settings-status">{status}</p>}
           {error && (
@@ -643,6 +672,19 @@ export function ProviderManager({
             void remove(provider);
           }}
           title={`Remover ${providerToRemove.name}?`}
+        />
+      )}
+      {profileToDelete && (
+        <ConfirmDialog
+          cancelLabel="Cancelar"
+          confirmLabel="Excluir perfil"
+          description="Todas as sessões, workspaces, mensagens e anexos deste perfil serão removidos deste dispositivo. Essa ação é definitiva."
+          onCancel={() => setProfileToDelete(null)}
+          onConfirm={() => {
+            setProfileToDelete(null);
+            void removeProfile();
+          }}
+          title={`Excluir ${profileToDelete.name}?`}
         />
       )}
     </div>

@@ -87,4 +87,31 @@ describe("streaming de provedores", () => {
       expect(isRetryableProviderError(error)).toBe(true);
     }
   });
+
+  it("mostra respostas JSON não-streaming de endpoints compatíveis", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-json-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      apiKey: "stream-key",
+      baseUrl: "https://example.com/v1",
+      model: "example-model",
+      name: "Example",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines(['{"choices":[{"message":{"content":"Resposta completa"}}]}']),
+      ) as unknown as typeof fetch;
+    const deltas: string[] = [];
+    await streamChatMessage(
+      provider.id,
+      [{ content: "Oi", role: "user" }],
+      undefined,
+      (delta) => deltas.push(delta),
+      new AbortController().signal,
+      request,
+    );
+    expect(deltas.join("")).toBe("Resposta completa");
+  });
 });

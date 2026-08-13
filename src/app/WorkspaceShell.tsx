@@ -88,6 +88,7 @@ function CompactIcon({
 
 type WorkspaceShellProps = {
   appState: AppState | null;
+  onDeleteProfile: (profileId: string) => Promise<void>;
   onSignOut: () => Promise<void>;
   profileName: string;
   provider: ConnectedProvider | null;
@@ -95,6 +96,7 @@ type WorkspaceShellProps = {
 
 export default function WorkspaceShell({
   appState,
+  onDeleteProfile,
   onSignOut,
   profileName,
   provider,
@@ -153,6 +155,7 @@ export default function WorkspaceShell({
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
+  const streamingContentRef = useRef("");
   const messageListRef = useRef<HTMLOListElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -523,6 +526,7 @@ export default function WorkspaceShell({
     setError("");
     setIsSending(true);
     setStreamingContent("");
+    streamingContentRef.current = "";
     setStreamingStatus("Consultando…");
     const requestProvider = activeProvider;
     const requestModel = selectedModel;
@@ -537,7 +541,8 @@ export default function WorkspaceShell({
         {
           onDelta: (delta) => {
             if (activeSessionIdRef.current !== sessionId) return;
-            setStreamingContent((current) => current + delta);
+            streamingContentRef.current += delta;
+            setStreamingContent(streamingContentRef.current);
             setStreamingStatus("Gerando…");
           },
           onRetry: (message) => {
@@ -562,11 +567,28 @@ export default function WorkspaceShell({
       const refreshed = await getAppState();
       setState(refreshed);
       if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
+      if (result.failed && result.error) setError(result.error);
     } catch (reason) {
+      const partial = streamingContentRef.current.trim();
+      if (partial) {
+        await persistMessage(sessionId, {
+          content: partial,
+          model: requestModel,
+          providerId: requestProvider.id,
+          role: "assistant",
+          status: "failed",
+        }).catch(() => undefined);
+        const refreshed = await getAppState().catch(() => null);
+        if (refreshed) {
+          setState(refreshed);
+          if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
+        }
+      }
       setError(reason instanceof Error ? reason.message : "Não foi possível enviar a mensagem.");
     } finally {
       activeStream.current = null;
       setStreamingContent("");
+      streamingContentRef.current = "";
       setStreamingStatus("");
       setIsSending(false);
     }
@@ -696,7 +718,6 @@ export default function WorkspaceShell({
             {activeProfile?.avatarData ? (
               <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
             ) : null}
-            <p className="eyebrow">Perfil</p>
             <strong>{name}</strong>
           </div>
           <button
@@ -1218,6 +1239,7 @@ export default function WorkspaceShell({
         <ProviderManager
           activeWorkspaceId={state?.activeWorkspaceId ?? null}
           onClose={() => setShowSettings(false)}
+          onDeleteProfile={onDeleteProfile}
           onProvidersChange={(next) => {
             setProviders(next);
             setActiveProvider((current) =>

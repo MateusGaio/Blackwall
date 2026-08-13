@@ -1,10 +1,18 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { randomUUID } from "node:crypto";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
-import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
+import {
+  appSettings,
+  attachments,
+  messages,
+  profiles,
+  routerEntries,
+  sessions,
+  workspaces,
+} from "./schema.js";
 
 export type PermissionMode = "ask" | "automatic" | "read-only";
 type Profile = typeof profiles.$inferSelect;
@@ -595,6 +603,64 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     return getState();
   }
 
+  async function deleteProfile(profileId: string) {
+    const profile = database.db.select().from(profiles).where(eq(profiles.id, profileId)).get();
+    if (!profile) throw new Error("O perfil selecionado não existe.");
+
+    const profileWorkspaces = database.db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.profileId, profileId))
+      .all();
+    const workspaceIds = profileWorkspaces.map((workspace) => workspace.id);
+
+    // FTS rows are not foreign-key cascades, so remove them explicitly before
+    // deleting the profile-owned records. Attachment files are removed after
+    // the transaction to keep the database consistent if the filesystem fails.
+    const storedAttachmentPaths = workspaceIds.length
+      ? (database.client
+          .prepare(
+            `SELECT stored_path AS storedPath FROM attachments WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")})`,
+          )
+          .all(...workspaceIds) as Array<{ storedPath: string }>)
+      : [];
+    database.client.transaction(() => {
+      if (workspaceIds.length) {
+        database.client
+          .prepare(
+            `DELETE FROM attachments_fts WHERE attachment_id IN (SELECT id FROM attachments WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")}))`,
+          )
+          .run(...workspaceIds);
+        database.db.delete(attachments).where(eq(attachments.workspaceId, workspaceIds[0])).run();
+        for (const workspaceId of workspaceIds.slice(1)) {
+          database.db.delete(attachments).where(eq(attachments.workspaceId, workspaceId)).run();
+        }
+        database.db
+          .delete(routerEntries)
+          .where(eq(routerEntries.workspaceId, workspaceIds[0]))
+          .run();
+        for (const workspaceId of workspaceIds.slice(1)) {
+          database.db.delete(routerEntries).where(eq(routerEntries.workspaceId, workspaceId)).run();
+        }
+        database.client
+          .prepare(
+            `DELETE FROM approvals WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")})`,
+          )
+          .run(...workspaceIds);
+      }
+      database.db.delete(profiles).where(eq(profiles.id, profileId)).run();
+      if (setting(database, settingKeys.activeProfileId) === profileId) {
+        saveSetting(database, settingKeys.activeProfileId, "");
+        saveSetting(database, settingKeys.activeWorkspaceId, "");
+        saveSetting(database, settingKeys.activeSessionId, "");
+      }
+    })();
+    await Promise.all(
+      storedAttachmentPaths.map((attachment) => rm(attachment.storedPath, { force: true })),
+    );
+    return getState();
+  }
+
   function selectWorkspace(id: string) {
     const workspace = database.db.select().from(workspaces).where(eq(workspaces.id, id)).get();
     if (!workspace) throw new Error("O workspace selecionado não existe.");
@@ -626,6 +692,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     prepareRegeneration,
     renameSession,
     deleteSession,
+    deleteProfile,
     setSessionModel,
     setWorkspaceSoul,
     setWorkspacePermissionMode,

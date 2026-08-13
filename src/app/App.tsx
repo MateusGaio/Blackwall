@@ -6,6 +6,7 @@ import {
   type AppState,
   bootstrapApp,
   type ConnectedProvider,
+  deleteProfile,
   getAppState,
   listProviders,
   type Profile,
@@ -480,11 +481,12 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       .then(async (state) => {
         if (cancelled) return;
         setAvailableProfiles(state.profiles);
-        if (!state.activeSessionId || !state.activeProfileId) {
-          if (state.profiles.length > 0) {
-            setAppState(state);
-            setShowProfileChooser(true);
-          }
+        // A profile is always an explicit entry point. This prevents the last
+        // active conversation from opening under the wrong person after a
+        // restart, while still keeping all data available to the chooser.
+        if (state.profiles.length > 0) {
+          setAppState(state);
+          setShowProfileChooser(true);
           return;
         }
         const profile = state.profiles.find((item) => item.id === state.activeProfileId);
@@ -613,6 +615,22 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
     }
   }
 
+  async function removeProfile(profileId: string) {
+    try {
+      const state = await deleteProfile(profileId);
+      setAvailableProfiles(state.profiles);
+      setAppState(state);
+      resetOnboarding();
+      setIsComplete(false);
+      setShowProfileChooser(state.profiles.length > 0);
+    } catch (reason) {
+      setCompletionError(
+        reason instanceof Error ? reason.message : "Não foi possível excluir o perfil.",
+      );
+      throw reason;
+    }
+  }
+
   const completeOnboarding = useCallback(async () => {
     setCompletionError("");
     setIsCompleting(true);
@@ -706,6 +724,7 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       <Suspense fallback={<LoadingSkeleton />}>
         <WorkspaceShell
           appState={appState}
+          onDeleteProfile={removeProfile}
           onSignOut={exitProfile}
           profileName={profileName}
           provider={provider}

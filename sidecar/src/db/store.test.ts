@@ -153,6 +153,44 @@ describe("persistência local", () => {
     database.close();
   });
 
+  it("exclui somente os dados do perfil confirmado", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-profile-delete-"));
+    const firstRoot = join(directory, "first-workspace");
+    const secondRoot = join(directory, "second-workspace");
+    await mkdir(firstRoot);
+    await mkdir(secondRoot);
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database, directory);
+    const first = await store.createProfile({ locale: "pt-BR", name: "Ada", soul: "Primeira" });
+    const firstWorkspace = await store.createWorkspace({
+      name: "Primeiro",
+      profileId: first.id,
+      rootPath: firstRoot,
+      soul: "Workspace primeiro",
+    });
+    const firstSession = store.createSession({
+      profileId: first.id,
+      workspaceId: firstWorkspace.id,
+    });
+    store.appendMessage({ content: "remover", role: "user", sessionId: firstSession.id });
+    const second = await store.createProfile({ locale: "en", name: "Grace", soul: "Second" });
+    store.createSession({ profileId: second.id });
+    store.selectProfile(first.id);
+
+    const afterDelete = await store.deleteProfile(first.id);
+    expect(afterDelete.profiles.map((profile) => profile.id)).toEqual([second.id]);
+    expect(afterDelete.workspaces).toHaveLength(0);
+    expect(afterDelete.sessions.map((session) => session.profileId)).toEqual([second.id]);
+    expect(afterDelete.activeProfileId).toBeNull();
+
+    const persisted = database.client
+      .prepare("SELECT COUNT(*) AS count FROM sessions WHERE profile_id = ?")
+      .get(first.id) as { count: number };
+    expect(persisted.count).toBe(0);
+    database.close();
+  });
+
   it("cria um workspace web privado a partir dos Markdown selecionados", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-web-workspace-"));
     directories.push(directory);

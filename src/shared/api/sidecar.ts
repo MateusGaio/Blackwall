@@ -244,6 +244,10 @@ export async function updateProfile(
   return response.profile;
 }
 
+export async function deleteProfile(profileId: string): Promise<AppState> {
+  return request(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
+}
+
 export async function listProviders(): Promise<ConnectedProvider[]> {
   const response = await request<{ providers: ConnectedProvider[] }>("/v1/providers", {
     method: "GET",
@@ -434,6 +438,8 @@ export async function removeAttachment(attachmentId: string): Promise<void> {
 
 type StreamResult = {
   content: string;
+  error?: string;
+  failed?: boolean;
   persisted?: boolean;
   provider: ConnectedProvider | null;
   stopped?: boolean;
@@ -520,7 +526,13 @@ export async function streamMessage(
       socket.close();
     }
     if (message.type === "chat.failed") {
-      rejectDone(new Error(message.message ?? "Não foi possível obter resposta."));
+      resolveDone({
+        content: message.content ?? content,
+        error: message.message ?? "Não foi possível obter resposta.",
+        failed: true,
+        persisted: message.persisted,
+        provider: message.provider ?? null,
+      });
       socket.close();
     }
   });
