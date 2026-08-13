@@ -263,16 +263,29 @@ export default function WorkspaceShell({
 
   useEffect(() => {
     if (!activeProvider) return;
-    setModels([{ capabilities: [], id: activeProvider.model, name: activeProvider.model }]);
+    let cancelled = false;
+    const selectedProviderModel = {
+      capabilities: [],
+      id: activeProvider.model,
+      name: activeProvider.model,
+    } satisfies ProviderModel;
+    setModels([selectedProviderModel]);
     void listStoredProviderModels(activeProvider.id)
-      .then((available) =>
+      .then((available) => {
+        if (cancelled) return;
+        const hasSelectedModel = available.some((model) => model.id === selectedProviderModel.id);
         setModels(
           available.length > 0
-            ? available
-            : [{ capabilities: [], id: activeProvider.model, name: activeProvider.model }],
-        ),
-      )
+            ? hasSelectedModel
+              ? available
+              : [selectedProviderModel, ...available]
+            : [selectedProviderModel],
+        );
+      })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [activeProvider]);
 
   useEffect(() => {
@@ -309,6 +322,7 @@ export default function WorkspaceShell({
 
   async function selectProvider(nextProvider: ConnectedProvider) {
     setActiveProvider(nextProvider);
+    setModels([{ capabilities: [], id: nextProvider.model, name: nextProvider.model }]);
     if (!activeSession) return;
     try {
       const session = await setSessionModel(activeSession.id, nextProvider.model, nextProvider.id);
@@ -914,12 +928,35 @@ export default function WorkspaceShell({
             <p className="workspace-session-title">{activeSession?.title ?? "Nova conversa"}</p>
           </div>
           <div className="chat-controls">
-            <p className="eyebrow">{activeProvider?.name ?? "sem provedor"}</p>
+            {providers.length > 0 ? (
+              <label className="provider-selector">
+                <span className="sr-only">Provedor</span>
+                <select
+                  aria-label="Selecionar provedor"
+                  onChange={(event) => {
+                    const nextProvider = providers.find((item) => item.id === event.target.value);
+                    if (nextProvider) void selectProvider(nextProvider);
+                  }}
+                  title="Selecionar provedor"
+                  value={activeProvider?.id ?? ""}
+                >
+                  {providers.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="eyebrow">sem provedor</p>
+            )}
             {activeProvider && (
               <label className="model-selector">
                 <span className="sr-only">Modelo</span>
                 <select
+                  aria-label="Selecionar modelo"
                   onChange={(event) => void changeModel(event.target.value)}
+                  title="Selecionar modelo"
                   value={selectedModel}
                 >
                   {models.map((model) => (
