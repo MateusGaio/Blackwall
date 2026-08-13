@@ -76,6 +76,11 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
   await composer.press("Enter");
   await expect(page.getByText("Resposta de teste.")).toBeVisible();
   await page.reload();
+  const profileChooser = page.getByRole("heading", {
+    name: /Quem está usando o Blackwall\?|Who is using Blackwall\?/,
+  });
+  await expect(profileChooser).toBeVisible();
+  await page.getByRole("button", { name: /Perfil E2E/ }).click();
   await expect(page.locator("li.message-user").getByText("Olá Blackwall", { exact: true })).toBeVisible();
   await expect(page.getByText("Resposta de teste.")).toBeVisible();
 });
