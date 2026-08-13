@@ -195,8 +195,19 @@ function languageKey(locale?: string): string {
   return normalized.split(/[-_]/)[0];
 }
 
+function mixedLanguageKey(date: Date): string {
+  const day = Math.floor(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000,
+  );
+  const hour = date.getHours();
+  const period = hour < 5 ? 0 : hour < 12 ? 1 : hour < 18 ? 2 : hour < 22 ? 3 : 4;
+  const languages = Object.keys(greetingSets);
+  return languages[Math.abs(day * 5 + period) % languages.length] ?? "en";
+}
+
 export function greetingForTime(date = new Date(), locale = "en"): string {
-  const set = greetingSets[languageKey(locale)] ?? greetingSets.en;
+  const key = locale.toLowerCase() === "mixed" ? mixedLanguageKey(date) : languageKey(locale);
+  const set = greetingSets[key] ?? greetingSets.en;
   const hour = date.getHours();
   if (hour < 5) return set.night;
   if (hour < 12) return set.morning;

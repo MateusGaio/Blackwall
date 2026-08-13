@@ -31,4 +31,10 @@ describe("contrato de ferramentas", () => {
   it("permite exploração longa sem remover o limite de segurança", () => {
     expect(MAX_TOOL_CALLS_PER_TURN).toBe(32);
   });
+
+  it("explica o formato correto dos argumentos de comandos", () => {
+    expect(() => parseToolArguments("execute_command", '{"command":"ls","args":"-la"}')).toThrow(
+      "lista de textos",
+    );
+  });
 });

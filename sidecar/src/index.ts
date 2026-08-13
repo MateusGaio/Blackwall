@@ -526,7 +526,7 @@ export function createSidecar(
 
 Antes de qualquer leitura ou busca, chame list_directory com path ".". Use somente caminhos retornados por uma listagem bem-sucedida. Se a listagem mostrar um diretório de projeto aninhado, inclua esse diretório em todos os caminhos seguintes. Nunca presuma que PRODUCT.md, ARCHITECTURE.md, UX_SPEC.md, README.md ou qualquer outro arquivo está na raiz. Para entender o código, continue listando as subpastas relevantes e leia manifests, diretórios de fonte, pontos de entrada, configurações e testes; use search_text quando precisar localizar símbolos. Não limite a exploração a arquivos Markdown e ignore .git, node_modules, builds, arquivos gerados, binários e arquivos muito grandes. Se uma ferramenta responder que o caminho não existe, não repita a chamada nem tente variações: consulte a última listagem e siga com arquivos existentes ou informe que o documento não está disponível. Não solicite a mesma ferramenta com o mesmo caminho depois de uma falha.
 
-Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados.`,
+Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados. Para execute_command, command é apenas o executável e args deve ser sempre uma lista JSON de textos (por exemplo, {"command":"git","args":["status","--short"]}); nunca envie args como texto ou objeto.`,
           role: "system",
         }
       : null;
@@ -663,7 +663,79 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   : call.id;
               const normalizedCall = { ...call, id: callId };
               seenToolCallIds.add(callId);
-              const args = parseToolArguments(normalizedCall.name, normalizedCall.arguments);
+              let args: Record<string, unknown>;
+              try {
+                args = parseToolArguments(normalizedCall.name, normalizedCall.arguments);
+              } catch (error) {
+                const errorMessage =
+                  error instanceof Error
+                    ? error.message
+                    : "Os argumentos da ferramenta são inválidos.";
+                const toolResult = { error: errorMessage };
+                socket.send(
+                  JSON.stringify({
+                    callId: normalizedCall.id,
+                    requestId: input.requestId,
+                    result: toolResult,
+                    sessionId: input.sessionId,
+                    tool: normalizedCall.name,
+                    type: "tool.failed",
+                  }),
+                );
+                if (input.sessionId) {
+                  store.appendMessage({
+                    content: "",
+                    model: candidate.model,
+                    providerId: candidate.providerId,
+                    role: "assistant",
+                    sessionId: input.sessionId,
+                    status: "complete",
+                    toolCalls: [normalizedCall],
+                  });
+                  store.appendMessage({
+                    content: JSON.stringify(toolResult),
+                    model: candidate.model,
+                    providerId: candidate.providerId,
+                    role: "tool",
+                    sessionId: input.sessionId,
+                    status: "failed",
+                    toolCallId: normalizedCall.id,
+                    toolName: normalizedCall.name,
+                  });
+                }
+                const signature = `${normalizedCall.name}:${errorMessage}`;
+                const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
+                toolErrorCounts.set(signature, failures);
+                if (shouldStopAfterRepeatedToolError(failures)) {
+                  throw new Error(
+                    "A mesma ferramenta falhou três vezes com o mesmo erro; o ciclo foi interrompido. Corrija o formato dos argumentos e tente novamente.",
+                  );
+                }
+                transcript = [
+                  ...transcript,
+                  {
+                    content: "",
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        function: {
+                          arguments: normalizedCall.arguments,
+                          name: normalizedCall.name,
+                        },
+                        id: normalizedCall.id,
+                        type: "function",
+                      },
+                    ],
+                  },
+                  {
+                    content: JSON.stringify(toolResult),
+                    name: normalizedCall.name,
+                    role: "tool",
+                    tool_call_id: normalizedCall.id,
+                  },
+                ];
+                continue;
+              }
               socket.send(
                 JSON.stringify({
                   args,

@@ -120,7 +120,7 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
   {
     function: {
       description:
-        "Run one executable with structured arguments inside the workspace; shell interpretation is disabled.",
+        "Run one executable with structured arguments inside the workspace; args must be an array of strings, and shell interpretation is disabled.",
       name: "execute_command",
       parameters: objectSchema(
         {
@@ -184,7 +184,9 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
     name === "execute_command" &&
     (!Array.isArray(args.args) || args.args.some((arg) => typeof arg !== "string"))
   ) {
-    throw new Error("Os argumentos do comando devem ser uma lista de textos.");
+    throw new Error(
+      'Os argumentos do comando devem ser uma lista de textos, por exemplo: {"args":["-la","src"]}.',
+    );
   }
   return args;
 }

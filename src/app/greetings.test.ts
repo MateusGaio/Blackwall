@@ -22,4 +22,10 @@ describe("saudações do workspace", () => {
     expect(greetingForTime(new Date(2026, 0, 1, 14), "pt-BR")).toBe("Boa tarde");
     expect(greetingForTime(new Date(2026, 0, 1, 23), "pt-BR")).toBe("Tenha uma boa noite");
   });
+
+  it("varia o idioma da saudação sem depender do idioma da interface", () => {
+    const morning = greetingForTime(new Date(2026, 0, 1, 8), "mixed");
+    const nextMorning = greetingForTime(new Date(2026, 0, 2, 8), "mixed");
+    expect(morning).not.toBe(nextMorning);
+  });
 });

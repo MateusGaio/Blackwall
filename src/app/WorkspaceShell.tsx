@@ -157,6 +157,7 @@ export default function WorkspaceShell({
   const [editingMessageDraft, setEditingMessageDraft] = useState("");
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const activeStream = useRef<{ stop: () => void } | null>(null);
   const pendingToolDecision = useRef<((decision: WorkspaceToolDecision) => void) | null>(null);
   const streamingContentRef = useRef("");
@@ -174,7 +175,9 @@ export default function WorkspaceShell({
   )?.locale;
   const isEnglish = profileLocale === "en";
   const name = activeProfile?.name.trim() || profileName.trim() || (isEnglish ? "you" : "você");
-  const greeting = greetingForTime(new Date(), profileLocale);
+  // The UI follows the profile locale, while the greeting intentionally
+  // rotates through the 25-language catalogue by time period and day.
+  const greeting = greetingForTime(new Date(), "mixed");
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
   const recentSessions = [...(state?.recentSessions ?? [])].sort(
@@ -255,6 +258,15 @@ export default function WorkspaceShell({
       .then(setAttachments)
       .catch(() => undefined);
   }, [workspace, activeSession]);
+
+  useEffect(() => {
+    // React can reuse the textarea while switching sessions. Remove the
+    // previous inline height so a long draft cannot enlarge a new composer.
+    if (activeSession?.id) {
+      setDraft("");
+      composerRef.current?.style.removeProperty("height");
+    }
+  }, [activeSession?.id]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -685,6 +697,7 @@ export default function WorkspaceShell({
     setMessages(nextMessages);
     activeSessionIdRef.current = sessionId;
     setDraft("");
+    composerRef.current?.style.removeProperty("height");
     setResourceNotice("");
     await persistMessage(sessionId, { content, role: "user", status: "complete" });
     // Atualiza a lista de Recentes assim que a conversa recebe atividade,
@@ -780,7 +793,7 @@ export default function WorkspaceShell({
 
   function resizeComposer(target: HTMLTextAreaElement) {
     target.style.height = "auto";
-    target.style.height = `${Math.min(target.scrollHeight, 240)}px`;
+    target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
   }
 
   const visibleMessages = messages.filter(
@@ -1338,6 +1351,7 @@ export default function WorkspaceShell({
               }}
               onKeyDown={handleComposerKeyDown}
               placeholder={isEnglish ? "Send a message…" : "Envie uma mensagem…"}
+              ref={composerRef}
               rows={1}
               value={draft}
             />
