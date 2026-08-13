@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:sidecar && node scripts/dev-web.mjs",
-    "dev:desktop": "tauri dev",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
     "build": "tsc -p tsconfig.app.json && vite build && npm run build:sidecar",
     "build:sidecar": "tsc -p sidecar/tsconfig.json",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",

@@ -11,6 +11,11 @@ npm install
 npm run dev:desktop
 ```
 
+O launcher do desktop verifica se o servidor web e o sidecar já estão ativos
+(por exemplo, quando `npm run dev` está aberto no navegador) e reutiliza essa
+instância. Assim não são iniciados dois sidecars na porta `1422`, o que evita o
+encerramento do `beforeDevCommand` com código `143`.
+
 Para testar no navegador durante o desenvolvimento (o sidecar local é iniciado automaticamente):
 
 ```bash

@@ -17,7 +17,19 @@ if (dataDirectory) process.env.BLACKWALL_DATA_DIR = dataDirectory;
 // Development has one shared, deterministic sidecar. Both the browser at
 // localhost:1420 and Tauri dev use it, avoiding concurrent SQLite writers.
 const sidecarPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 1422);
-const { port, server } = await createSidecar(sidecarPort);
+let sidecar;
+try {
+  sidecar = await createSidecar(sidecarPort);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("EADDRINUSE") || message.includes("address already in use")) {
+    throw new Error(
+      `A porta ${sidecarPort} já está em uso. Feche outra instância do Blackwall ou use BLACKWALL_SIDECAR_PORT com uma porta livre.`,
+    );
+  }
+  throw error;
+}
+const { port, server } = sidecar;
 const sidecarUrl = `http://${SIDECAR_HOST}:${port}`;
 
 async function waitForHealth(url, timeoutMs = 10_000) {

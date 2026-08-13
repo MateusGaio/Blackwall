@@ -898,8 +898,23 @@ export function createSidecar(
     });
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    let listening = false;
+    let settled = false;
+    const handleStartupError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (!listening) database.close();
+      reject(error);
+    };
+    // WebSocketServer re-emits listen failures on itself. Register handlers
+    // on both objects so a busy desktop port becomes an actionable startup
+    // error instead of an unhandled exception (or Tauri exit 143).
+    server.on("error", handleStartupError);
+    socketServer.on("error", handleStartupError);
     server.listen(port, SIDECAR_HOST, () => {
+      listening = true;
+      settled = true;
       const address = server.address() as AddressInfo;
       resolve({ port: address.port, server });
     });
