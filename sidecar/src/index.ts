@@ -36,6 +36,7 @@ import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
 import {
   isToolName,
   parseToolArguments,
+  shouldStopAfterRepeatedToolError,
   type ToolMode,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
@@ -520,8 +521,11 @@ export function createSidecar(
       : input.messages;
     const toolInstruction: ChatMessage | null = input.workspaceId
       ? {
-          content:
-            "Blackwall possui ferramentas locais seguras. Quando precisar conhecer ou alterar arquivos, solicite a ferramenta apropriada; não diga que não possui acesso ao filesystem. Respeite as autorizações do usuário e nunca invente resultados.",
+          content: `Blackwall possui ferramentas locais seguras dentro do workspace selecionado. Use-as para conhecer ou alterar arquivos; não diga que não possui acesso ao filesystem.
+
+Antes de qualquer leitura ou busca, chame list_directory com path ".". Use somente caminhos retornados por uma listagem bem-sucedida. Se a listagem mostrar um diretório de projeto aninhado, inclua esse diretório em todos os caminhos seguintes. Nunca presuma que PRODUCT.md, ARCHITECTURE.md, UX_SPEC.md, README.md ou qualquer outro arquivo está na raiz. Se uma ferramenta responder que o caminho não existe, não repita a chamada nem tente variações: consulte a última listagem e siga com arquivos existentes ou informe que o documento não está disponível. Não solicite a mesma ferramenta com o mesmo caminho depois de uma falha.
+
+Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados.`,
           role: "system",
         }
       : null;
@@ -563,6 +567,8 @@ export function createSidecar(
         let content = "";
         let transcript: ChatMessage[] = promptMessages.map(providerMessage);
         let toolCount = 0;
+        const seenToolCallIds = new Set<string>();
+        const toolErrorCounts = new Map<string, number>();
         try {
           const modelRecord = database.db
             .select({ toolMode: models.toolMode })
@@ -648,27 +654,33 @@ export function createSidecar(
                 throw new Error("O limite de oito ferramentas por turno foi atingido.");
               if (!isToolName(call.name))
                 throw new Error(`A ferramenta ${call.name} não é permitida.`);
-              const args = parseToolArguments(call.name, call.arguments);
+              const callId =
+                call.id.startsWith("tool-call-") || seenToolCallIds.has(call.id)
+                  ? `${input.requestId}:${toolCount}:${call.id}`
+                  : call.id;
+              const normalizedCall = { ...call, id: callId };
+              seenToolCallIds.add(callId);
+              const args = parseToolArguments(normalizedCall.name, normalizedCall.arguments);
               socket.send(
                 JSON.stringify({
                   args,
-                  callId: call.id,
+                  callId: normalizedCall.id,
                   requestId: input.requestId,
                   sessionId: input.sessionId,
-                  tool: call.name,
+                  tool: normalizedCall.name,
                   type: "tool.started",
                 }),
               );
               let toolResult: unknown;
               let toolError = false;
-              const toolRequestId = `${input.requestId}:${call.id}`;
+              const toolRequestId = `${input.requestId}:${normalizedCall.id}`;
               try {
                 toolResult = await executeTool(
                   {
                     args,
                     requestId: toolRequestId,
                     sessionId: input.sessionId,
-                    tool: call.name,
+                    tool: normalizedCall.name,
                     workspaceId: activeWorkspaceId,
                   },
                   storageDirectory,
@@ -678,7 +690,7 @@ export function createSidecar(
                         JSON.stringify({
                           ...approval,
                           args,
-                          callId: call.id,
+                          callId: normalizedCall.id,
                           requestId: toolRequestId,
                           sessionId: input.sessionId,
                           type: "approval.requested",
@@ -700,7 +712,7 @@ export function createSidecar(
                   role: "assistant",
                   sessionId: input.sessionId,
                   status: "complete",
-                  toolCalls: [call],
+                  toolCalls: [normalizedCall],
                 });
                 store.appendMessage({
                   content: JSON.stringify(toolResult),
@@ -709,19 +721,35 @@ export function createSidecar(
                   role: "tool",
                   sessionId: input.sessionId,
                   status: toolError ? "failed" : "complete",
-                  toolCallId: call.id,
-                  toolName: call.name,
+                  toolCallId: normalizedCall.id,
+                  toolName: normalizedCall.name,
                 });
               }
               socket.send(
                 JSON.stringify({
-                  callId: call.id,
+                  callId: normalizedCall.id,
                   requestId: input.requestId,
                   result: toolResult,
                   sessionId: input.sessionId,
                   type: toolError ? "tool.failed" : "tool.completed",
                 }),
               );
+              if (toolError) {
+                const errorMessage =
+                  typeof toolResult === "object" && toolResult && "error" in toolResult
+                    ? String((toolResult as { error?: unknown }).error)
+                    : "A ferramenta falhou.";
+                const signature = `${normalizedCall.name}:${errorMessage}`;
+                const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
+                toolErrorCounts.set(signature, failures);
+                if (shouldStopAfterRepeatedToolError(failures)) {
+                  throw new Error(
+                    "A mesma ferramenta falhou três vezes com o mesmo erro; o ciclo foi interrompido. Verifique os caminhos retornados pela listagem do workspace.",
+                  );
+                }
+              } else {
+                toolErrorCounts.clear();
+              }
               transcript = [
                 ...transcript,
                 {
@@ -729,17 +757,20 @@ export function createSidecar(
                   role: "assistant",
                   tool_calls: [
                     {
-                      function: { arguments: call.arguments, name: call.name },
-                      id: call.id,
+                      function: {
+                        arguments: normalizedCall.arguments,
+                        name: normalizedCall.name,
+                      },
+                      id: normalizedCall.id,
                       type: "function",
                     },
                   ],
                 },
                 {
                   content: JSON.stringify(toolResult),
-                  name: call.name,
+                  name: normalizedCall.name,
                   role: "tool",
-                  tool_call_id: call.id,
+                  tool_call_id: normalizedCall.id,
                 },
               ];
             }

@@ -33,6 +33,12 @@ export type ToolResult = {
   name: ToolName;
 };
 
+export const MAX_REPEATED_TOOL_ERRORS = 3;
+
+export function shouldStopAfterRepeatedToolError(failureCount: number): boolean {
+  return failureCount >= MAX_REPEATED_TOOL_ERRORS;
+}
+
 const objectSchema = (
   properties: Record<string, unknown>,
   required: string[],

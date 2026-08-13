@@ -783,6 +783,12 @@ export default function WorkspaceShell({
     target.style.height = `${Math.min(target.scrollHeight, 240)}px`;
   }
 
+  const visibleMessages = messages.filter(
+    (message) =>
+      message.role !== "tool" &&
+      !(message.role === "assistant" && !message.content.trim() && message.toolCalls?.length),
+  );
+
   return (
     <main
       className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
@@ -1095,10 +1101,10 @@ export default function WorkspaceShell({
           </div>
         </header>
         <section
-          className={`chat-shell ${messages.length === 0 ? "is-empty" : ""}`}
+          className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
           aria-label={isEnglish ? "Conversation" : "Conversa"}
         >
-          {messages.length === 0 ? (
+          {visibleMessages.length === 0 ? (
             <div className="empty-state">
               <h1>
                 {greeting}, {name}
@@ -1115,7 +1121,7 @@ export default function WorkspaceShell({
             </div>
           ) : (
             <ol className="message-list" ref={messageListRef}>
-              {messages.map((message) => (
+              {visibleMessages.map((message) => (
                 <li className={`message message-${message.role}`} key={message.id}>
                   {editingMessageId === message.id ? (
                     <form
@@ -1160,15 +1166,16 @@ export default function WorkspaceShell({
                             {isEnglish ? "Edit" : "Editar"}
                           </button>
                         )}
-                        {message.role === "assistant" && message.id === messages.at(-1)?.id && (
-                          <button
-                            className="message-action"
-                            onClick={() => void regenerate()}
-                            type="button"
-                          >
-                            {isEnglish ? "Regenerate" : "Regenerar"}
-                          </button>
-                        )}
+                        {message.role === "assistant" &&
+                          message.id === visibleMessages.at(-1)?.id && (
+                            <button
+                              className="message-action"
+                              onClick={() => void regenerate()}
+                              type="button"
+                            >
+                              {isEnglish ? "Regenerate" : "Regenerar"}
+                            </button>
+                          )}
                       </div>
                     </>
                   )}

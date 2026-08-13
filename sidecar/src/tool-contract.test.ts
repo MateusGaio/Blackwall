@@ -1,6 +1,10 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { describe, expect, it } from "vitest";
-import { parseCompatibilityToolCall, parseToolArguments } from "./tool-contract.js";
+import {
+  parseCompatibilityToolCall,
+  parseToolArguments,
+  shouldStopAfterRepeatedToolError,
+} from "./tool-contract.js";
 
 describe("contrato de ferramentas", () => {
   it("aceita somente o envelope JSON de compatibilidade", () => {
@@ -15,5 +19,11 @@ describe("contrato de ferramentas", () => {
       "não é aceito",
     );
     expect(() => parseToolArguments("execute_command", '{"command":"cat"}')).toThrow("obrigatório");
+  });
+
+  it("interrompe somente depois de três erros iguais consecutivos", () => {
+    expect(shouldStopAfterRepeatedToolError(1)).toBe(false);
+    expect(shouldStopAfterRepeatedToolError(2)).toBe(false);
+    expect(shouldStopAfterRepeatedToolError(3)).toBe(true);
   });
 });

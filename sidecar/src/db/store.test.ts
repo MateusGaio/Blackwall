@@ -1,4 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +60,51 @@ describe("persistência local", () => {
       count: 5,
     });
     second.close();
+  });
+
+  it("atualiza a Soul Dev legada sem alterar Souls personalizadas", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-soul-migration-"));
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const first = openDatabase(directory);
+    const profileId = randomUUID();
+    const workspaceId = randomUUID();
+    const timestamp = Date.now();
+    const legacySoul =
+      "You are Blackwall Dev, a senior software engineer. Start by reading the repository instructions, PRODUCT.md, ARCHITECTURE.md and UX_SPEC.md that apply to the task.";
+    first.client
+      .prepare(
+        "INSERT INTO profiles (id, name, locale, soul, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(profileId, "Dev", "en", legacySoul, timestamp, timestamp);
+    first.client
+      .prepare(
+        "INSERT INTO workspaces (id, profile_id, name, root_path, soul, permission_mode, last_opened_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        workspaceId,
+        profileId,
+        "Project",
+        workspaceRoot,
+        legacySoul,
+        "ask",
+        timestamp,
+        timestamp,
+        timestamp,
+      );
+    first.close();
+
+    const restored = openDatabase(directory);
+    const profile = restored.client
+      .prepare("SELECT soul FROM profiles WHERE id = ?")
+      .get(profileId) as { soul: string };
+    const workspace = restored.client
+      .prepare("SELECT soul FROM workspaces WHERE id = ?")
+      .get(workspaceId) as { soul: string };
+    expect(profile.soul).toContain("call list_directory");
+    expect(workspace.soul).toContain("call list_directory");
+    restored.close();
   });
 
   it("exige uma pasta real para o workspace", async () => {
