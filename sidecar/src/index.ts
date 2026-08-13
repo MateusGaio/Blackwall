@@ -35,6 +35,7 @@ import {
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
 import {
   isToolName,
+  MAX_TOOL_CALLS_PER_TURN,
   parseToolArguments,
   shouldStopAfterRepeatedToolError,
   type ToolMode,
@@ -650,8 +651,10 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               if (!activeWorkspaceId)
                 throw new Error("Selecione um workspace antes de usar ferramentas locais.");
               toolCount += 1;
-              if (toolCount > 8)
-                throw new Error("O limite de oito ferramentas por turno foi atingido.");
+              if (toolCount > MAX_TOOL_CALLS_PER_TURN)
+                throw new Error(
+                  `O limite de ${MAX_TOOL_CALLS_PER_TURN} ferramentas por turno foi atingido.`,
+                );
               if (!isToolName(call.name))
                 throw new Error(`A ferramenta ${call.name} não é permitida.`);
               const callId =

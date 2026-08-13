@@ -34,6 +34,7 @@ export type ToolResult = {
 };
 
 export const MAX_REPEATED_TOOL_ERRORS = 3;
+export const MAX_TOOL_CALLS_PER_TURN = 32;
 
 export function shouldStopAfterRepeatedToolError(failureCount: number): boolean {
   return failureCount >= MAX_REPEATED_TOOL_ERRORS;

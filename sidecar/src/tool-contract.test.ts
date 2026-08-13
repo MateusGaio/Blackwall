@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { describe, expect, it } from "vitest";
 import {
+  MAX_TOOL_CALLS_PER_TURN,
   parseCompatibilityToolCall,
   parseToolArguments,
   shouldStopAfterRepeatedToolError,
@@ -25,5 +26,9 @@ describe("contrato de ferramentas", () => {
     expect(shouldStopAfterRepeatedToolError(1)).toBe(false);
     expect(shouldStopAfterRepeatedToolError(2)).toBe(false);
     expect(shouldStopAfterRepeatedToolError(3)).toBe(true);
+  });
+
+  it("permite exploração longa sem remover o limite de segurança", () => {
+    expect(MAX_TOOL_CALLS_PER_TURN).toBe(32);
   });
 });
