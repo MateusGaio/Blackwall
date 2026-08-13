@@ -69,6 +69,7 @@ describe("persistência local", () => {
     directories.push(directory);
     const first = openDatabase(directory);
     const profileId = randomUUID();
+    const previousProfileId = randomUUID();
     const workspaceId = randomUUID();
     const timestamp = Date.now();
     const legacySoul =
@@ -78,6 +79,18 @@ describe("persistência local", () => {
         "INSERT INTO profiles (id, name, locale, soul, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
       )
       .run(profileId, "Dev", "en", legacySoul, timestamp, timestamp);
+    first.client
+      .prepare(
+        "INSERT INTO profiles (id, name, locale, soul, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        previousProfileId,
+        "Dev anterior",
+        "en",
+        "You are Blackwall Dev, a senior software engineer. Work from the selected Blackwall workspace as the source of truth.",
+        timestamp,
+        timestamp,
+      );
     first.client
       .prepare(
         "INSERT INTO workspaces (id, profile_id, name, root_path, soul, permission_mode, last_opened_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -102,8 +115,12 @@ describe("persistência local", () => {
     const workspace = restored.client
       .prepare("SELECT soul FROM workspaces WHERE id = ?")
       .get(workspaceId) as { soul: string };
+    const previousProfile = restored.client
+      .prepare("SELECT soul FROM profiles WHERE id = ?")
+      .get(previousProfileId) as { soul: string };
     expect(profile.soul).toContain("call list_directory");
     expect(workspace.soul).toContain("call list_directory");
+    expect(previousProfile.soul).toContain("targeted recursive pass");
     restored.close();
   });
 
