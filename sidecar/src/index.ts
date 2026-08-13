@@ -25,6 +25,7 @@ import {
   type ProviderInput,
   providerApiKey,
   removeProvider,
+  resolveProviderModelInput,
   routeCandidates,
   saveProvider,
   syncProviderModels,
@@ -302,7 +303,10 @@ export function createSidecar(
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/models") {
-        const input = (await requestBody(request)) as ProviderInput;
+        const input = await resolveProviderModelInput(
+          (await requestBody(request)) as ProviderInput,
+          storageDirectory,
+        );
         writeJson(response, 200, { models: await listProviderModels(input) });
         return;
       }

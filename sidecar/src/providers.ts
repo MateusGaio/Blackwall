@@ -365,6 +365,27 @@ export async function listProviderModels(
   );
 }
 
+/**
+ * Resolve credentials from the persisted provider while preserving values
+ * currently being edited in the form. This lets model discovery test an
+ * unsaved endpoint without requiring the user to overwrite the provider first.
+ */
+export async function resolveProviderModelInput(
+  input: ProviderInput,
+  dataDirectory = providerDataDirectory(),
+): Promise<ProviderInput> {
+  if (!input.id) return input;
+  const existing = await getProvider(input.id, dataDirectory);
+  return {
+    ...input,
+    apiKey: input.apiKey?.trim() || (await providerApiKey(input.id, dataDirectory)),
+    baseUrl: input.baseUrl.trim() || existing.baseUrl,
+    model: input.model.trim() || existing.model,
+    name: input.name.trim() || existing.name,
+    type: input.type ?? existing.type,
+  };
+}
+
 export async function syncProviderModels(
   providerId: string,
   provider: ProviderInput,

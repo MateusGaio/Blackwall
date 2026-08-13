@@ -12,6 +12,7 @@ import {
   ProviderHttpError,
   providerApiKey,
   removeProvider,
+  resolveProviderModelInput,
   routeCandidates,
   saveProvider,
   syncProviderModels,
@@ -172,6 +173,52 @@ describe("providers", () => {
     await expect(providerApiKey(provider.id, directory)).resolves.toBe("keep-me-encrypted");
     await expect(removeProvider(provider.id, directory)).resolves.toEqual({ id: provider.id });
     await expect(getProvider(provider.id, directory)).rejects.toThrow("não existe");
+  });
+
+  it("usa a URL editada e recupera a chave salva ao listar modelos", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-discovery-"));
+    directories.push(directory);
+    const provider = await saveProvider(
+      {
+        apiKey: "stored-discovery-key",
+        baseUrl: "https://old.example.com/v1",
+        model: "old-model",
+        name: "Existing provider",
+      },
+      directory,
+    );
+
+    const resolved = await resolveProviderModelInput(
+      {
+        baseUrl: "https://opencode.ai/zen/v1",
+        id: provider.id,
+        model: "discovery",
+        name: "OpenCode Zen",
+      },
+      directory,
+    );
+    expect(resolved).toMatchObject({
+      apiKey: "stored-discovery-key",
+      baseUrl: "https://opencode.ai/zen/v1",
+      id: provider.id,
+      model: "discovery",
+      name: "OpenCode Zen",
+      type: "openai-compatible",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ id: "deepseek-v4-flash-free" }] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+    await expect(listProviderModels(resolved, request)).resolves.toEqual([
+      { capabilities: [], id: "deepseek-v4-flash-free", name: "deepseek-v4-flash-free" },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      "https://opencode.ai/zen/v1/models",
+      expect.objectContaining({
+        headers: { authorization: "Bearer stored-discovery-key" },
+      }),
+    );
   });
 
   it("usa adaptadores e mapeia erros de configuração sem torná-los elegíveis para fallback", async () => {

@@ -7,7 +7,6 @@ import {
   createWorkspace,
   deleteProvider,
   discoverProviderModels,
-  listStoredProviderModels,
   type Profile,
   type ProviderModel,
   setWorkspaceSoul,
@@ -125,14 +124,13 @@ export function ProviderManager({
     setError("");
     setIsListingModels(true);
     try {
-      const listed = editingId
-        ? await listStoredProviderModels(editingId)
-        : await discoverProviderModels({
-            apiKey: form.apiKey || undefined,
-            baseUrl: form.baseUrl,
-            name: form.name,
-            type: form.type,
-          });
+      const listed = await discoverProviderModels({
+        apiKey: form.apiKey || undefined,
+        baseUrl: form.baseUrl,
+        id: editingId ?? undefined,
+        name: form.name,
+        type: form.type,
+      });
       setProviderModels(listed);
       if (!form.model && listed[0]) updateForm("model", listed[0].id);
       if (!listed.length) setStatus("Nenhum modelo foi retornado por este provedor.");
