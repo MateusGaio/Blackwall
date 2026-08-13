@@ -42,8 +42,14 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
     const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
     await expect(vaultToggle).toBeVisible();
-    await vaultToggle.click();
-    await page.getByRole("tab", { name: "Grafo", exact: true }).click();
+    // Com um workspace ativo, o Vault já inicia aberto. Só alternamos o
+    // botão quando o painel não estiver presente (por exemplo, após uma
+    // preferência de recolhimento persistida).
+    const vaultSlot = page.locator(".vault-slot");
+    if ((await vaultSlot.count()) === 0) await vaultToggle.click();
+    const graphTab = page.getByRole("tab", { name: "Grafo", exact: true });
+    await expect(graphTab).toBeVisible();
+    await graphTab.click();
     const graphCanvas = page.locator(".vault-graph-canvas");
     await expect(graphCanvas).toBeVisible();
     const graphHeight = await graphCanvas.evaluate((element) => element.getBoundingClientRect().height);
