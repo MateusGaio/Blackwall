@@ -158,6 +158,7 @@ export default function WorkspaceShell({
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspacePickerRef = useRef<HTMLSelectElement | null>(null);
   const activeSessionIdRef = useRef<string | null>(appState?.activeSessionId ?? null);
+  const lastAppStateRef = useRef(appState);
   const vaultResizeRef = useRef<{ startWidth: number; startX: number } | null>(null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
@@ -175,16 +176,12 @@ export default function WorkspaceShell({
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
 
   useEffect(() => {
-    if (
-      !appState ||
-      (appState.activeSessionId === state?.activeSessionId &&
-        appState.activeProfileId === state?.activeProfileId)
-    )
-      return;
+    if (!appState || appState === lastAppStateRef.current) return;
+    lastAppStateRef.current = appState;
     activeSessionIdRef.current = appState.activeSessionId;
     setState(appState);
     setMessages(appState.messages);
-  }, [appState, state?.activeProfileId, state?.activeSessionId]);
+  }, [appState]);
 
   useEffect(() => {
     writeBooleanPreference(sidebarCollapsedPreference, sidebarCollapsed);
@@ -377,7 +374,7 @@ export default function WorkspaceShell({
     setIsCreatingSession(true);
     setError("");
     try {
-      const session = await createSession(workspace?.id ?? null);
+      const session = await createSession(workspace?.id ?? null, undefined, state.activeProfileId);
       await openSession(session.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Não foi possível criar a sessão.");
@@ -435,9 +432,30 @@ export default function WorkspaceShell({
     }
     const session = await createSession(created.id);
     const nextState = await selectSession(session.id);
-    setState(nextState);
-    setMessages(nextState.messages);
+    const nextStateWithWorkspace: AppState = {
+      ...nextState,
+      activeSessionId: session.id,
+      activeWorkspaceId: created.id,
+      recentSessions: nextState.recentSessions.some((item) => item.id === session.id)
+        ? nextState.recentSessions
+        : [{ ...session, workspaceName: created.name }, ...nextState.recentSessions],
+      sessions: nextState.sessions.some((item) => item.id === session.id)
+        ? nextState.sessions
+        : [session, ...nextState.sessions],
+      workspaces: nextState.workspaces.some((item) => item.id === created.id)
+        ? nextState.workspaces
+        : [created, ...nextState.workspaces],
+    };
+    activeSessionIdRef.current = session.id;
+    setState(nextStateWithWorkspace);
+    setMessages(nextStateWithWorkspace.messages);
+    setActiveProvider(
+      session.selectedProviderId
+        ? (providers.find((item) => item.id === session.selectedProviderId) ?? providers[0] ?? null)
+        : (providers[0] ?? null),
+    );
     setShowVault(true);
+    setVaultCollapsed(false);
     setResourceNotice("");
   }
 
@@ -776,7 +794,7 @@ export default function WorkspaceShell({
               onClick={() => void newSession()}
               type="button"
             >
-              +
+              {isCreatingSession ? "…" : "+"}
             </button>
           </div>
           <nav aria-label="Sessões recentes" ref={recentSessionsRef} tabIndex={-1}>

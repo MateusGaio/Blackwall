@@ -241,6 +241,7 @@ export function createSidecar(
       }
       if (request.method === "POST" && pathname === "/v1/sessions") {
         const input = (await requestBody(request)) as {
+          profileId?: string | null;
           title?: string;
           workspaceId?: string | null;
         };

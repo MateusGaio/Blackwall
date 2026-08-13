@@ -43,6 +43,100 @@ async function readBrowserDirectory(
   return output;
 }
 
+export async function browserFilesToFolderSelection(
+  files: File[] | FileList,
+): Promise<FolderSelection | null> {
+  const selected = Array.from(files);
+  if (!selected.length) return null;
+  const selectedFiles: WorkspaceFile[] = [];
+  let totalBytes = 0;
+  for (const file of selected.filter((item) => /\.(md|markdown)$/i.test(item.name)).slice(0, 500)) {
+    if (totalBytes >= 25_000_000 || file.size > 2_000_000) continue;
+    const content = await file.text();
+    if (totalBytes + content.length > 25_000_000) break;
+    totalBytes += content.length;
+    selectedFiles.push({
+      content,
+      relativePath:
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+    });
+  }
+  const firstPath =
+    (selected[0] as File & { webkitRelativePath?: string }).webkitRelativePath ?? selected[0].name;
+  const name = firstPath.split("/").filter(Boolean)[0] ?? "Workspace";
+  return { files: selectedFiles, name, path: null, source: "web" };
+}
+
+function readBrowserInput(input: HTMLInputElement): Promise<FolderSelection | null> {
+  return new Promise((resolve) => {
+    input.addEventListener(
+      "change",
+      () => {
+        const files = Array.from(input.files ?? []);
+        input.remove();
+        if (!files.length) {
+          resolve(null);
+          return;
+        }
+        void browserFilesToFolderSelection(files).then(resolve);
+      },
+      { once: true },
+    );
+    input.click();
+  });
+}
+
+/**
+ * Starts the browser picker during the original click event. Keeping the
+ * picker invocation synchronous preserves the browser's transient user
+ * activation, including in localhost web-dev builds.
+ */
+export function pickBrowserDirectory(): Promise<FolderSelection | null> {
+  const browserWindow = window as Window & {
+    showDirectoryPicker?: () => Promise<BrowserDirectoryEntry>;
+  };
+  if (browserWindow.showDirectoryPicker) {
+    try {
+      return browserWindow
+        .showDirectoryPicker()
+        .then(async (directory) => ({
+          files: await readBrowserDirectory(directory),
+          name: directory.name,
+          path: null,
+          source: "web" as const,
+        }))
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") return null;
+          const input = document.createElement("input");
+          input.type = "file";
+          input.multiple = true;
+          input.setAttribute("webkitdirectory", "");
+          input.setAttribute("directory", "");
+          input.setAttribute("aria-label", "Escolher pasta do workspace");
+          input.style.position = "fixed";
+          input.style.left = "-10000px";
+          input.style.top = "0";
+          document.body.appendChild(input);
+          return readBrowserInput(input);
+        });
+    } catch {
+      // Fall through to the compatible input picker below.
+    }
+  }
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.setAttribute("webkitdirectory", "");
+  input.setAttribute("directory", "");
+  input.setAttribute("aria-label", "Escolher pasta do workspace");
+  input.style.position = "fixed";
+  input.style.left = "-10000px";
+  input.style.top = "0";
+  document.body.appendChild(input);
+  return readBrowserInput(input);
+}
+
 export function currentRuntime(): "desktop" | "web" {
   return isTauri() ? "desktop" : "web";
 }
@@ -57,74 +151,20 @@ export async function sidecarUrl(): Promise<string> {
 
 export async function pickDirectory(): Promise<FolderSelection | null> {
   if (isTauri()) {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Escolha a pasta do workspace",
-    });
+    let selected: string | string[] | null;
+    try {
+      selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Escolha a pasta do workspace",
+      });
+    } catch {
+      throw new Error("Não foi possível abrir o seletor de pastas do desktop.");
+    }
     if (typeof selected !== "string") return null;
     const name = selected.split(/[\\/]/).filter(Boolean).at(-1) ?? selected;
     return { files: [], name, path: selected, source: "desktop" };
   }
 
-  const browserWindow = window as Window & {
-    showDirectoryPicker?: () => Promise<BrowserDirectoryEntry>;
-  };
-  if (browserWindow.showDirectoryPicker) {
-    try {
-      const directory = await browserWindow.showDirectoryPicker();
-      const files = await readBrowserDirectory(directory);
-      return { files, name: directory.name, path: null, source: "web" };
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return null;
-    }
-  }
-
-  return new Promise((resolve) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.multiple = true;
-    input.setAttribute("webkitdirectory", "");
-    input.setAttribute("directory", "");
-    input.addEventListener(
-      "change",
-      () => {
-        const files = Array.from(input.files ?? []);
-        input.remove();
-        if (!files.length) {
-          resolve(null);
-          return;
-        }
-        void (async () => {
-          const selectedFiles: WorkspaceFile[] = [];
-          let totalBytes = 0;
-          for (const file of files
-            .filter((item) => /\.(md|markdown)$/i.test(item.name))
-            .slice(0, 500)) {
-            if (totalBytes >= 25_000_000 || file.size > 2_000_000) continue;
-            const content = await file.text();
-            if (totalBytes + content.length > 25_000_000) break;
-            totalBytes += content.length;
-            selectedFiles.push({
-              content,
-              relativePath:
-                (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-            });
-          }
-          const firstPath =
-            (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath ??
-            files[0].name;
-          const name = firstPath.split("/").filter(Boolean)[0] ?? "Workspace";
-          resolve({ files: selectedFiles, name, path: null, source: "web" });
-        })();
-      },
-      { once: true },
-    );
-    input.setAttribute("aria-label", "Escolher pasta do workspace");
-    input.style.position = "fixed";
-    input.style.left = "-10000px";
-    input.style.top = "0";
-    document.body.appendChild(input);
-    input.click();
-  });
+  return pickBrowserDirectory();
 }

@@ -178,6 +178,37 @@ describe("persistência local", () => {
     database.close();
   });
 
+  it("permite adicionar mais de um workspace web ao mesmo perfil", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-multiple-web-workspaces-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database, directory);
+    const profile = await store.createProfile({ locale: "pt-BR", name: "Ada", soul: "Profile" });
+
+    const first = await store.createWebWorkspace({
+      files: [{ content: "# Primeiro", relativePath: "Primeiro.md" }],
+      name: "Primeiro workspace",
+      profileId: profile.id,
+      soul: "Workspace primeiro",
+    });
+    const second = await store.createWebWorkspace({
+      files: [{ content: "# Segundo", relativePath: "Segundo.md" }],
+      name: "Segundo workspace",
+      profileId: profile.id,
+      soul: "Workspace segundo",
+    });
+
+    const workspaces = store.listWorkspaces(profile.id);
+    expect(workspaces).toHaveLength(2);
+    expect(new Set(workspaces.map((workspace) => workspace.id))).toEqual(
+      new Set([first.id, second.id]),
+    );
+    expect(workspaces.map((workspace) => workspace.name)).toEqual(
+      expect.arrayContaining(["Primeiro workspace", "Segundo workspace"]),
+    );
+    database.close();
+  });
+
   it("permite iniciar sem workspace e mantém a sessão persistente", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-no-workspace-"));
     directories.push(directory);

@@ -566,7 +566,7 @@ export function VaultPanel({ onCollapse, onTabChange, tab, workspaceId }: VaultP
       {graph && tab === "graph" && (
         <div className="vault-graph-frame">
           <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
-          <p className="vault-count">
+          <p className="vault-count" aria-live="polite">
             {graph.files.length} arquivos · {graph.edges.length} links
           </p>
         </div>

@@ -251,9 +251,13 @@ export async function listProviders(): Promise<ConnectedProvider[]> {
   return response.providers;
 }
 
-export async function createSession(workspaceId: string | null, title?: string): Promise<Session> {
+export async function createSession(
+  workspaceId: string | null,
+  title?: string,
+  profileId?: string | null,
+): Promise<Session> {
   const response = await request<{ session: Session }>("/v1/sessions", {
-    body: JSON.stringify({ title, workspaceId }),
+    body: JSON.stringify({ profileId, title, workspaceId }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });

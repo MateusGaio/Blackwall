@@ -1,6 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
-import { type FolderSelection, pickDirectory } from "../../../platform/runtime";
+import {
+  browserFilesToFolderSelection,
+  currentRuntime,
+  type FolderSelection,
+  pickBrowserDirectory,
+  pickDirectory,
+} from "../../../platform/runtime";
 import {
   type ConnectedProvider,
   connectProvider,
@@ -80,6 +86,7 @@ export function ProviderManager({
   const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [isListingModels, setIsListingModels] = useState(false);
+  const runtime = currentRuntime();
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
@@ -257,11 +264,28 @@ export function ProviderManager({
   }
 
   async function chooseWorkspaceFolder() {
-    const selected = await pickDirectory();
-    if (!selected) return;
-    setWorkspaceFolder(selected);
-    setWorkspaceName((current) => current || selected.name);
     setWorkspaceStatus("");
+    try {
+      const selected =
+        currentRuntime() === "web" ? await pickBrowserDirectory() : await pickDirectory();
+      if (!selected) return;
+      setWorkspaceFolder(selected);
+      setWorkspaceName((current) => current || selected.name);
+    } catch (reason) {
+      setWorkspaceStatus(
+        reason instanceof Error ? reason.message : "Não foi possível escolher a pasta.",
+      );
+    }
+  }
+
+  function chooseBrowserWorkspaceFolder(event: ChangeEvent<HTMLInputElement>) {
+    void browserFilesToFolderSelection(event.target.files ?? []).then((selected) => {
+      event.target.value = "";
+      if (!selected) return;
+      setWorkspaceFolder(selected);
+      setWorkspaceName((current) => current || selected.name);
+      setWorkspaceStatus("");
+    });
   }
 
   async function submitWorkspace(event: FormEvent<HTMLFormElement>) {
@@ -416,14 +440,30 @@ export function ProviderManager({
                 value={workspaceName}
               />
             </label>
-            <button
-              className="folder-select-button settings-folder-button"
-              onClick={() => void chooseWorkspaceFolder()}
-              type="button"
-            >
-              <strong>{workspaceFolder?.name ?? "Escolher pasta"}</strong>
-              <small>Selecione uma pasta para habilitar Vault, grafo e ferramentas.</small>
-            </button>
+            {runtime === "web" ? (
+              <label className="folder-select-button settings-folder-button">
+                <input
+                  aria-label="Escolher pasta do workspace"
+                  onChange={chooseBrowserWorkspaceFolder}
+                  ref={(input) => {
+                    input?.setAttribute("webkitdirectory", "");
+                    input?.setAttribute("directory", "");
+                  }}
+                  type="file"
+                />
+                <strong>{workspaceFolder?.name ?? "Escolher pasta"}</strong>
+                <small>Selecione uma pasta para habilitar Vault, grafo e ferramentas.</small>
+              </label>
+            ) : (
+              <button
+                className="folder-select-button settings-folder-button"
+                onClick={() => void chooseWorkspaceFolder()}
+                type="button"
+              >
+                <strong>{workspaceFolder?.name ?? "Escolher pasta"}</strong>
+                <small>Selecione uma pasta para habilitar Vault, grafo e ferramentas.</small>
+              </button>
+            )}
             <button
               className="button button-primary"
               disabled={isSaving || !workspaceName.trim() || !workspaceFolder}
