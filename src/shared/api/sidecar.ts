@@ -101,6 +101,99 @@ export type ChatMessage = {
   role: "assistant" | "system" | "tool" | "user";
 };
 
+export type WorkspaceToolName =
+  | "apply_patch"
+  | "create_or_update_file"
+  | "execute_command"
+  | "list_directory"
+  | "read_file"
+  | "search_text";
+
+export type WorkspaceToolApproval = {
+  args: Record<string, unknown>;
+  id: string;
+  requestId: string;
+  sessionId: string | null;
+  tool: WorkspaceToolName;
+  workspaceId: string;
+};
+
+export type WorkspaceToolDecision = "allow_once" | "allow_session" | "deny";
+
+type WorkspaceToolHandlers = {
+  onApproval: (
+    approval: WorkspaceToolApproval,
+    resolve: (decision: WorkspaceToolDecision) => void,
+  ) => void;
+};
+
+export async function executeWorkspaceTool(
+  input: {
+    args: Record<string, unknown>;
+    requestId?: string;
+    sessionId?: string | null;
+    tool: WorkspaceToolName;
+    workspaceId: string;
+  },
+  handlers: WorkspaceToolHandlers,
+): Promise<unknown> {
+  const baseUrl = await sidecarUrl();
+  if (!baseUrl) throw new Error("O sidecar local não está disponível.");
+  const socket = new WebSocket(baseUrl.replace(/^http/, "ws"));
+  const requestId = input.requestId ?? crypto.randomUUID();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      callback();
+      socket.close();
+    };
+    const sendDecision = (decision: WorkspaceToolDecision) => {
+      if (settled || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ decision, requestId, type: "approval.resolve" }));
+    };
+
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({ ...input, requestId, type: "tool.execute" }));
+    });
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data)) as {
+        args?: Record<string, unknown>;
+        error?: string;
+        message?: string;
+        requestId?: string;
+        result?: unknown;
+        type?: string;
+      };
+      if (message.requestId !== requestId) return;
+      if (message.type === "approval.requested") {
+        handlers.onApproval(
+          {
+            args: message.args ?? input.args,
+            id: String((message as { id?: string }).id ?? crypto.randomUUID()),
+            requestId,
+            sessionId: input.sessionId ?? null,
+            tool: input.tool,
+            workspaceId: input.workspaceId,
+          },
+          sendDecision,
+        );
+      }
+      if (message.type === "tool.completed") {
+        finish(() => resolve(message.result));
+      }
+      if (message.type === "tool.failed") {
+        finish(() => reject(new Error(message.message ?? message.error ?? "A ferramenta falhou.")));
+      }
+    });
+    socket.addEventListener("error", () => {
+      finish(() => reject(new Error("A conexão local foi interrompida.")));
+    });
+  });
+}
+
 export type Attachment = {
   byteSize: number;
   createdAt?: number;

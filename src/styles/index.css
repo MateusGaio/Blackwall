@@ -2356,6 +2356,17 @@ button:disabled {
   padding: 0 10px;
 }
 
+.message-tool {
+  background: #17171a;
+  border: 1px solid #303036;
+  border-radius: 10px;
+  color: #a6a6ab;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+  max-width: min(92%, 680px);
+  padding: 10px 12px;
+}
+
 .message-pending {
   color: #929297;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -2559,6 +2570,35 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.7rem;
   margin: 0;
+}
+
+.workspace-access-request {
+  animation: card-enter 160ms ease-out both;
+  background: #17171a;
+  border: 1px solid #45454b;
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  margin: 0 auto;
+  max-width: 680px;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.workspace-access-request p {
+  margin: 0;
+}
+
+.workspace-access-request code {
+  color: #b6b6bb;
+  overflow-wrap: anywhere;
+}
+
+.workspace-access-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .chat-error {
