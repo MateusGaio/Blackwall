@@ -1815,13 +1815,41 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .usage-manual-limit {
-  align-items: end;
-  display: flex;
-  gap: 10px;
+  border-top: 1px solid #2a2b31;
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
   margin-bottom: 12px;
+  padding-top: 14px;
 }
-.usage-manual-limit .field-label {
-  flex: 1;
+.usage-manual-limit-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(110px, 1fr) minmax(84px, 0.7fr) minmax(100px, 1fr) auto;
+}
+.usage-manual-limit-row select,
+.usage-manual-limit-row input {
+  background: #14151a;
+  border: 1px solid #32343d;
+  border-radius: var(--radius-control);
+  color: #d9dadf;
+  min-width: 0;
+  padding: 8px 9px;
+}
+.usage-manual-limit .settings-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .usage-total-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .usage-manual-limit-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 .usage-skeleton {
   animation: usage-pulse 1.2s ease-in-out infinite alternate;

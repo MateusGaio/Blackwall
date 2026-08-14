@@ -16,6 +16,56 @@ type UsageDashboardProps = {
   providers: ConnectedProvider[];
 };
 
+type ManualLimitDraft = {
+  id: string;
+  metric: UsageMetric;
+  value: string;
+  window: "minute" | "hour" | "day" | "month";
+};
+
+const manualWindowSeconds: Record<ManualLimitDraft["window"], number> = {
+  day: 24 * 60 * 60,
+  hour: 60 * 60,
+  minute: 60,
+  month: 30 * 24 * 60 * 60,
+};
+
+function manualLimitLabel(
+  metric: UsageMetric,
+  window: ManualLimitDraft["window"],
+  isEnglish: boolean,
+) {
+  const metricLabel =
+    metric === "requests"
+      ? isEnglish
+        ? "requests"
+        : "requisições"
+      : metric === "tokens"
+        ? "tokens"
+        : isEnglish
+          ? "credits"
+          : "créditos";
+  const windowLabel =
+    window === "minute"
+      ? isEnglish
+        ? "minute"
+        : "minuto"
+      : window === "hour"
+        ? isEnglish
+          ? "hour"
+          : "hora"
+        : window === "day"
+          ? isEnglish
+            ? "day"
+            : "dia"
+          : isEnglish
+            ? "month"
+            : "mês";
+  return isEnglish
+    ? `Manual ${metricLabel} per ${windowLabel}`
+    : `${metricLabel} manuais por ${windowLabel}`;
+}
+
 const periods = [
   { key: "24h", ms: 24 * 60 * 60 * 1000 },
   { key: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
@@ -39,7 +89,9 @@ function UsageDashboard({
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [limit, setLimit] = useState("");
+  const [manualLimits, setManualLimits] = useState<ManualLimitDraft[]>([
+    { id: "initial", metric: "tokens", value: "", window: "day" },
+  ]);
   const [savingLimit, setSavingLimit] = useState(false);
   const [clearPending, setClearPending] = useState(false);
 
@@ -71,19 +123,24 @@ function UsageDashboard({
   }, [period, profileId, providerId]);
 
   async function saveManualLimit() {
-    const value = Number(limit);
-    if (!providerId || !Number.isFinite(value) || value <= 0) return;
+    const limits = manualLimits.flatMap((draft) => {
+      const value = Number(draft.value);
+      return Number.isFinite(value) && value > 0
+        ? [
+            {
+              label: manualLimitLabel(draft.metric, draft.window, isEnglish),
+              limit: value,
+              metric: draft.metric,
+              windowSeconds: manualWindowSeconds[draft.window],
+            },
+          ]
+        : [];
+    });
+    if (!providerId || !limits.length) return;
     setSavingLimit(true);
     setError("");
     try {
-      await setProviderUsageLimits(providerId, [
-        {
-          label: isEnglish ? "Manual daily token estimate" : "Estimativa manual diária de tokens",
-          limit: value,
-          metric: "tokens" satisfies UsageMetric,
-          windowSeconds: 24 * 60 * 60,
-        },
-      ]);
+      await setProviderUsageLimits(providerId, limits);
       const selected = periods.find((item) => item.key === period) ?? periods[2];
       const to = Date.now();
       setSummary(
@@ -94,7 +151,7 @@ function UsageDashboard({
           to,
         }),
       );
-      setLimit("");
+      setManualLimits([{ id: "initial", metric: "tokens", value: "", window: "day" }]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the manual limit.");
     } finally {
@@ -248,27 +305,6 @@ function UsageDashboard({
               </table>
             </div>
           )}
-          <div className="usage-manual-limit">
-            <label className="field-label" htmlFor="usage-manual-limit">
-              {isEnglish
-                ? "Manual daily token limit (estimate)"
-                : "Limite manual diário de tokens (estimativa)"}
-              <input
-                id="usage-manual-limit"
-                inputMode="numeric"
-                onChange={(event) => setLimit(event.target.value)}
-                value={limit}
-              />
-            </label>
-            <button
-              className="button button-secondary"
-              disabled={savingLimit || !limit}
-              onClick={() => void saveManualLimit()}
-              type="button"
-            >
-              {savingLimit ? "…" : isEnglish ? "Save estimate" : "Salvar estimativa"}
-            </button>
-          </div>
           <button className="text-button danger" onClick={() => void eraseHistory()} type="button">
             {clearPending
               ? isEnglish
@@ -280,6 +316,99 @@ function UsageDashboard({
           </button>
         </>
       ) : null}
+      <section aria-labelledby="usage-manual-limits-title" className="usage-manual-limit">
+        <p className="eyebrow" id="usage-manual-limits-title">
+          {isEnglish ? "Manual limits (estimates)" : "Limites manuais (estimativas)"}
+        </p>
+        {manualLimits.map((draft) => (
+          <div className="usage-manual-limit-row" key={draft.id}>
+            <select
+              aria-label={isEnglish ? "Manual limit metric" : "Métrica do limite manual"}
+              onChange={(event) =>
+                setManualLimits((current) =>
+                  current.map((item) =>
+                    item.id === draft.id
+                      ? { ...item, metric: event.target.value as UsageMetric }
+                      : item,
+                  ),
+                )
+              }
+              value={draft.metric}
+            >
+              <option value="requests">{isEnglish ? "Requests" : "Requisições"}</option>
+              <option value="tokens">{isEnglish ? "Tokens" : "Tokens"}</option>
+              <option value="credits">{isEnglish ? "Credits" : "Créditos"}</option>
+            </select>
+            <input
+              aria-label={isEnglish ? "Manual limit value" : "Valor do limite manual"}
+              inputMode="numeric"
+              min="1"
+              onChange={(event) =>
+                setManualLimits((current) =>
+                  current.map((item) =>
+                    item.id === draft.id ? { ...item, value: event.target.value } : item,
+                  ),
+                )
+              }
+              placeholder={isEnglish ? "Limit" : "Limite"}
+              type="number"
+              value={draft.value}
+            />
+            <select
+              aria-label={isEnglish ? "Manual limit window" : "Janela do limite manual"}
+              onChange={(event) =>
+                setManualLimits((current) =>
+                  current.map((item) =>
+                    item.id === draft.id
+                      ? { ...item, window: event.target.value as ManualLimitDraft["window"] }
+                      : item,
+                  ),
+                )
+              }
+              value={draft.window}
+            >
+              <option value="minute">{isEnglish ? "Minute" : "Minuto"}</option>
+              <option value="hour">{isEnglish ? "Hour" : "Hora"}</option>
+              <option value="day">{isEnglish ? "Day" : "Dia"}</option>
+              <option value="month">{isEnglish ? "Month" : "Mês"}</option>
+            </select>
+            {manualLimits.length > 1 && (
+              <button
+                aria-label={isEnglish ? "Remove manual limit" : "Remover limite manual"}
+                className="text-button danger"
+                onClick={() =>
+                  setManualLimits((current) => current.filter((item) => item.id !== draft.id))
+                }
+                type="button"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+        <div className="settings-actions">
+          <button
+            className="button button-secondary"
+            onClick={() =>
+              setManualLimits((current) => [
+                ...current,
+                { id: crypto.randomUUID(), metric: "tokens", value: "", window: "day" },
+              ])
+            }
+            type="button"
+          >
+            {isEnglish ? "Add limit" : "Adicionar limite"}
+          </button>
+          <button
+            className="button button-primary"
+            disabled={savingLimit || !manualLimits.some((draft) => Number(draft.value) > 0)}
+            onClick={() => void saveManualLimit()}
+            type="button"
+          >
+            {savingLimit ? "…" : isEnglish ? "Save estimates" : "Salvar estimativas"}
+          </button>
+        </div>
+      </section>
       {error && (
         <p className="form-error" role="alert">
           {error}

@@ -307,7 +307,12 @@ export function getUsageSummary(
       windowSeconds: number;
     }>;
     for (const limit of manualLimits) {
-      const used = limit.metric === "requests" ? totals.requests : totals.totalTokens;
+      const used =
+        limit.metric === "requests"
+          ? totals.requests
+          : limit.metric === "tokens"
+            ? totals.totalTokens
+            : 0;
       const remaining = Math.max(0, limit.limitValue - used);
       windows.push({
         label: limit.label,
