@@ -249,6 +249,29 @@ export async function getAppState(): Promise<AppState> {
   return request("/v1/state", { method: "GET" });
 }
 
+export async function retrySidecarRequest<T>(
+  operation: () => Promise<T>,
+  attempts = 40,
+  delayMilliseconds = 250,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) {
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, delayMilliseconds));
+      }
+    }
+  }
+  throw lastError;
+}
+
+export async function waitForAppState(): Promise<AppState> {
+  return retrySidecarRequest(getAppState);
+}
+
 export async function selectProfile(profileId: string): Promise<AppState> {
   return request("/v1/profile/select", {
     body: JSON.stringify({ profileId }),

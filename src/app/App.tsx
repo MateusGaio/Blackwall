@@ -7,11 +7,11 @@ import {
   bootstrapApp,
   type ConnectedProvider,
   deleteProfile,
-  getAppState,
   listProviders,
   type Profile,
   selectProfile,
   signOutProfile,
+  waitForAppState,
 } from "../shared/api/sidecar";
 import { SoulPicker } from "../shared/components/SoulPicker";
 import {
@@ -479,7 +479,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     const frame = window.requestAnimationFrame(() => setIsReady(true));
-    void getAppState()
+    void waitForAppState()
       .then(async (state) => {
         if (cancelled) return;
         setAvailableProfiles(state.profiles);
