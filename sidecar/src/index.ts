@@ -777,9 +777,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 (modelRecord?.resolvedProtocol as
                   | import("./tool-contract.js").ResolvedProtocol
                   | null) ??
-                (provider.baseUrl.includes("api.openai.com")
-                  ? "openai-responses"
-                  : "openai-chat"));
+                (provider.baseUrl.includes("api.openai.com") ? "openai-responses" : "openai-chat"));
           const toolsEnabled =
             Boolean(input.workspaceId) &&
             toolMode !== "disabled" &&
