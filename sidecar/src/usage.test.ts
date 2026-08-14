@@ -1,6 +1,25 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { describe, expect, it } from "vitest";
-import { mostRestrictiveWindow, normalizeTokenUsage, parseRateLimitHeaders } from "./usage";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { openDatabase } from "./db/database.js";
+import {
+  getUsageSummary,
+  mostRestrictiveWindow,
+  normalizeTokenUsage,
+  parseRateLimitHeaders,
+  recordProviderUsage,
+  setUsageLimits,
+} from "./usage";
+
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })),
+  );
+});
 
 describe("provider usage normalization", () => {
   it("normalizes OpenAI token fields without inventing missing values", () => {
@@ -56,5 +75,43 @@ describe("provider rate limits", () => {
     expect(
       mostRestrictiveWindow([{ label: "unknown", metric: "tokens", source: "provider" }]),
     ).toBeNull();
+  });
+});
+
+describe("usage persistence", () => {
+  it("returns manual limits without using SQLite reserved aliases", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-usage-"));
+    const workspace = join(directory, "workspace");
+    directories.push(directory);
+    await mkdir(workspace);
+    const database = openDatabase(directory);
+
+    recordProviderUsage(database.client, {
+      attemptId: "attempt-1",
+      modelId: "model",
+      providerId: "provider",
+      requestId: "request-1",
+    });
+    setUsageLimits(database.client, "provider", [
+      {
+        label: "Daily request estimate",
+        limit: 10,
+        metric: "requests",
+        windowSeconds: 24 * 60 * 60,
+      },
+    ]);
+
+    const summary = getUsageSummary(database.client, { providerId: "provider" });
+    expect(summary.totals.requests).toBe(1);
+    expect(summary.windows).toContainEqual(
+      expect.objectContaining({
+        label: "Daily request estimate",
+        limit: 10,
+        remaining: 9,
+        remainingPercent: 90,
+        source: "manual",
+      }),
+    );
+    database.close();
   });
 });

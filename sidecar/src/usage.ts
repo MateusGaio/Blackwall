@@ -297,24 +297,24 @@ export function getUsageSummary(
   if (filters.providerId) {
     const manualLimits = client
       .prepare(
-        `SELECT metric, label, limit_value AS limit, window_seconds AS windowSeconds
+        `SELECT metric, label, limit_value AS limitValue, window_seconds AS windowSeconds
          FROM provider_usage_limits WHERE provider_id = ? ORDER BY metric, label`,
       )
       .all(filters.providerId) as Array<{
       metric: UsageMetric;
       label: string;
-      limit: number;
+      limitValue: number;
       windowSeconds: number;
     }>;
     for (const limit of manualLimits) {
       const used = limit.metric === "requests" ? totals.requests : totals.totalTokens;
-      const remaining = Math.max(0, limit.limit - used);
+      const remaining = Math.max(0, limit.limitValue - used);
       windows.push({
         label: limit.label,
-        limit: limit.limit,
+        limit: limit.limitValue,
         metric: limit.metric,
         remaining,
-        remainingPercent: Math.max(0, Math.min(100, (remaining / limit.limit) * 100)),
+        remainingPercent: Math.max(0, Math.min(100, (remaining / limit.limitValue) * 100)),
         source: "manual",
       });
     }
