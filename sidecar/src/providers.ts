@@ -276,8 +276,10 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
     if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
       body.tool_choice = "auto";
       body.tools = toOpenAIChatTools(options.tools);
-      body.parallel_tool_calls = false;
-      if (isOpenRouter(this.provider.baseUrl)) body.provider = { require_parameters: true };
+      if (isOpenRouter(this.provider.baseUrl)) {
+        body.parallel_tool_calls = false;
+        body.provider = { require_parameters: true };
+      }
     }
     return {
       endpoint: this.endpoint("/chat/completions"),

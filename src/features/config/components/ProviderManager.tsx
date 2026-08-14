@@ -840,21 +840,23 @@ export function ProviderManager({
                   </option>
                   <option value="disabled">{isEnglish ? "Disabled" : "Desativado"}</option>
                 </select>
-                <select
-                  aria-label={isEnglish ? "Protocol preference" : "Preferência de protocolo"}
-                  onChange={(event) =>
-                    void changeProtocol(
-                      event.target.value as NonNullable<ProviderModel["protocolPreference"]>,
-                    )
-                  }
-                  value={protocolPreference}
-                >
-                  <option value="auto">
-                    {isEnglish ? "Protocol: automatic" : "Protocolo: automático"}
-                  </option>
-                  <option value="openai-chat">OpenAI Chat Completions</option>
-                  <option value="openai-responses">OpenAI Responses</option>
-                </select>
+                {form.type === "openai-compatible" && (
+                  <select
+                    aria-label={isEnglish ? "Protocol preference" : "Preferência de protocolo"}
+                    onChange={(event) =>
+                      void changeProtocol(
+                        event.target.value as NonNullable<ProviderModel["protocolPreference"]>,
+                      )
+                    }
+                    value={protocolPreference}
+                  >
+                    <option value="auto">
+                      {isEnglish ? "Protocol: automatic" : "Protocolo: automático"}
+                    </option>
+                    <option value="openai-chat">OpenAI Chat Completions</option>
+                    <option value="openai-responses">OpenAI Responses</option>
+                  </select>
+                )}
                 <div className="provider-model-capability" aria-live="polite">
                   {(() => {
                     const selected = providerModels.find((model) => model.id === form.model);

@@ -293,6 +293,7 @@ describe("providers", () => {
     ];
     const native = adapter.chatRequest("model", [], undefined, { toolMode: "auto", tools });
     expect(JSON.parse(String(native.body))).toMatchObject({ tool_choice: "auto", tools });
+    expect(JSON.parse(String(native.body))).not.toHaveProperty("parallel_tool_calls");
     const disabled = adapter.chatRequest("model", [], undefined, {
       toolMode: "disabled",
       tools,

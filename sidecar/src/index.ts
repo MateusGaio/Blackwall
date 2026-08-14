@@ -41,6 +41,7 @@ import {
   isToolName,
   MAX_TOOL_RESULT_BYTES_PER_TURN,
   parseToolArguments,
+  type ResolvedProtocol,
   resolveToolCallBudget,
   shouldStopAfterNoProgress,
   shouldStopAfterRepeatedToolError,
@@ -517,26 +518,49 @@ export function createSidecar(
         };
         const provider = await getProvider(providerId, storageDirectory);
         const storedModel = database.db
-          .select({ protocolPreference: models.protocolPreference })
+          .select({
+            protocolPreference: models.protocolPreference,
+            resolvedProtocol: models.resolvedProtocol,
+          })
           .from(models)
           .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
           .get();
-        const protocol =
+        const manualProtocol =
           input.protocol ??
-          (provider.type === "ollama"
-            ? "ollama-chat"
-            : storedModel?.protocolPreference === "openai-responses"
-              ? "openai-responses"
-              : provider.baseUrl.includes("api.openai.com")
-                ? "openai-responses"
-                : "openai-chat");
-        const result = await probeProviderTools(
-          providerId,
-          modelId,
-          protocol,
-          fetch,
-          storageDirectory,
-        );
+          (storedModel?.protocolPreference === "openai-responses"
+            ? "openai-responses"
+            : storedModel?.protocolPreference === "openai-chat"
+              ? "openai-chat"
+              : (storedModel?.resolvedProtocol as ResolvedProtocol | undefined));
+        const protocols = manualProtocol
+          ? [manualProtocol]
+          : provider.type === "ollama"
+            ? (["ollama-chat"] as const)
+            : provider.baseUrl.includes("api.openai.com")
+              ? (["openai-responses", "openai-chat"] as const)
+              : (["openai-chat", "openai-responses"] as const);
+        let result: Awaited<ReturnType<typeof probeProviderTools>> | undefined;
+        for (const protocol of protocols) {
+          const candidate = await probeProviderTools(
+            providerId,
+            modelId,
+            protocol,
+            fetch,
+            storageDirectory,
+          );
+          // Keep the strongest diagnostic while allowing a 404 on one
+          // transport to fall through to the next. In particular, a model
+          // that explicitly rejected tools must not be reported as a generic
+          // probe error just because its alternate endpoint is unavailable.
+          if (!result || candidate.support === "native" || result.support !== "unsupported") {
+            result = candidate;
+          }
+          if (candidate.support === "native") break;
+          if (candidate.support === "unsupported") continue;
+          if (candidate.support === "probe-error" && candidate.errorCode === "http_404") continue;
+          break;
+        }
+        if (!result) throw new Error("Não foi possível testar o protocolo do modelo.");
         writeJson(response, 200, {
           model: setModelCapability(
             providerId,

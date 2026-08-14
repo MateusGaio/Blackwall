@@ -201,6 +201,65 @@ describe("streaming de provedores", () => {
     ]);
   });
 
+  it("envia resultados de ferramentas do Ollama com tool_name", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-ollama-result-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5-coder:7b",
+      name: "Ollama",
+      type: "ollama",
+    });
+    let sentBody: Record<string, unknown> | undefined;
+    const request = vi.fn((_url: string, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return Promise.resolve(responseWithLines(['{"message":{"content":"ok"}}']));
+    }) as unknown as typeof fetch;
+    await streamChatMessage(
+      provider.id,
+      [
+        {
+          content: "",
+          role: "assistant",
+          tool_calls: [
+            {
+              function: { arguments: '{"path":"README.md"}', name: "read_file" },
+              id: "call_ollama",
+              type: "function",
+            },
+          ],
+        },
+        {
+          content: '{"ok":true}',
+          name: "read_file",
+          role: "tool",
+          tool_call_id: "call_ollama",
+        },
+      ],
+      provider.model,
+      () => undefined,
+      new AbortController().signal,
+      request,
+      directory,
+      { protocol: "ollama-chat", toolMode: "disabled" },
+    );
+    expect(sentBody?.messages).toEqual([
+      {
+        content: "",
+        role: "assistant",
+        tool_calls: [
+          {
+            function: { arguments: { path: "README.md" }, name: "read_file" },
+            id: "call_ollama",
+            type: "function",
+          },
+        ],
+      },
+      { content: '{"ok":true}', role: "tool", tool_name: "read_file" },
+    ]);
+  });
+
   it("preserva call_id e argumentos fragmentados do protocolo Responses", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-responses-tools-"));
     directories.push(directory);
