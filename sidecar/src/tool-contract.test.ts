@@ -1,10 +1,14 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { describe, expect, it } from "vitest";
 import {
-  MAX_TOOL_CALLS_PER_TURN,
+  DEFAULT_TOOL_CALL_BUDGET,
+  MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS,
+  MAX_TOOL_CALL_BUDGET,
   normalizeToolArguments,
   parseCompatibilityToolCall,
   parseToolArguments,
+  resolveToolCallBudget,
+  shouldStopAfterNoProgress,
   shouldStopAfterRepeatedToolError,
 } from "./tool-contract.js";
 
@@ -49,8 +53,16 @@ describe("contrato de ferramentas", () => {
     expect(shouldStopAfterRepeatedToolError(3)).toBe(true);
   });
 
-  it("permite exploração longa sem remover o limite de segurança", () => {
-    expect(MAX_TOOL_CALLS_PER_TURN).toBe(32);
+  it("usa um orçamento generoso e configurável com teto de segurança", () => {
+    expect(DEFAULT_TOOL_CALL_BUDGET).toBe(128);
+    expect(resolveToolCallBudget(200)).toBe(200);
+    expect(resolveToolCallBudget(9999)).toBe(MAX_TOOL_CALL_BUDGET);
+    expect(resolveToolCallBudget("invalido")).toBe(DEFAULT_TOOL_CALL_BUDGET);
+  });
+
+  it("interrompe chamadas idênticas que não produzem progresso", () => {
+    expect(shouldStopAfterNoProgress(1)).toBe(false);
+    expect(shouldStopAfterNoProgress(MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS)).toBe(true);
   });
 
   it("explica o formato correto dos argumentos de comandos", () => {

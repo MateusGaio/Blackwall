@@ -30,6 +30,17 @@ Para validar a base:
 npm run check
 ```
 
+O ciclo de ferramentas usa um orçamento padrão de 128 chamadas por turno, com
+um teto de segurança de 512. Para ajustar esse orçamento em uma execução local:
+
+```bash
+BLACKWALL_TOOL_CALL_BUDGET=200 npm run dev
+```
+
+Chamadas idênticas que já foram concluídas são reutilizadas sem consumir
+novamente o orçamento; ciclos sem progresso, falhas repetidas, tempo limite ou
+excesso de bytes encerram o turno.
+
 ## Aplicativo desktop
 
 O build de produção do Tauri inclui um runtime Node privado junto do sidecar. A
