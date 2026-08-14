@@ -75,6 +75,7 @@ nenhum dado do usuário é alterado.
 - React + Vite + Tailwind para a interface.
 - Sidecar Node/TypeScript para lógica de IA e comunicação local.
 - SQLite em WAL para perfis, workspaces, sessões, mensagens, provedores, modelos, anexos e aprovações.
+- O indicador de uso e o dashboard são locais: requisições são contadas por tentativa, tokens dependem do relatório do provedor, eventos detalhados expiram em 90 dias e agregados diários permanecem. Limites manuais aparecem como estimativas.
 - `secrets.enc` + `secrets.key` para chaves de provedor; nunca são gravadas no SQLite ou nos logs.
 - FTS5 para indexação textual local de Markdown, código, dados e PDFs pesquisáveis.
 - Vault Markdown local com leitura de notas e grafo de `[[wikilinks]]`; RAG semântico/LanceDB, MCP, agentes e LoRA permanecem no roadmap das fases seguintes.

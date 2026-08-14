@@ -73,7 +73,9 @@ Confirmando o que já foi definido: **Grafo do Vault** e **Grafo de Agentes** s�
 
 **Limitação técnica real, documentada aqui para não gerar expectativa errada:** a maioria dos provedores gratuitos **não expõe uma API de "quanto ainda resta"** — eles só recusam a requisição quando o limite é atingido. Por isso, o dashboard mostra, "na medida do possível":
 - **O que o Blackwall sabe com certeza:** quanto ele mesmo já enviou (tokens/requisições) por provedor, contado localmente.
-- **O que é conhecido por documentação:** para provedores que publicam limites fixos (ex: X requisições/dia), o dashboard mostra uma estimativa de "restante" com base nesse limite documentado, atualizado manualmente na config de provedores.
+- **O que é conhecido por documentação:** para provedores que publicam limites fixos (ex: X requisições/dia), o dashboard mostra uma estimativa de "restante" somente quando o usuário configura esse limite manualmente; a etiqueta deixa explícito que é uma estimativa.
+- **O que é informado pelo provedor:** headers de rate-limit, `usage` OpenAI-compatible e contadores de avaliação Ollama são preservados separadamente. Ollama não recebe saldo ou renovação inventados.
+- O indicador compacto mostra a menor porcentagem restante entre janelas conhecidas; sem denominador mostra consumo observado ou “Uso indisponível”.
 - **Onde não há informação:** o dashboard mostra só o consumido, sem fingir saber o restante.
 
 ---

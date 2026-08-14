@@ -11,6 +11,44 @@ export type ConnectedProvider = {
   type: "openai-compatible" | "ollama";
 };
 
+export type UsageSource = "provider" | "local" | "manual";
+export type UsageMetric = "requests" | "tokens" | "credits";
+export type TokenUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+};
+export type UsageWindow = {
+  metric: UsageMetric;
+  label: string;
+  limit?: number;
+  used?: number;
+  remaining?: number;
+  remainingPercent?: number;
+  resetAt?: number;
+  source: UsageSource;
+};
+export type UsageSummary = {
+  totals: {
+    requests: number;
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+  };
+  windows: UsageWindow[];
+  daily: Array<{
+    date: string;
+    providerId: string;
+    modelId: string;
+    requests: number;
+    totalTokens: number;
+  }>;
+};
+
 export type Profile = {
   avatarData: string | null;
   id: string;
@@ -195,6 +233,12 @@ export type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
+  protocolPreference?: "auto" | "openai-chat" | "openai-responses";
+  resolvedProtocol?: "openai-chat" | "openai-responses" | "ollama-chat";
+  toolCheckedAt?: number;
+  toolProbeErrorCode?: string;
+  toolSupport?: "unknown" | "native" | "unsupported" | "probe-error";
+  toolSupportSource?: "metadata" | "probe" | "manual";
   toolMode?: "auto" | "compatibility" | "disabled";
 };
 
@@ -230,6 +274,37 @@ export async function setProviderModelToolMode(
       method: "PATCH",
     },
   );
+}
+
+export async function setProviderModelProtocol(
+  providerId: string,
+  modelId: string,
+  protocolPreference: NonNullable<ProviderModel["protocolPreference"]>,
+): Promise<void> {
+  await request(
+    `/v1/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/protocol`,
+    {
+      body: JSON.stringify({ protocolPreference }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+}
+
+export async function probeProviderModel(
+  providerId: string,
+  modelId: string,
+  protocol?: ProviderModel["resolvedProtocol"],
+): Promise<ProviderModel> {
+  const response = await request<{ model: ProviderModel }>(
+    `/v1/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/probe`,
+    {
+      body: JSON.stringify(protocol ? { protocol } : {}),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.model;
 }
 
 export async function setSessionModel(
@@ -479,6 +554,52 @@ export async function removeAttachment(attachmentId: string): Promise<void> {
   await request(`/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
 }
 
+export async function getUsageSummary(
+  filters: {
+    profileId?: string;
+    providerId?: string;
+    modelId?: string;
+    sessionId?: string;
+    from?: number;
+    to?: number;
+  } = {},
+): Promise<UsageSummary> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) query.set(key, String(value));
+  }
+  return request<UsageSummary>(`/v1/usage/summary?${query.toString()}`, { method: "GET" });
+}
+
+export async function getProviderUsage(
+  providerId: string,
+  filters: Omit<Parameters<typeof getUsageSummary>[0], "providerId"> = {},
+): Promise<UsageSummary> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) query.set(key, String(value));
+  }
+  return request<UsageSummary>(
+    `/v1/providers/${encodeURIComponent(providerId)}/usage?${query.toString()}`,
+    { method: "GET" },
+  );
+}
+
+export async function setProviderUsageLimits(
+  providerId: string,
+  limits: Array<{ metric: UsageMetric; label: string; limit: number; windowSeconds: number }>,
+): Promise<void> {
+  await request(`/v1/providers/${encodeURIComponent(providerId)}/usage-limits`, {
+    body: JSON.stringify({ limits }),
+    headers: { "content-type": "application/json" },
+    method: "PUT",
+  });
+}
+
+export async function clearUsageHistory(): Promise<void> {
+  await request("/v1/usage/history", { method: "DELETE" });
+}
+
 export type StreamResult = {
   content: string;
   error?: string;
@@ -487,6 +608,7 @@ export type StreamResult = {
   provider: ConnectedProvider | null;
   stopped?: boolean;
   toolCalls?: ToolCall[];
+  usage?: { tokens?: TokenUsage; windows?: UsageWindow[] };
 };
 
 export type StreamHandlers = {
@@ -498,6 +620,12 @@ export type StreamHandlers = {
   onToolCompleted?: (result: unknown, callId?: string) => void;
   onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
   onRetry?: (message: string) => void;
+  onUsage?: (usage: {
+    providerId?: string;
+    model?: string;
+    tokens?: TokenUsage;
+    windows?: UsageWindow[];
+  }) => void;
 };
 
 export function isStreamEventForRequest(
@@ -567,6 +695,10 @@ export async function streamMessage(
       sessionId?: string;
       tool?: WorkspaceToolName;
       type?: string;
+      providerId?: string;
+      model?: string;
+      tokens?: TokenUsage;
+      windows?: UsageWindow[];
     };
     // A socket normally carries one request, but keeping the guard here makes
     // multiplexed/late events harmless when the user changes sessions.
@@ -577,6 +709,13 @@ export async function streamMessage(
     }
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? "Tentando novamente…");
+    if (message.type === "usage.updated")
+      handlers.onUsage?.({
+        model: message.model,
+        providerId: message.providerId,
+        tokens: message.tokens,
+        windows: message.windows,
+      });
     if (message.type === "tool.started" && message.tool)
       handlers.onToolStarted?.(message.tool, message.args ?? {}, message.callId);
     if (message.type === "approval.requested" && message.tool && handlers.onApproval) {
@@ -610,6 +749,7 @@ export async function streamMessage(
         persisted: message.persisted,
         provider: message.provider ?? null,
         toolCalls: [],
+        usage: { tokens: message.tokens, windows: message.windows },
       });
       socket.close();
     }
