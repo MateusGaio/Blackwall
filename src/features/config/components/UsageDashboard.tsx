@@ -205,6 +205,15 @@ function UsageDashboard({
                         ? "Limit not reported"
                         : "Limite não informado"
                       : `${Math.round(window.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`}
+                    {window.resetAt && (
+                      <small>
+                        {isEnglish ? " · resets " : " · renova "}
+                        {new Intl.DateTimeFormat(undefined, {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        }).format(window.resetAt)}
+                      </small>
+                    )}
                   </span>
                 </div>
               ))
@@ -216,6 +225,29 @@ function UsageDashboard({
               </p>
             )}
           </div>
+          {summary.daily.length > 0 && (
+            <div className="usage-daily-table-wrap">
+              <p className="eyebrow">{isEnglish ? "Daily history" : "Histórico diário"}</p>
+              <table className="usage-daily-table">
+                <thead>
+                  <tr>
+                    <th>{isEnglish ? "Date" : "Data"}</th>
+                    <th>{isEnglish ? "Requests" : "Requisições"}</th>
+                    <th>{isEnglish ? "Tokens" : "Tokens"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.daily.map((row) => (
+                    <tr key={`${row.date}-${row.providerId}-${row.modelId}`}>
+                      <td>{row.date}</td>
+                      <td>{formatNumber(row.requests)}</td>
+                      <td>{formatNumber(row.totalTokens)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="usage-manual-limit">
             <label className="field-label" htmlFor="usage-manual-limit">
               {isEnglish
