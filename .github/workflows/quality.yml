@@ -87,6 +87,7 @@ jobs:
             xvfb
           cargo install tauri-driver --locked
       - run: npm ci
+      - run: npm run build:sidecar
       - run: npm run prepare:desktop-runtime
       - run: npm run build:desktop -- --no-bundle
       - run: xvfb-run --auto-servernum npm run e2e:desktop
