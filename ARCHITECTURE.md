@@ -218,6 +218,7 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 - Perfis, workspaces vinculados a pastas quando criados, sessões sem workspace e Souls combináveis.
 - SQLite em WAL com migração idempotente para sessões, mensagens, provedores, modelos, anexos e aprovações. Sessões carregam `profile_id` (herdado do workspace ou do perfil ativo) e o sidecar expõe uma consulta de até 30 sessões recentes por perfil, ordenadas por `updated_at DESC`.
 - APIs OpenAI-compatible e Ollama, múltiplos provedores, seletor de modelos e fallback para erros transitórios.
+- Rastreamento local de uso: cada tentativa de provedor registra requisições e, quando disponibilizados, tokens de entrada/saída/cache/raciocínio. Eventos detalhados ficam 90 dias; agregados diários permanecem. Limites manuais são marcados como estimativas e nenhum percentual é calculado sem denominador.
 - Streaming WebSocket, parada preservando parcial, fila FIFO por workspace e título automático da sessão.
 - Anexos locais com extração de texto, PDF pesquisável e índice SQLite FTS5.
 - Seletor de diretório nativo no desktop e no navegador web dev; Markdown da pasta é persistido localmente no web dev e exposto por um Vault textual com grafo de links. Sessões sem workspace usam `sessions.workspace_id = NULL` e não habilitam filesystem, anexos ou Vault.
