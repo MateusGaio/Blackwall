@@ -6,8 +6,16 @@
     "sidecar/src/providers.ts",
     "sidecar/src/streaming.ts",
     "sidecar/src/tool-contract.ts",
+    "scripts/seed-desktop-harness.mjs",
+    "wdio.conf.mjs",
     "src/shared/api/sidecar.ts"
   ],
   "project": ["src/**/*.{ts,tsx}", "sidecar/src/**/*.ts"],
-  "ignoreDependencies": ["tailwindcss"]
+  "ignoreDependencies": [
+    "@wdio/cli",
+    "@wdio/local-runner",
+    "@wdio/mocha-framework",
+    "tailwindcss",
+    "webdriverio"
+  ]
 }

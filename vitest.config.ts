@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    exclude: ["e2e/**", "node_modules/**", "desktop-runtime/**", "src-tauri/**"],
+    exclude: ["e2e/**", "e2e-desktop/**", "node_modules/**", "desktop-runtime/**", "src-tauri/**"],
     coverage: {
       all: true,
       include: ["src/app/onboarding.ts", "sidecar/src/**/*.ts"],
