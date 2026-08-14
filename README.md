@@ -11,6 +11,11 @@ npm install
 npm run dev:desktop
 ```
 
+O launcher do desktop verifica se o servidor web e o sidecar já estão ativos
+(por exemplo, quando `npm run dev` está aberto no navegador) e reutiliza essa
+instância. Assim não são iniciados dois sidecars na porta `1422`, o que evita o
+encerramento do `beforeDevCommand` com código `143`.
+
 Para testar no navegador durante o desenvolvimento (o sidecar local é iniciado automaticamente):
 
 ```bash
@@ -24,6 +29,34 @@ Para validar a base:
 ```bash
 npm run check
 ```
+
+## Aplicativo desktop
+
+O build de produção do Tauri inclui um runtime Node privado junto do sidecar. A
+versão instalada não depende de Node estar disponível no `PATH` do usuário.
+
+Em Linux, o pacote inicial pode ser gerado com:
+
+```bash
+npm run build:desktop
+```
+
+Esse comando produz os formatos AppImage e `.deb` em `src-tauri/target/release/bundle`.
+O arquivo `desktop-runtime/` é temporário e fica fora do Git. Por padrão, o
+runtime é copiado do Node usado para executar o build. Para empacotar um runtime
+preparado para o alvo, informe `BLACKWALL_NODE_RUNTIME=/caminho/para/node` antes
+de executar o comando.
+
+Antes de publicar um artefato, valide que o sidecar empacotado inicia sem Node no
+`PATH`:
+
+```bash
+npm run prepare:desktop-runtime
+npm run smoke:desktop-runtime
+```
+
+O smoke check usa uma pasta temporária para o banco e encerra o sidecar ao final;
+nenhum dado do usuário é alterado.
 
 ## Arquitetura
 

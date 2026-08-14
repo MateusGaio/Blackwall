@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { saveProvider } from "./providers.js";
-import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
+import { isRetryableProviderError, scriptedHarnessTurn, streamChatMessage } from "./streaming.js";
 
 const directories: string[] = [];
 
@@ -28,6 +28,21 @@ function responseWithLines(lines: string[]) {
 }
 
 describe("streaming de provedores", () => {
+  it("roteiriza o cenário determinístico e inclui uma chamada reparável", () => {
+    const prompt = { content: "Explore o workspace selecionado", role: "user" as const };
+    expect(scriptedHarnessTurn([prompt])?.toolCalls[0]).toMatchObject({
+      name: "list_directory",
+    });
+    expect(
+      scriptedHarnessTurn([
+        prompt,
+        { content: '{"entries":[]}', name: "list_directory", role: "tool" },
+      ])?.toolCalls[0],
+    ).toMatchObject({
+      arguments: '{"command":"node --version","cwd":"/workspace"}',
+      name: "execute_command",
+    });
+  });
   it("emite deltas de OpenAI-compatible", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-"));
     directories.push(directory);
@@ -86,5 +101,143 @@ describe("streaming de provedores", () => {
     } catch (error) {
       expect(isRetryableProviderError(error)).toBe(true);
     }
+  });
+
+  it("mostra respostas JSON não-streaming de endpoints compatíveis", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-json-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      apiKey: "stream-key",
+      baseUrl: "https://example.com/v1",
+      model: "example-model",
+      name: "Example",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines(['{"choices":[{"message":{"content":"Resposta completa"}}]}']),
+      ) as unknown as typeof fetch;
+    const deltas: string[] = [];
+    await streamChatMessage(
+      provider.id,
+      [{ content: "Oi", role: "user" }],
+      undefined,
+      (delta) => deltas.push(delta),
+      new AbortController().signal,
+      request,
+    );
+    expect(deltas.join("")).toBe("Resposta completa");
+  });
+
+  it("acumula tool calls fragmentados do OpenAI-compatible", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-tools-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      apiKey: "stream-key",
+      baseUrl: "https://example.com/v1",
+      model: "example-model",
+      name: "Example",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines([
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"provider-id","function":{"name":"read_file","arguments":"{\\"path\\":"}}]}}]}',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"PRODUCT.md\\"}"}}]}}]}',
+          "data: [DONE]",
+        ]),
+      ) as unknown as typeof fetch;
+    const result = await streamChatMessage(
+      provider.id,
+      [{ content: "Leia", role: "user" }],
+      undefined,
+      () => undefined,
+      new AbortController().signal,
+      request,
+    );
+    expect(result.toolCalls).toEqual([
+      { arguments: '{"path":"PRODUCT.md"}', id: "tool-call-0", name: "read_file" },
+    ]);
+  });
+
+  it("acumula conteúdo e tool calls do streaming do Ollama", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-ollama-tools-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5-coder:7b",
+      name: "Ollama",
+      type: "ollama",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines([
+          '{"message":{"content":"vou ler ","role":"assistant"}}',
+          '{"message":{"tool_calls":[{"function":{"name":"read_file","arguments":{"path":"README.md"}}}]}}',
+          '{"done":true}',
+        ]),
+      ) as unknown as typeof fetch;
+    const deltas: string[] = [];
+    const result = await streamChatMessage(
+      provider.id,
+      [{ content: "Leia", role: "user" }],
+      undefined,
+      (delta) => deltas.push(delta),
+      new AbortController().signal,
+      request,
+    );
+    expect(deltas.join("")).toBe("vou ler ");
+    expect(result.toolCalls).toEqual([
+      { arguments: '{"path":"README.md"}', id: "tool-call-0", name: "read_file" },
+    ]);
+  });
+
+  it("envia argumentos estruturados ao Ollama ao continuar um ciclo de ferramenta", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-ollama-follow-up-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      baseUrl: "http://127.0.0.1:11434",
+      model: "qwen2.5-coder:7b",
+      name: "Ollama",
+      type: "ollama",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines(['{"message":{"content":"continuando"}}']),
+      ) as unknown as typeof fetch;
+    await streamChatMessage(
+      provider.id,
+      [
+        {
+          content: "",
+          role: "assistant",
+          tool_calls: [
+            {
+              function: { arguments: '{"path":"README.md"}', name: "read_file" },
+              id: "call-1",
+              type: "function",
+            },
+          ],
+        },
+        {
+          content: '{"content":"ok"}',
+          name: "read_file",
+          role: "tool",
+          tool_call_id: "call-1",
+        },
+      ],
+      undefined,
+      () => undefined,
+      new AbortController().signal,
+      request,
+    );
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+    expect(body.messages[0].tool_calls[0].function.arguments).toEqual({ path: "README.md" });
   });
 });

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.mateusgaio.blackwall",
   "build": {
-    "beforeDevCommand": "npm run build:sidecar && npm run dev",
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1420",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && npm run prepare:desktop-runtime",
     "frontendDist": "../dist"
   },
   "app": {
@@ -24,6 +24,10 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": ["appimage", "deb"],
+    "resources": {
+      "../desktop-runtime": "desktop-runtime"
+    }
   }
 }

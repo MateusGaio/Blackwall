@@ -1,16 +1,26 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { randomUUID } from "node:crypto";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import type { ToolCall } from "../tool-contract.js";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
-import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
+import {
+  appSettings,
+  attachments,
+  messages,
+  profiles,
+  routerEntries,
+  sessions,
+  workspaces,
+} from "./schema.js";
 
 export type PermissionMode = "ask" | "automatic" | "read-only";
 type Profile = typeof profiles.$inferSelect;
 type Workspace = typeof workspaces.$inferSelect;
 type Session = typeof sessions.$inferSelect;
-type StoredMessage = typeof messages.$inferSelect;
+type StoredMessageRow = typeof messages.$inferSelect;
+export type StoredMessage = Omit<StoredMessageRow, "toolCalls"> & { toolCalls: ToolCall[] };
 type SessionSummary = Session & { workspaceName: string | null };
 
 export type BootstrapInput = {
@@ -76,6 +86,19 @@ function saveSetting(store: DatabaseHandle, key: string, value: string) {
     .run();
 }
 
+function deserializeMessage(row: StoredMessageRow): StoredMessage {
+  let toolCalls: ToolCall[] = [];
+  if (row.toolCalls) {
+    try {
+      const value = JSON.parse(row.toolCalls) as unknown;
+      if (Array.isArray(value)) toolCalls = value as ToolCall[];
+    } catch {
+      toolCalls = [];
+    }
+  }
+  return { ...row, toolCalls };
+}
+
 async function workspaceRoot(rootPath: string): Promise<string> {
   if (!rootPath.trim()) throw new Error("Selecione uma pasta para criar o workspace.");
   const absolutePath = resolve(rootPath);
@@ -93,8 +116,18 @@ function permissionMode(value: string | undefined): PermissionMode {
 
 async function persistWorkspaceFiles(rootPath: string, files: WorkspaceFile[]) {
   const absoluteRoot = resolve(rootPath);
+  const textExtensions =
+    /\.(c|cpp|css|csv|go|h|html|java|js|json|jsx|md|markdown|py|rs|sh|sql|toml|ts|tsx|txt|xml|yaml|yml)$/i;
+  const textNames =
+    /(^|\/)(\.env\.example|cargo\.lock|dockerfile|license|makefile|package-lock\.json|pnpm-lock\.yaml|readme|yarn\.lock)$/i;
+  const ignored =
+    /(^|\/)(\.cache|\.git|\.next|\.pytest_cache|\.turbo|\.venv|build|coverage|dist|node_modules|out|target|vendor)(\/|$)/i;
   const selectedFiles = files
-    .filter((file) => /\.(md|markdown)$/i.test(file.relativePath))
+    .filter(
+      (file) =>
+        !ignored.test(file.relativePath) &&
+        (textExtensions.test(file.relativePath) || textNames.test(file.relativePath)),
+    )
     .slice(0, 500);
   for (const file of selectedFiles) {
     const target = resolve(absoluteRoot, file.relativePath);
@@ -160,7 +193,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   }) {
     const name = input.name.trim();
     const soul = input.soul.trim();
-    if (!name || !soul) throw new Error("Informe o nome e a Soul do workspace.");
+    if (!name) throw new Error("Informe o nome do workspace.");
     const profile = database.db
       .select()
       .from(profiles)
@@ -194,7 +227,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   }) {
     const name = input.name.trim();
     const soul = input.soul.trim();
-    if (!name || !soul) throw new Error("Informe o nome e a Soul do workspace.");
+    if (!name) throw new Error("Informe o nome do workspace.");
     const profile = database.db
       .select()
       .from(profiles)
@@ -271,7 +304,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .select()
       .from(sessions)
       .where(workspaceId ? eq(sessions.workspaceId, workspaceId) : isNull(sessions.workspaceId))
-      .orderBy(desc(sessions.updatedAt))
+      .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .all();
   }
 
@@ -291,7 +324,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .from(sessions)
       .leftJoin(workspaces, eq(sessions.workspaceId, workspaces.id))
       .where(eq(sessions.profileId, profileId))
-      .orderBy(desc(sessions.updatedAt))
+      .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .limit(Math.max(1, Math.min(limit, 100)))
       .all();
   }
@@ -302,7 +335,8 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .from(messages)
       .where(eq(messages.sessionId, sessionId))
       .orderBy(asc(messages.sequence))
-      .all();
+      .all()
+      .map(deserializeMessage);
   }
 
   function setSessionModel(sessionId: string, model: string, providerId?: string | null) {
@@ -337,7 +371,6 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
 
   function setWorkspaceSoul(workspaceId: string, soul: string) {
     const nextSoul = soul.trim();
-    if (!nextSoul) throw new Error("Informe a Soul do workspace.");
     const workspace = database.db
       .select()
       .from(workspaces)
@@ -381,9 +414,12 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     content: string;
     model?: string | null;
     providerId?: string | null;
-    role: "assistant" | "system" | "user";
+    role: "assistant" | "system" | "tool" | "user";
     sessionId: string;
     status?: string;
+    toolCallId?: string | null;
+    toolCalls?: ToolCall[] | null;
+    toolName?: string | null;
   }) {
     const session = database.db
       .select()
@@ -398,7 +434,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .orderBy(desc(messages.sequence))
       .get();
     const timestamp = now();
-    const message: StoredMessage = {
+    const messageRow: StoredMessageRow = {
       content: input.content,
       createdAt: timestamp,
       id: randomUUID(),
@@ -408,9 +444,12 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       sequence: (lastMessage?.sequence ?? 0) + 1,
       sessionId: input.sessionId,
       status: input.status ?? "complete",
+      toolCalls: input.toolCalls?.length ? JSON.stringify(input.toolCalls) : null,
+      toolCallId: input.toolCallId ?? null,
+      toolName: input.toolName ?? null,
       updatedAt: timestamp,
     };
-    database.db.insert(messages).values(message).run();
+    database.db.insert(messages).values(messageRow).run();
     if (input.role === "user" && session.title === "Nova conversa") {
       const generatedTitle = input.content.trim().replace(/\s+/g, " ").slice(0, 56);
       if (generatedTitle) {
@@ -426,7 +465,49 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .set({ updatedAt: timestamp })
       .where(eq(sessions.id, session.id))
       .run();
-    return message;
+    return deserializeMessage(messageRow);
+  }
+
+  function editUserMessage(sessionId: string, messageId: string, content: string) {
+    const nextContent = content.trim();
+    if (!nextContent) throw new Error("A mensagem editada não pode ficar vazia.");
+    const message = database.db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.id, messageId), eq(messages.sessionId, sessionId)))
+      .get();
+    if (message?.role !== "user") {
+      throw new Error("A mensagem selecionada não pode ser editada.");
+    }
+    const transaction = database.client.transaction(() => {
+      database.client
+        .prepare("DELETE FROM messages WHERE session_id = ? AND sequence > ?")
+        .run(sessionId, message.sequence);
+      database.db
+        .update(messages)
+        .set({ content: nextContent, status: "complete", updatedAt: now() })
+        .where(eq(messages.id, messageId))
+        .run();
+      database.db
+        .update(sessions)
+        .set({ title: nextContent.replace(/\s+/g, " ").slice(0, 56), updatedAt: now() })
+        .where(eq(sessions.id, sessionId))
+        .run();
+    });
+    transaction();
+    return listMessages(sessionId);
+  }
+
+  function prepareRegeneration(sessionId: string) {
+    const lastAssistant = database.db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), eq(messages.role, "assistant")))
+      .orderBy(desc(messages.sequence))
+      .get();
+    if (!lastAssistant) throw new Error("Não há resposta para regenerar.");
+    database.client.prepare("DELETE FROM messages WHERE id = ?").run(lastAssistant.id);
+    return listMessages(sessionId);
   }
 
   function getState(): AppState {
@@ -524,7 +605,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       .select()
       .from(sessions)
       .where(eq(sessions.profileId, profileId))
-      .orderBy(desc(sessions.updatedAt))
+      .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .get();
     const workspace = session
       ? session.workspaceId
@@ -553,6 +634,64 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     return getState();
   }
 
+  async function deleteProfile(profileId: string) {
+    const profile = database.db.select().from(profiles).where(eq(profiles.id, profileId)).get();
+    if (!profile) throw new Error("O perfil selecionado não existe.");
+
+    const profileWorkspaces = database.db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.profileId, profileId))
+      .all();
+    const workspaceIds = profileWorkspaces.map((workspace) => workspace.id);
+
+    // FTS rows are not foreign-key cascades, so remove them explicitly before
+    // deleting the profile-owned records. Attachment files are removed after
+    // the transaction to keep the database consistent if the filesystem fails.
+    const storedAttachmentPaths = workspaceIds.length
+      ? (database.client
+          .prepare(
+            `SELECT stored_path AS storedPath FROM attachments WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")})`,
+          )
+          .all(...workspaceIds) as Array<{ storedPath: string }>)
+      : [];
+    database.client.transaction(() => {
+      if (workspaceIds.length) {
+        database.client
+          .prepare(
+            `DELETE FROM attachments_fts WHERE attachment_id IN (SELECT id FROM attachments WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")}))`,
+          )
+          .run(...workspaceIds);
+        database.db.delete(attachments).where(eq(attachments.workspaceId, workspaceIds[0])).run();
+        for (const workspaceId of workspaceIds.slice(1)) {
+          database.db.delete(attachments).where(eq(attachments.workspaceId, workspaceId)).run();
+        }
+        database.db
+          .delete(routerEntries)
+          .where(eq(routerEntries.workspaceId, workspaceIds[0]))
+          .run();
+        for (const workspaceId of workspaceIds.slice(1)) {
+          database.db.delete(routerEntries).where(eq(routerEntries.workspaceId, workspaceId)).run();
+        }
+        database.client
+          .prepare(
+            `DELETE FROM approvals WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")})`,
+          )
+          .run(...workspaceIds);
+      }
+      database.db.delete(profiles).where(eq(profiles.id, profileId)).run();
+      if (setting(database, settingKeys.activeProfileId) === profileId) {
+        saveSetting(database, settingKeys.activeProfileId, "");
+        saveSetting(database, settingKeys.activeWorkspaceId, "");
+        saveSetting(database, settingKeys.activeSessionId, "");
+      }
+    })();
+    await Promise.all(
+      storedAttachmentPaths.map((attachment) => rm(attachment.storedPath, { force: true })),
+    );
+    return getState();
+  }
+
   function selectWorkspace(id: string) {
     const workspace = database.db.select().from(workspaces).where(eq(workspaces.id, id)).get();
     if (!workspace) throw new Error("O workspace selecionado não existe.");
@@ -570,6 +709,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
 
   return {
     appendMessage,
+    editUserMessage,
     bootstrap,
     createProfile,
     createSession,
@@ -580,8 +720,10 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     listRecentSessions,
     listSessions,
     listWorkspaces,
+    prepareRegeneration,
     renameSession,
     deleteSession,
+    deleteProfile,
     setSessionModel,
     setWorkspaceSoul,
     setWorkspacePermissionMode,

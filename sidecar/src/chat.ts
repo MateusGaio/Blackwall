@@ -2,8 +2,21 @@
 
 import { withInstrumentation } from "./observability.js";
 import { getProvider, type Provider, providerApiKey } from "./providers.js";
+import type { ToolCall } from "./tool-contract.js";
 
-export type ChatMessage = { content: string; role: "assistant" | "system" | "user" };
+export type ChatMessage = {
+  content: string;
+  name?: string;
+  role: "assistant" | "system" | "tool" | "user";
+  toolCallId?: string;
+  toolCalls?: ToolCall[];
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    function: { arguments: string; name: string };
+    id: string;
+    type: "function";
+  }>;
+};
 type FetchLike = typeof fetch;
 
 export async function sendChatMessage(

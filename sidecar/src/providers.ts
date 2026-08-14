@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { and, eq } from "drizzle-orm";
 import { openDatabase } from "./db/database.js";
-import { withInstrumentation } from "./observability.js";
+import { models } from "./db/schema.js";
+import { withAsyncInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret, removeSecret } from "./secrets.js";
+import type { ToolDefinition, ToolMode } from "./tool-contract.js";
 
 export type ProviderInput = {
   apiKey?: string;
@@ -22,19 +25,236 @@ export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
   type: ProviderKind;
 };
 
-type ProviderModel = {
+export type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
+  toolMode?: ToolMode;
 };
+
+/**
+ * Common contract implemented by every local-first provider adapter.
+ * Keeping transport details here prevents the router from making assumptions
+ * about OpenAI-compatible and Ollama endpoints.
+ */
+export interface ProviderAdapter {
+  readonly kind: ProviderKind;
+  validate(request?: FetchLike): Promise<void>;
+  listModels(request?: FetchLike): Promise<ProviderModel[]>;
+  chatRequest(
+    model: string,
+    messages: unknown[],
+    signal?: AbortSignal,
+    options?: { toolMode?: ToolMode; tools?: ToolDefinition[] },
+  ): RequestInit & {
+    endpoint: string;
+  };
+}
 
 type ProviderDocument = { providers: Provider[] };
 type FetchLike = typeof fetch;
 
 const emptyDocument = (): ProviderDocument => ({ providers: [] });
 
-function providerDataDirectory(): string {
+export function providerDataDirectory(): string {
   return process.env.BLACKWALL_DATA_DIR ?? join(homedir(), ".blackwall");
+}
+
+export class ProviderHttpError extends Error {
+  readonly status: number;
+  readonly retryable: boolean;
+
+  constructor(status: number, operation = "validar o provedor") {
+    super(providerHttpMessage(status, operation));
+    this.name = "ProviderHttpError";
+    this.status = status;
+    this.retryable = status === 408 || status === 429 || status >= 500;
+  }
+}
+
+export class ProviderConnectionError extends Error {
+  readonly retryable = true;
+
+  constructor(kind: ProviderKind, baseUrl: string, operation: string) {
+    const url = new URL(baseUrl);
+    const target = `${url.hostname}${url.port ? `:${url.port}` : ""}`;
+    const providerName = kind === "ollama" ? "Ollama" : "o provedor";
+    super(
+      `Não foi possível ${operation} em ${providerName} (${target}). ` +
+        (kind === "ollama"
+          ? "Verifique se o Ollama está em execução e se o endpoint está correto."
+          : "Verifique a rede e o endpoint configurado."),
+    );
+    this.name = "ProviderConnectionError";
+  }
+}
+
+function providerHttpMessage(status: number, operation: string): string {
+  if (status === 401) return "A chave foi recusada (HTTP 401). Revise a chave do provedor.";
+  if (status === 403) return "O provedor bloqueou o acesso (HTTP 403). Revise as permissões.";
+  if (status === 404)
+    return `O endpoint não foi encontrado (HTTP 404). Revise a URL antes de ${operation}.`;
+  if (status === 429)
+    return "O provedor está limitando as requisições (HTTP 429). Tente novamente em instantes.";
+  if (status >= 500)
+    return `O provedor está indisponível (HTTP ${status}). Tentaremos novamente ou usaremos a próxima rota.`;
+  return `Não foi possível ${operation} (HTTP ${status}). Tente novamente.`;
+}
+
+abstract class BaseProviderAdapter implements ProviderAdapter {
+  abstract readonly kind: ProviderKind;
+  constructor(protected readonly provider: ProviderInput) {}
+
+  protected endpoint(path: string) {
+    return `${normalizeBaseUrl(this.provider.baseUrl)}${path}`;
+  }
+
+  protected headers(): Record<string, string> {
+    return this.provider.apiKey?.trim()
+      ? { authorization: `Bearer ${this.provider.apiKey.trim()}` }
+      : {};
+  }
+
+  protected async request(
+    path: string,
+    request: FetchLike,
+    init: RequestInit,
+    operation: string,
+  ): Promise<Response> {
+    try {
+      return await request(this.endpoint(path), init);
+    } catch (error) {
+      if (error instanceof ProviderConnectionError) throw error;
+      throw new ProviderConnectionError(this.kind, this.provider.baseUrl, operation);
+    }
+  }
+
+  protected async checked(
+    response: Response,
+    operation: "validar o provedor" | "listar os modelos",
+  ) {
+    if (!response.ok) throw new ProviderHttpError(response.status, operation);
+    return response;
+  }
+
+  abstract validate(request?: FetchLike): Promise<void>;
+  abstract listModels(request?: FetchLike): Promise<ProviderModel[]>;
+  abstract chatRequest(
+    model: string,
+    messages: unknown[],
+    signal?: AbortSignal,
+    options?: { toolMode?: ToolMode; tools?: ToolDefinition[] },
+  ): RequestInit & {
+    endpoint: string;
+  };
+}
+
+export class OpenAICompatibleProvider extends BaseProviderAdapter {
+  readonly kind = "openai-compatible" as const;
+
+  async validate(request: FetchLike = fetch) {
+    if (!this.provider.name.trim() || !this.provider.model.trim() || !this.provider.apiKey?.trim())
+      throw new Error("Informe nome, modelo e chave de API para continuar.");
+    await this.checked(
+      await this.request("/models", request, { headers: this.headers() }, "validar o provedor"),
+      "validar o provedor",
+    );
+  }
+
+  async listModels(request: FetchLike = fetch) {
+    const response = await this.checked(
+      await this.request("/models", request, { headers: this.headers() }, "listar os modelos"),
+      "listar os modelos",
+    );
+    const body = (await response.json()) as { data?: Array<{ id?: string; name?: string }> };
+    return (body.data ?? [])
+      .map((model) => {
+        const id = model.id ?? model.name ?? "";
+        return { capabilities: [], id, name: id };
+      })
+      .filter((model) => model.id);
+  }
+
+  chatRequest(
+    model: string,
+    messages: unknown[],
+    signal?: AbortSignal,
+    options: { toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+  ) {
+    const body: Record<string, unknown> = { messages, model, stream: true };
+    if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
+      body.tool_choice = "auto";
+      body.tools = options.tools;
+    }
+    return {
+      endpoint: this.endpoint("/chat/completions"),
+      body: JSON.stringify(body),
+      headers: { ...this.headers(), "content-type": "application/json" },
+      method: "POST" as const,
+      signal,
+    };
+  }
+}
+
+class OllamaProvider extends BaseProviderAdapter {
+  readonly kind = "ollama" as const;
+
+  protected endpoint(path: string) {
+    const baseUrl = normalizeBaseUrl(this.provider.baseUrl).replace(
+      /\/(?:api|v1)(?:\/(?:api|v1))*$/i,
+      "",
+    );
+    return `${baseUrl}${path}`;
+  }
+
+  async validate(request: FetchLike = fetch) {
+    if (!this.provider.name.trim() || !this.provider.model.trim())
+      throw new Error("Informe nome e modelo para continuar.");
+    await this.checked(
+      await this.request("/api/tags", request, { headers: this.headers() }, "validar o provedor"),
+      "validar o provedor",
+    );
+  }
+
+  async listModels(request: FetchLike = fetch) {
+    const response = await this.checked(
+      await this.request("/api/tags", request, { headers: this.headers() }, "listar os modelos"),
+      "listar os modelos",
+    );
+    const body = (await response.json()) as {
+      models?: Array<{ name?: string; model?: string }>;
+    };
+    return (body.models ?? [])
+      .map((model) => {
+        const id = model.name ?? model.model ?? "";
+        return { capabilities: [], id, name: id };
+      })
+      .filter((model) => model.id);
+  }
+
+  chatRequest(
+    model: string,
+    messages: unknown[],
+    signal?: AbortSignal,
+    options: { toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+  ) {
+    const body: Record<string, unknown> = { messages, model, stream: true };
+    if ((options.toolMode ?? "auto") === "auto" && options.tools?.length)
+      body.tools = options.tools;
+    return {
+      endpoint: this.endpoint("/api/chat"),
+      body: JSON.stringify(body),
+      headers: { ...this.headers(), "content-type": "application/json" },
+      method: "POST" as const,
+      signal,
+    };
+  }
+}
+
+export function createProviderAdapter(provider: ProviderInput): ProviderAdapter {
+  return (provider.type ?? "openai-compatible") === "ollama"
+    ? new OllamaProvider(provider)
+    : new OpenAICompatibleProvider(provider);
 }
 
 export function normalizeBaseUrl(value: string): string {
@@ -50,29 +270,8 @@ export async function validateProvider(
   request: FetchLike = fetch,
 ): Promise<void> {
   if (process.env.BLACKWALL_E2E_MOCK === "1") return;
-  const type = input.type ?? "openai-compatible";
-  if (!input.name.trim() || !input.model.trim() || (type !== "ollama" && !input.apiKey?.trim())) {
-    throw new Error("Informe nome, modelo e chave de API para continuar.");
-  }
-
-  const endpoint =
-    type === "ollama"
-      ? `${normalizeBaseUrl(input.baseUrl)}/api/tags`
-      : `${normalizeBaseUrl(input.baseUrl)}/models`;
-  const response = await withInstrumentation("provider.validate", () =>
-    request(endpoint, {
-      headers: input.apiKey?.trim()
-        ? { authorization: `Bearer ${input.apiKey.trim()}` }
-        : undefined,
-    }),
-  );
-
-  if (response.ok) return;
-  if (response.status === 401 || response.status === 403) {
-    throw new Error("A chave foi recusada. Revise a chave ou as permissões do provedor.");
-  }
-  throw new Error(
-    `Não foi possível validar o provedor (HTTP ${response.status}). Tente novamente.`,
+  await withAsyncInstrumentation("provider.validate", () =>
+    createProviderAdapter(input).validate(request),
   );
 }
 
@@ -185,36 +384,87 @@ export async function listProviderModels(
   provider: ProviderInput,
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
-  const type = provider.type ?? "openai-compatible";
-  const endpoint =
-    type === "ollama"
-      ? `${normalizeBaseUrl(provider.baseUrl)}/api/tags`
-      : `${normalizeBaseUrl(provider.baseUrl)}/models`;
-  const response = await withInstrumentation("provider.models", () =>
-    request(endpoint, {
-      headers: provider.apiKey?.trim()
-        ? { authorization: `Bearer ${provider.apiKey.trim()}` }
-        : undefined,
-    }),
+  return withAsyncInstrumentation("provider.models", () =>
+    createProviderAdapter(provider).listModels(request),
   );
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new Error("A chave foi recusada. Revise a chave ou as permissões do provedor.");
-    }
-    throw new Error(`Não foi possível listar os modelos (HTTP ${response.status}).`);
-  }
-  const body = (await response.json()) as {
-    data?: Array<{ id?: string; name?: string }>;
-    models?: Array<{ name?: string; model?: string }>;
+}
+
+/**
+ * Resolve credentials from the persisted provider while preserving values
+ * currently being edited in the form. This lets model discovery test an
+ * unsaved endpoint without requiring the user to overwrite the provider first.
+ */
+export async function resolveProviderModelInput(
+  input: ProviderInput,
+  dataDirectory = providerDataDirectory(),
+): Promise<ProviderInput> {
+  if (!input.id) return input;
+  const existing = await getProvider(input.id, dataDirectory);
+  return {
+    ...input,
+    apiKey: input.apiKey?.trim() || (await providerApiKey(input.id, dataDirectory)),
+    baseUrl: input.baseUrl.trim() || existing.baseUrl,
+    model: input.model.trim() || existing.model,
+    name: input.name.trim() || existing.name,
+    type: input.type ?? existing.type,
   };
-  const models: Array<{ id?: string; model?: string; name?: string }> =
-    type === "ollama" ? (body.models ?? []) : (body.data ?? []);
-  return models
-    .map((model) => {
-      const id = model.id ?? model.model ?? model.name ?? "";
-      return { capabilities: [], id, name: id };
-    })
-    .filter((model) => model.id);
+}
+
+export async function syncProviderModels(
+  providerId: string,
+  provider: ProviderInput,
+  dataDirectory = providerDataDirectory(),
+  request: FetchLike = fetch,
+): Promise<ProviderModel[]> {
+  const listed = await listProviderModels(provider, request);
+  const database = openDatabase(dataDirectory);
+  const timestamp = Date.now();
+  const upsert = database.client.prepare(
+    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, tool_mode, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, updated_at = excluded.updated_at",
+  );
+  const save = database.client.transaction(() => {
+    database.client
+      .prepare("UPDATE models SET available = 0, updated_at = ? WHERE provider_id = ?")
+      .run(timestamp, providerId);
+    for (const model of listed) {
+      upsert.run(
+        `${providerId}:${model.id}`,
+        providerId,
+        model.id,
+        model.name,
+        JSON.stringify(model.capabilities),
+        timestamp,
+      );
+    }
+  });
+  save();
+  database.client
+    .prepare("UPDATE providers SET status = 'connected', updated_at = ? WHERE id = ?")
+    .run(timestamp, providerId);
+  database.close();
+  return listed;
+}
+
+export function routeCandidates(
+  selected: { providerId: string; model?: string },
+  entries: Array<{ providerId: string; modelId: string; position: number }>,
+  maxAttempts = 8,
+) {
+  const candidates = [
+    { providerId: selected.providerId, model: selected.model?.trim() || undefined },
+    ...entries
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((entry) => ({ providerId: entry.providerId, model: entry.modelId })),
+  ];
+  return candidates
+    .filter(
+      (candidate, index, all) =>
+        all.findIndex(
+          (item) => item.providerId === candidate.providerId && item.model === candidate.model,
+        ) === index,
+    )
+    .slice(0, maxAttempts);
 }
 
 export async function listStoredProviderModels(
@@ -223,7 +473,7 @@ export async function listStoredProviderModels(
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
   const provider = await getProvider(id, dataDirectory);
-  return listProviderModels(
+  const listed = await listProviderModels(
     {
       apiKey: await providerApiKey(id, dataDirectory),
       baseUrl: provider.baseUrl,
@@ -233,4 +483,30 @@ export async function listStoredProviderModels(
     },
     request,
   );
+  const database = openDatabase(dataDirectory);
+  const stored = database.db.select().from(models).where(eq(models.providerId, id)).all();
+  database.close();
+  return listed.map((model) => ({
+    ...model,
+    toolMode: stored.find((row) => row.modelId === model.id)?.toolMode as ToolMode | undefined,
+  }));
+}
+
+export function setModelToolMode(
+  providerId: string,
+  modelId: string,
+  toolMode: ToolMode,
+  dataDirectory = providerDataDirectory(),
+) {
+  if (toolMode !== "auto" && toolMode !== "compatibility" && toolMode !== "disabled")
+    throw new Error("Modo de ferramentas inválido.");
+  const database = openDatabase(dataDirectory);
+  const result = database.db
+    .update(models)
+    .set({ toolMode, updatedAt: Date.now() })
+    .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+    .run();
+  database.close();
+  if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
+  return { providerId, modelId, toolMode };
 }

@@ -6,18 +6,21 @@ import {
   type AppState,
   bootstrapApp,
   type ConnectedProvider,
+  deleteProfile,
   getAppState,
   listProviders,
   type Profile,
   selectProfile,
   signOutProfile,
 } from "../shared/api/sidecar";
+import { SoulPicker } from "../shared/components/SoulPicker";
 import {
   clampOnboardingStep,
   detectInitialLocale,
   type OnboardingStep,
   onboardingSteps,
 } from "./onboarding";
+import { DEFAULT_SOUL_PROMPT } from "./souls";
 
 const WorkspaceShell = lazy(async () => import("./WorkspaceShell"));
 const ProviderSetup = lazy(async () => {
@@ -66,7 +69,10 @@ function ProfileChooser({
             : "Privado por padrão. Seu contexto continua no seu computador."}
         </p>
       </aside>
-      <section className="onboarding-area profile-chooser-area" aria-label="Escolha de perfil">
+      <section
+        className="onboarding-area profile-chooser-area"
+        aria-label={isEnglish ? "Choose a profile" : "Escolha de perfil"}
+      >
         <div className="profile-chooser-card">
           <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
           <h1>{isEnglish ? "Who is using Blackwall?" : "Quem está usando o Blackwall?"}</h1>
@@ -175,7 +181,7 @@ function OnboardingPanel({
         profile: "What should we call you?",
         workspace: "Where will we work?",
         folder: "Choose the project folder.",
-        "workspace-soul": "Give your workspace an identity.",
+        "workspace-soul": "Give your workspace context.",
         provider: "Connect your first intelligence.",
         soul: "Start with a ready-made Soul.",
         vault: "Knowledge that stays with you.",
@@ -187,7 +193,7 @@ function OnboardingPanel({
         profile: "Profile",
         workspace: "Workspace",
         folder: "Folder",
-        "workspace-soul": "Workspace Soul",
+        "workspace-soul": "Workspace context",
         provider: "Provider",
         soul: "Soul",
         vault: "Vault",
@@ -250,7 +256,7 @@ function OnboardingPanel({
                 aria-pressed={locale === "pt-BR"}
                 type="button"
               >
-                Português do Brasil
+                {isEnglish ? "Portuguese (Brazil)" : "Português do Brasil"}
                 <span>PT-BR</span>
               </button>
               <button
@@ -313,11 +319,11 @@ function OnboardingPanel({
                 type="button"
               >
                 <span>
-                  {isEnglish ? "Start without a workspace" : "Iniciar sem workspace"}
+                  {isEnglish ? "Start without a workspace" : "Começar sem um workspace"}
                   <small>
                     {isEnglish
-                      ? "You can add a project folder later"
-                      : "Você poderá adicionar uma pasta depois"}
+                      ? "Add a project folder later"
+                      : "Adicione uma pasta de projeto depois"}
                   </small>
                 </span>
                 <span>{startWithoutWorkspace ? "✓" : ""}</span>
@@ -341,40 +347,43 @@ function OnboardingPanel({
             </div>
           )}
           {step.id === "soul" && (
-            <label className="field-label" htmlFor="soul-prompt">
-              {isEnglish ? "Profile Soul" : "Soul do perfil"}
-              <textarea
-                id="soul-prompt"
-                onChange={(event) => onSoulChange(event.target.value)}
-                rows={5}
-                value={soul}
-              />
-              <span className="field-hint">
-                {isEnglish
-                  ? "This Soul guides your profile in every workspace."
-                  : "Esta Soul orienta seu perfil em todos os workspaces."}
-              </span>
-            </label>
+            <SoulPicker
+              hint={
+                isEnglish
+                  ? "This Soul guides your profile in every workspace. You can edit any preset."
+                  : "Esta Soul orienta seu perfil em todos os workspaces. Você pode editar qualquer preset."
+              }
+              id="soul-prompt"
+              label={isEnglish ? "Profile Soul" : "Soul do perfil"}
+              locale={locale}
+              onChange={onSoulChange}
+              value={soul}
+            />
           )}
           {step.id === "workspace-soul" && (
             <label className="field-label" htmlFor="workspace-soul-prompt">
-              {isEnglish ? "Workspace Soul" : "Soul do workspace"}
+              {isEnglish ? "Workspace context" : "Contexto do workspace"}
               <textarea
                 id="workspace-soul-prompt"
                 onChange={(event) => onWorkspaceSoulChange(event.target.value)}
-                rows={5}
+                placeholder={
+                  isEnglish
+                    ? "Describe the project, conventions and goals…"
+                    : "Descreva o projeto, as convenções e os objetivos…"
+                }
+                rows={6}
                 value={workspaceSoul}
               />
               <span className="field-hint">
                 {isEnglish
-                  ? "This Soul is combined with your profile Soul in every session."
-                  : "Esta Soul é combinada com a Soul do seu perfil em todas as sessões."}
+                  ? "Add context that should guide conversations in this workspace."
+                  : "Adicione o contexto que deve orientar as conversas neste workspace."}
               </span>
             </label>
           )}
           {step.id === "provider" && (
             <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
-              <ProviderSetup onConnected={onProviderConnected} />
+              <ProviderSetup locale={locale} onConnected={onProviderConnected} />
             </Suspense>
           )}
           {step.id === "vault" && (
@@ -453,19 +462,13 @@ export function App() {
     detectInitialLocale(navigator.language),
   );
   const [profileName, setProfileName] = useState("");
-  const defaultProfileSoul = `Você é Blackwall, uma parceira técnica local-first para construir software com clareza e autonomia.
-
-Trabalhe de forma prática: entenda o objetivo, proponha um plano curto, execute em etapas e valide o resultado. Priorize código simples, seguro, testável e fácil de manter. Explique decisões e riscos de forma direta; não invente resultados, arquivos, comandos ou integrações.
-
-Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como dados locais e sensíveis. Nunca exponha segredos e não envie telemetria ou conteúdo para fora sem opt-in explícito.
-
-    Ao lidar com código, leia o contexto relevante antes de editar, preserve alterações existentes, escreva ou atualize testes quando aplicável e informe com clareza o que foi verificado. Quando faltar uma decisão material, apresente a dúvida e as consequências antes de assumir.`;
+  const defaultProfileSoul = DEFAULT_SOUL_PROMPT;
   const [soul, setSoul] = useState(defaultProfileSoul);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [folderSelection, setFolderSelection] = useState<FolderSelection | null>(null);
   const [startWithoutWorkspace, setStartWithoutWorkspace] = useState(false);
-  const [workspaceSoul, setWorkspaceSoul] = useState(soul);
+  const [workspaceSoul, setWorkspaceSoul] = useState("");
   const [provider, setProvider] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
 
@@ -480,11 +483,12 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       .then(async (state) => {
         if (cancelled) return;
         setAvailableProfiles(state.profiles);
-        if (!state.activeSessionId || !state.activeProfileId) {
-          if (state.profiles.length > 0) {
-            setAppState(state);
-            setShowProfileChooser(true);
-          }
+        // A profile is always an explicit entry point. This prevents the last
+        // active conversation from opening under the wrong person after a
+        // restart, while still keeping all data available to the chooser.
+        if (state.profiles.length > 0) {
+          setAppState(state);
+          setShowProfileChooser(true);
           return;
         }
         const profile = state.profiles.find((item) => item.id === state.activeProfileId);
@@ -554,7 +558,7 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
     setWorkspaceRootPath("");
     setFolderSelection(null);
     setStartWithoutWorkspace(false);
-    setWorkspaceSoul(defaultProfileSoul);
+    setWorkspaceSoul("");
     setProvider(null);
   }
 
@@ -580,7 +584,7 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       setLocale(profile.locale === "en" ? "en" : "pt-BR");
       setWorkspaceName(workspace?.name ?? "");
       setWorkspaceRootPath(workspace?.rootPath ?? "");
-      setWorkspaceSoul(workspace?.soul ?? profile.soul);
+      setWorkspaceSoul(workspace?.soul ?? "");
       setStartWithoutWorkspace(!workspace);
       setProvider(
         providers.find((item) => item.id === activeSession?.selectedProviderId) ??
@@ -610,6 +614,22 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       setCompletionError(
         reason instanceof Error ? reason.message : "Não foi possível sair do perfil.",
       );
+    }
+  }
+
+  async function removeProfile(profileId: string) {
+    try {
+      const state = await deleteProfile(profileId);
+      setAvailableProfiles(state.profiles);
+      setAppState(state);
+      resetOnboarding();
+      setIsComplete(false);
+      setShowProfileChooser(state.profiles.length > 0);
+    } catch (reason) {
+      setCompletionError(
+        reason instanceof Error ? reason.message : "Não foi possível excluir o perfil.",
+      );
+      throw reason;
     }
   }
 
@@ -706,6 +726,7 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       <Suspense fallback={<LoadingSkeleton />}>
         <WorkspaceShell
           appState={appState}
+          onDeleteProfile={removeProfile}
           onSignOut={exitProfile}
           profileName={profileName}
           provider={provider}
@@ -731,7 +752,7 @@ Proteja a privacidade do usuário: trate prompts, respostas, chaves e notas como
       }}
       onWorkspaceSoulChange={setWorkspaceSoul}
       onPickFolder={() => {
-        void pickDirectory().then((selection) => {
+        void pickDirectory(locale).then((selection) => {
           if (!selection) return;
           setFolderSelection(selection);
           setStartWithoutWorkspace(false);

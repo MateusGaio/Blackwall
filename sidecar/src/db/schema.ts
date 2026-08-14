@@ -44,7 +44,7 @@ export const sessions = sqliteTable("sessions", {
   ...timestamps,
 });
 
-const providers = sqliteTable("providers", {
+export const providers = sqliteTable("providers", {
   id: text("id").primaryKey(),
   type: text("type").notNull().default("openai-compatible"),
   name: text("name").notNull(),
@@ -53,7 +53,7 @@ const providers = sqliteTable("providers", {
   ...timestamps,
 });
 
-const models = sqliteTable(
+export const models = sqliteTable(
   "models",
   {
     id: text("id").primaryKey(),
@@ -64,6 +64,7 @@ const models = sqliteTable(
     displayName: text("display_name").notNull(),
     capabilities: text("capabilities").notNull().default("[]"),
     available: integer("available", { mode: "boolean" }).notNull().default(true),
+    toolMode: text("tool_mode").notNull().default("auto"),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => ({
@@ -71,7 +72,7 @@ const models = sqliteTable(
   }),
 );
 
-const routerEntries = sqliteTable("router_entries", {
+export const routerEntries = sqliteTable("router_entries", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id")
     .notNull()
@@ -94,6 +95,9 @@ export const messages = sqliteTable("messages", {
   status: text("status").notNull().default("complete"),
   providerId: text("provider_id"),
   model: text("model"),
+  toolCalls: text("tool_calls"),
+  toolName: text("tool_name"),
+  toolCallId: text("tool_call_id"),
   sequence: integer("sequence").notNull(),
   ...timestamps,
 });

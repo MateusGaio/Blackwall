@@ -1,17 +1,20 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { eq } from "drizzle-orm";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { and, asc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import {
   type AttachmentInput,
+  listAttachments,
   removeAttachment,
   saveAttachment,
   searchAttachments,
 } from "./attachments.js";
 import { type ChatMessage, sendChatMessage } from "./chat.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
-import { profiles, workspaces } from "./db/schema.js";
+import { models, profiles, routerEntries, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
@@ -22,11 +25,31 @@ import {
   type ProviderInput,
   providerApiKey,
   removeProvider,
+  resolveProviderModelInput,
+  routeCandidates,
   saveProvider,
+  setModelToolMode,
+  syncProviderModels,
   validateProvider,
 } from "./providers.js";
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
-import { type ApprovalDecision, executeTool, resolveApproval, type ToolInput } from "./tools.js";
+import {
+  isToolName,
+  MAX_TOOL_CALLS_PER_TURN,
+  MAX_TOOL_RESULT_BYTES_PER_TURN,
+  parseToolArguments,
+  shouldStopAfterRepeatedToolError,
+  type ToolMode,
+  ToolValidationFailure,
+  workspaceToolDefinitions,
+} from "./tool-contract.js";
+import {
+  type ApprovalDecision,
+  cancelPendingApprovals,
+  executeTool,
+  resolveApproval,
+  type ToolInput,
+} from "./tools.js";
 import { scanVault } from "./vault.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
@@ -35,6 +58,10 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:1420",
   "http://tauri.localhost",
 ]);
+if (process.env.BLACKWALL_E2E === "1") {
+  allowedOrigins.add("http://localhost:1421");
+  allowedOrigins.add("http://127.0.0.1:1421");
+}
 
 export function healthPayload() {
   return {
@@ -74,6 +101,29 @@ function requestBody(request: import("node:http").IncomingMessage): Promise<unkn
     });
     request.on("error", reject);
   });
+}
+
+function providerMessage(message: ChatMessage): ChatMessage {
+  if (message.toolCalls?.length) {
+    return {
+      content: message.content,
+      role: "assistant",
+      tool_calls: message.toolCalls.map((call) => ({
+        function: { arguments: call.arguments, name: call.name },
+        id: call.id,
+        type: "function" as const,
+      })),
+    };
+  }
+  if (message.role === "tool" && message.toolCallId) {
+    return {
+      content: message.content,
+      name: message.name,
+      role: "tool",
+      tool_call_id: message.toolCallId,
+    };
+  }
+  return { content: message.content, role: message.role };
 }
 
 export function createSidecar(
@@ -136,6 +186,19 @@ export function createSidecar(
         });
         return;
       }
+      if (request.method === "GET" && pathname === "/v1/attachments") {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const workspaceId = url.searchParams.get("workspaceId");
+        if (!workspaceId) throw new Error("Informe o workspace para listar anexos.");
+        writeJson(response, 200, {
+          attachments: await listAttachments(
+            workspaceId,
+            url.searchParams.get("sessionId"),
+            storageDirectory,
+          ),
+        });
+        return;
+      }
       if (request.method === "DELETE" && /^\/v1\/attachments\/[^/]+$/.test(pathname)) {
         writeJson(response, 200, {
           attachment: await removeAttachment(pathname.split("/")[3], storageDirectory),
@@ -161,6 +224,10 @@ export function createSidecar(
         writeJson(response, 200, {
           profile: store.updateProfile(pathname.split("/")[3], input),
         });
+        return;
+      }
+      if (request.method === "DELETE" && /^\/v1\/profiles\/[^/]+$/.test(pathname)) {
+        writeJson(response, 200, await store.deleteProfile(pathname.split("/")[3]));
         return;
       }
       if (request.method === "GET" && pathname === "/v1/workspaces") {
@@ -222,6 +289,7 @@ export function createSidecar(
       }
       if (request.method === "POST" && pathname === "/v1/sessions") {
         const input = (await requestBody(request)) as {
+          profileId?: string | null;
           title?: string;
           workspaceId?: string | null;
         };
@@ -256,26 +324,84 @@ export function createSidecar(
           content: string;
           model?: string | null;
           providerId?: string | null;
-          role: "assistant" | "system" | "user";
+          role: "assistant" | "system" | "tool" | "user";
           status?: string;
+          toolCallId?: string | null;
+          toolCalls?: import("./tool-contract.js").ToolCall[] | null;
+          toolName?: string | null;
         };
         writeJson(response, 201, {
           message: store.appendMessage({ ...input, sessionId: pathname.split("/")[3] }),
         });
         return;
       }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/sessions\/[^/]+\/messages\/[^/]+\/edit$/.test(pathname)
+      ) {
+        const input = (await requestBody(request)) as { content: string };
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          messages: store.editUserMessage(parts[3], parts[5], input.content),
+        });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/regenerate$/.test(pathname)) {
+        writeJson(response, 200, { messages: store.prepareRegeneration(pathname.split("/")[3]) });
+        return;
+      }
       if (request.method === "GET" && pathname === "/v1/providers") {
-        writeJson(response, 200, { providers: await listProviders() });
+        writeJson(response, 200, { providers: await listProviders(storageDirectory) });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/models") {
-        const input = (await requestBody(request)) as ProviderInput;
-        writeJson(response, 200, { models: await listProviderModels(input) });
+        const input = await resolveProviderModelInput(
+          (await requestBody(request)) as ProviderInput,
+          storageDirectory,
+        );
+        const listed = input.id
+          ? await syncProviderModels(input.id, input, storageDirectory)
+          : await listProviderModels(input);
+        writeJson(response, 200, { models: listed });
         return;
       }
       if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
         writeJson(response, 200, {
-          models: await listStoredProviderModels(pathname.split("/")[3]),
+          models: await listStoredProviderModels(pathname.split("/")[3], storageDirectory),
+        });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/providers\/[^/]+\/models\/sync$/.test(pathname)) {
+        const providerId = pathname.split("/")[3];
+        const provider = await getProvider(providerId, storageDirectory);
+        writeJson(response, 200, {
+          models: await syncProviderModels(
+            providerId,
+            {
+              apiKey: await providerApiKey(providerId, storageDirectory),
+              baseUrl: provider.baseUrl,
+              model: provider.model,
+              name: provider.name,
+              type: provider.type,
+            },
+            storageDirectory,
+          ),
+        });
+        return;
+      }
+      if (
+        request.method === "PATCH" &&
+        /^\/v1\/providers\/[^/]+\/models\/[^/]+\/tool-mode$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const input = (await requestBody(request)) as { toolMode: ToolMode };
+        writeJson(response, 200, {
+          model: setModelToolMode(
+            parts[3],
+            decodeURIComponent(parts[5]),
+            input.toolMode,
+            storageDirectory,
+          ),
         });
         return;
       }
@@ -289,7 +415,7 @@ export function createSidecar(
       if (request.method === "POST" && pathname === "/v1/providers") {
         const input = (await requestBody(request)) as ProviderInput;
         await validateProvider(input);
-        writeJson(response, 201, { provider: await saveProvider(input) });
+        writeJson(response, 201, { provider: await saveProvider(input, storageDirectory) });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/test") {
@@ -301,20 +427,25 @@ export function createSidecar(
       if (request.method === "PATCH" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
         const input = (await requestBody(request)) as ProviderInput;
         const id = pathname.split("/")[3];
-        const existing = await getProvider(id);
+        const existing = await getProvider(id, storageDirectory);
         await validateProvider({
           ...input,
-          apiKey: input.apiKey ?? (await providerApiKey(id)),
+          apiKey: input.apiKey ?? (await providerApiKey(id, storageDirectory)),
           id,
           type: input.type ?? existing.type,
         });
         writeJson(response, 200, {
-          provider: await saveProvider({ ...input, id, type: input.type ?? existing.type }),
+          provider: await saveProvider(
+            { ...input, id, type: input.type ?? existing.type },
+            storageDirectory,
+          ),
         });
         return;
       }
       if (request.method === "DELETE" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
-        writeJson(response, 200, { provider: await removeProvider(pathname.split("/")[3]) });
+        writeJson(response, 200, {
+          provider: await removeProvider(pathname.split("/")[3], storageDirectory),
+        });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/chat/completions") {
@@ -339,7 +470,10 @@ export function createSidecar(
   server.once("close", () => database.close());
 
   const socketServer = new WebSocketServer({ server });
-  const activeRequests = new Map<string, AbortController>();
+  const activeRequests = new Map<
+    string,
+    { controller: AbortController; socket: import("ws").WebSocket }
+  >();
   const queues = new Map<string, Promise<void>>();
 
   async function executeChat(
@@ -350,15 +484,12 @@ export function createSidecar(
       providerId: string;
       requestId: string;
       profileId?: string;
+      sessionId?: string;
       workspaceId?: string;
     },
   ) {
     const controller = new AbortController();
-    activeRequests.set(input.requestId, controller);
-    const providers = await listProviders();
-    const providerIds = [input.providerId, ...providers.map((provider) => provider.id)]
-      .filter((id, index, ids) => ids.indexOf(id) === index)
-      .slice(0, 8);
+    activeRequests.set(input.requestId, { controller, socket });
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
       : null;
@@ -367,71 +498,439 @@ export function createSidecar(
       : input.profileId
         ? database.db.select().from(profiles).where(eq(profiles.id, input.profileId)).get()
         : null;
+    const entries = input.workspaceId
+      ? database.db
+          .select({
+            providerId: routerEntries.providerId,
+            modelId: routerEntries.modelId,
+            position: routerEntries.position,
+          })
+          .from(routerEntries)
+          .where(eq(routerEntries.workspaceId, input.workspaceId))
+          .orderBy(asc(routerEntries.position))
+          .all()
+      : [];
+    const candidates = routeCandidates(
+      { model: input.model, providerId: input.providerId },
+      entries,
+    );
     const systemMessages: ChatMessage[] = [];
     if (profile?.soul) systemMessages.push({ content: profile.soul, role: "system" });
     if (workspace?.soul) systemMessages.push({ content: workspace.soul, role: "system" });
+    const storedMessages = input.sessionId
+      ? store.listMessages(input.sessionId).map((message) => ({
+          content: message.content,
+          name: message.toolName ?? undefined,
+          role: message.role as ChatMessage["role"],
+          toolCallId: message.toolCallId ?? undefined,
+          toolCalls: message.toolCalls,
+        }))
+      : input.messages;
+    const toolInstruction: ChatMessage | null = input.workspaceId
+      ? {
+          content: `Blackwall possui ferramentas locais seguras dentro do workspace selecionado. Use-as para conhecer ou alterar arquivos; não diga que não possui acesso ao filesystem.
+
+Antes de qualquer leitura ou busca, chame list_directory com path ".". Use somente caminhos retornados por uma listagem bem-sucedida. Se a listagem mostrar um diretório de projeto aninhado, inclua esse diretório em todos os caminhos seguintes. Nunca presuma que PRODUCT.md, ARCHITECTURE.md, UX_SPEC.md, README.md ou qualquer outro arquivo está na raiz. Para entender o código, continue listando as subpastas relevantes e leia manifests, diretórios de fonte, pontos de entrada, configurações e testes; use search_text quando precisar localizar símbolos. Não limite a exploração a arquivos Markdown e ignore .git, node_modules, builds, arquivos gerados, binários e arquivos muito grandes. Se uma ferramenta responder que o caminho não existe, não repita a chamada nem tente variações: consulte a última listagem e siga com arquivos existentes ou informe que o documento não está disponível. Não solicite a mesma ferramenta com o mesmo caminho depois de uma falha.
+
+Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados. Para execute_command, command é apenas o executável e args deve ser sempre uma lista JSON de textos (por exemplo, {"command":"git","args":["status","--short"]}); nunca envie args como texto ou objeto.`,
+          role: "system",
+        }
+      : null;
     const promptMessages = [
       ...systemMessages,
-      ...input.messages.filter((message) => message.role === "system"),
-      ...input.messages.filter((message) => message.role !== "system"),
+      ...(toolInstruction ? [toolInstruction] : []),
+      ...(input.sessionId
+        ? input.messages.filter((message) => message.role === "system")
+        : storedMessages.filter((message) => message.role === "system")),
+      ...storedMessages.filter((message) => message.role !== "system"),
     ];
+    const persistStream = (
+      content: string,
+      providerId?: string,
+      model?: string,
+      status = "complete",
+    ) => {
+      if (!input.sessionId || !content.trim()) return;
+      store.appendMessage({
+        content,
+        model: model ?? input.model ?? null,
+        providerId: providerId ?? null,
+        role: "assistant",
+        sessionId: input.sessionId,
+        status,
+      });
+    };
     try {
-      for (const providerId of providerIds) {
+      for (const candidate of candidates) {
         if (controller.signal.aborted) return;
         socket.send(
-          JSON.stringify({ providerId, requestId: input.requestId, type: "chat.started" }),
+          JSON.stringify({
+            model: candidate.model,
+            providerId: candidate.providerId,
+            requestId: input.requestId,
+            type: "chat.started",
+          }),
         );
         let content = "";
+        let transcript: ChatMessage[] = promptMessages.map(providerMessage);
+        let toolCount = 0;
+        let toolResultBytes = 0;
+        const seenToolCallIds = new Set<string>();
+        const toolErrorCounts = new Map<string, number>();
+        const successfulToolResults = new Map<string, unknown>();
         try {
-          const result = await streamChatMessage(
-            providerId,
-            promptMessages,
-            input.model,
-            (delta) => {
-              content += delta;
+          const modelRecord = database.db
+            .select({ toolMode: models.toolMode })
+            .from(models)
+            .where(
+              and(
+                eq(models.providerId, candidate.providerId),
+                eq(models.modelId, candidate.model ?? ""),
+              ),
+            )
+            .get();
+          const toolMode = (modelRecord?.toolMode as ToolMode | undefined) ?? "auto";
+          if (toolMode === "compatibility") {
+            transcript = [
+              {
+                content:
+                  'Para solicitar uma ferramenta, responda exclusivamente com JSON no formato {"tool":"nome","args":{...}}. Não inclua Markdown, explicações ou comandos fora desse envelope.',
+                role: "system",
+              },
+              ...transcript,
+            ];
+          }
+          while (true) {
+            const result = await streamChatMessage(
+              candidate.providerId,
+              transcript,
+              candidate.model,
+              (delta) => {
+                content += delta;
+                socket.send(
+                  JSON.stringify({
+                    delta,
+                    requestId: input.requestId,
+                    sessionId: input.sessionId,
+                    type: "chat.delta",
+                  }),
+                );
+              },
+              controller.signal,
+              fetch,
+              storageDirectory,
+              {
+                toolMode,
+                tools: input.workspaceId ? workspaceToolDefinitions : [],
+              },
+            );
+            if (result.toolCalls.length && !input.workspaceId)
+              throw new Error("Selecione um workspace antes de usar ferramentas locais.");
+            if (result.toolCalls.length && toolMode === "disabled")
+              throw new Error("As ferramentas estão desativadas para este modelo.");
+            if (!result.toolCalls.length) {
+              if (result.content && !content) {
+                content = result.content;
+                socket.send(
+                  JSON.stringify({
+                    delta: result.content,
+                    requestId: input.requestId,
+                    sessionId: input.sessionId,
+                    type: "chat.delta",
+                  }),
+                );
+              }
+              persistStream(content, result.provider.id, candidate.model, "complete");
               socket.send(
                 JSON.stringify({
-                  delta,
+                  content,
+                  persisted: Boolean(input.sessionId),
+                  provider: result.provider,
                   requestId: input.requestId,
-                  type: "chat.delta",
+                  sessionId: input.sessionId,
+                  type: "chat.completed",
                 }),
               );
-            },
-            controller.signal,
-          );
-          socket.send(
-            JSON.stringify({
-              content,
-              provider: result.provider,
-              requestId: input.requestId,
-              type: "chat.completed",
-            }),
-          );
-          return;
+              return;
+            }
+            for (const call of result.toolCalls) {
+              if (controller.signal.aborted) return;
+              const activeWorkspaceId = input.workspaceId;
+              if (!activeWorkspaceId)
+                throw new Error("Selecione um workspace antes de usar ferramentas locais.");
+              toolCount += 1;
+              if (toolCount > MAX_TOOL_CALLS_PER_TURN)
+                throw new Error(
+                  `O limite de ${MAX_TOOL_CALLS_PER_TURN} ferramentas por turno foi atingido.`,
+                );
+              if (!isToolName(call.name))
+                throw new Error(`A ferramenta ${call.name} não é permitida.`);
+              const callId =
+                call.id.startsWith("tool-call-") || seenToolCallIds.has(call.id)
+                  ? `${input.requestId}:${toolCount}:${call.id}`
+                  : call.id;
+              const normalizedCall = { ...call, id: callId };
+              seenToolCallIds.add(callId);
+              let args: Record<string, unknown>;
+              try {
+                args = parseToolArguments(normalizedCall.name, normalizedCall.arguments);
+              } catch (error) {
+                const errorMessage =
+                  error instanceof Error
+                    ? error.message
+                    : "Os argumentos da ferramenta são inválidos.";
+                const toolResult = {
+                  error:
+                    error instanceof ToolValidationFailure
+                      ? error.toJSON()
+                      : {
+                          code: "invalid_tool_arguments",
+                          expectedExample:
+                            normalizedCall.name === "execute_command"
+                              ? { args: ["status", "--short"], command: "git", cwd: "." }
+                              : undefined,
+                          message: errorMessage,
+                          retryable: true,
+                        },
+                };
+                socket.send(
+                  JSON.stringify({
+                    callId: normalizedCall.id,
+                    requestId: input.requestId,
+                    result: toolResult,
+                    sessionId: input.sessionId,
+                    tool: normalizedCall.name,
+                    type: "tool.failed",
+                  }),
+                );
+                if (input.sessionId) {
+                  store.appendMessage({
+                    content: "",
+                    model: candidate.model,
+                    providerId: candidate.providerId,
+                    role: "assistant",
+                    sessionId: input.sessionId,
+                    status: "complete",
+                    toolCalls: [normalizedCall],
+                  });
+                  store.appendMessage({
+                    content: JSON.stringify(toolResult),
+                    model: candidate.model,
+                    providerId: candidate.providerId,
+                    role: "tool",
+                    sessionId: input.sessionId,
+                    status: "failed",
+                    toolCallId: normalizedCall.id,
+                    toolName: normalizedCall.name,
+                  });
+                }
+                const signature = `${normalizedCall.name}:${errorMessage}`;
+                const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
+                toolErrorCounts.set(signature, failures);
+                if (shouldStopAfterRepeatedToolError(failures)) {
+                  throw new Error(
+                    `A ferramenta ${normalizedCall.name} repetiu uma chamada inválida: ${errorMessage}. O ciclo foi interrompido para evitar spam.`,
+                  );
+                }
+                transcript = [
+                  ...transcript,
+                  {
+                    content: "",
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        function: {
+                          arguments: normalizedCall.arguments,
+                          name: normalizedCall.name,
+                        },
+                        id: normalizedCall.id,
+                        type: "function",
+                      },
+                    ],
+                  },
+                  {
+                    content: JSON.stringify(toolResult),
+                    name: normalizedCall.name,
+                    role: "tool",
+                    tool_call_id: normalizedCall.id,
+                  },
+                ];
+                continue;
+              }
+              socket.send(
+                JSON.stringify({
+                  args,
+                  callId: normalizedCall.id,
+                  requestId: input.requestId,
+                  sessionId: input.sessionId,
+                  tool: normalizedCall.name,
+                  type: "tool.started",
+                }),
+              );
+              let toolResult: unknown;
+              let toolError = false;
+              const canonicalArguments = JSON.stringify(args);
+              const canonicalCall = {
+                ...normalizedCall,
+                arguments: canonicalArguments,
+              };
+              const executionSignature = `${normalizedCall.name}:${canonicalArguments}`;
+              const toolRequestId = `${input.requestId}:${normalizedCall.id}`;
+              const cachedResult = successfulToolResults.get(executionSignature);
+              try {
+                toolResult =
+                  cachedResult ??
+                  (await executeTool(
+                    {
+                      args,
+                      requestId: toolRequestId,
+                      sessionId: input.sessionId,
+                      tool: normalizedCall.name,
+                      workspaceId: activeWorkspaceId,
+                    },
+                    storageDirectory,
+                    {
+                      onApproval: (approval) =>
+                        socket.send(
+                          JSON.stringify({
+                            ...approval,
+                            args,
+                            callId: normalizedCall.id,
+                            requestId: toolRequestId,
+                            sessionId: input.sessionId,
+                            type: "approval.requested",
+                          }),
+                        ),
+                    },
+                  ));
+              } catch (error) {
+                toolError = true;
+                toolResult = {
+                  error: error instanceof Error ? error.message : "A ferramenta falhou.",
+                };
+              }
+              if (!toolError) successfulToolResults.set(executionSignature, toolResult);
+              const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));
+              toolResultBytes += cachedResult ? 0 : resultBytes;
+              if (toolResultBytes > MAX_TOOL_RESULT_BYTES_PER_TURN) {
+                throw new Error(
+                  "O orçamento de leitura deste turno foi atingido. Refine a exploração e continue em uma nova mensagem.",
+                );
+              }
+              if (input.sessionId) {
+                store.appendMessage({
+                  content: "",
+                  model: candidate.model,
+                  providerId: candidate.providerId,
+                  role: "assistant",
+                  sessionId: input.sessionId,
+                  status: "complete",
+                  toolCalls: [canonicalCall],
+                });
+                store.appendMessage({
+                  content: JSON.stringify(toolResult),
+                  model: candidate.model,
+                  providerId: candidate.providerId,
+                  role: "tool",
+                  sessionId: input.sessionId,
+                  status: toolError ? "failed" : "complete",
+                  toolCallId: normalizedCall.id,
+                  toolName: normalizedCall.name,
+                });
+              }
+              socket.send(
+                JSON.stringify({
+                  callId: normalizedCall.id,
+                  requestId: input.requestId,
+                  result: toolResult,
+                  sessionId: input.sessionId,
+                  type: toolError ? "tool.failed" : "tool.completed",
+                }),
+              );
+              if (toolError) {
+                const errorMessage =
+                  typeof toolResult === "object" && toolResult && "error" in toolResult
+                    ? String((toolResult as { error?: unknown }).error)
+                    : "A ferramenta falhou.";
+                const signature = `${normalizedCall.name}:${errorMessage}`;
+                const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
+                toolErrorCounts.set(signature, failures);
+                if (shouldStopAfterRepeatedToolError(failures)) {
+                  throw new Error(
+                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha: ${errorMessage}. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
+                  );
+                }
+              } else {
+                toolErrorCounts.clear();
+              }
+              transcript = [
+                ...transcript,
+                {
+                  content: "",
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      function: {
+                        arguments: canonicalArguments,
+                        name: normalizedCall.name,
+                      },
+                      id: normalizedCall.id,
+                      type: "function",
+                    },
+                  ],
+                },
+                {
+                  content: JSON.stringify(toolResult),
+                  name: normalizedCall.name,
+                  role: "tool",
+                  tool_call_id: normalizedCall.id,
+                },
+              ];
+            }
+          }
         } catch (error) {
-          if (controller.signal.aborted) return;
-          if (!isRetryableProviderError(error) || providerId === providerIds.at(-1)) {
-            const message = error instanceof Error ? error.message : "Falha no provedor.";
+          if (controller.signal.aborted) {
+            persistStream(content, candidate.providerId, candidate.model, "stopped");
             socket.send(
-              JSON.stringify({ message, requestId: input.requestId, type: "chat.failed" }),
+              JSON.stringify({
+                content,
+                persisted: Boolean(input.sessionId),
+                requestId: input.requestId,
+                type: "chat.stopped",
+              }),
+            );
+            return;
+          }
+          if (!isRetryableProviderError(error) || candidate === candidates.at(-1)) {
+            const message = error instanceof Error ? error.message : "Falha no provedor.";
+            persistStream(content, candidate.providerId, candidate.model, "failed");
+            socket.send(
+              JSON.stringify({
+                content,
+                message,
+                persisted: Boolean(input.sessionId),
+                requestId: input.requestId,
+                type: "chat.failed",
+              }),
             );
             return;
           }
           socket.send(
             JSON.stringify({
               message: "Tentando o próximo provedor…",
-              providerId,
+              providerId: candidate.providerId,
               requestId: input.requestId,
               type: "chat.retrying",
             }),
           );
           await new Promise((resolve) =>
-            setTimeout(resolve, 120 * (providerIds.indexOf(providerId) + 1)),
+            setTimeout(resolve, Math.min(2000, 250 * 2 ** candidates.indexOf(candidate))),
           );
         }
       }
     } finally {
-      activeRequests.delete(input.requestId);
+      const active = activeRequests.get(input.requestId);
+      if (active?.controller === controller) activeRequests.delete(input.requestId);
     }
   }
 
@@ -443,10 +942,11 @@ export function createSidecar(
       providerId: string;
       requestId: string;
       profileId?: string;
+      sessionId?: string;
       workspaceId?: string;
     },
   ) {
-    const workspaceId = input.workspaceId ?? "default";
+    const workspaceId = input.workspaceId ?? `session:${input.sessionId ?? "default"}`;
     const previous = queues.get(workspaceId) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(() => executeChat(socket, input));
     queues.set(workspaceId, current);
@@ -469,8 +969,11 @@ export function createSidecar(
         return;
       }
       if (input.type === "chat.stop" && input.requestId) {
-        activeRequests.get(input.requestId)?.abort();
-        socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
+        const active = activeRequests.get(input.requestId);
+        if (active) {
+          active.controller.abort();
+          cancelPendingApprovals(input.requestId, storageDirectory);
+        } else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
         return;
       }
       if (input.type === "chat.start" && input.requestId && typeof input.providerId === "string") {
@@ -531,12 +1034,31 @@ export function createSidecar(
       }
     });
     socket.on("close", () => {
-      for (const controller of activeRequests.values()) controller.abort();
+      for (const [requestId, active] of activeRequests) {
+        if (active.socket !== socket) continue;
+        active.controller.abort();
+        cancelPendingApprovals(requestId, storageDirectory);
+      }
     });
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    let listening = false;
+    let settled = false;
+    const handleStartupError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (!listening) database.close();
+      reject(error);
+    };
+    // WebSocketServer re-emits listen failures on itself. Register handlers
+    // on both objects so a busy desktop port becomes an actionable startup
+    // error instead of an unhandled exception (or Tauri exit 143).
+    server.on("error", handleStartupError);
+    socketServer.on("error", handleStartupError);
     server.listen(port, SIDECAR_HOST, () => {
+      listening = true;
+      settled = true;
       const address = server.address() as AddressInfo;
       resolve({ port: address.port, server });
     });
@@ -552,6 +1074,6 @@ export function startFromEnvironment() {
 }
 
 /* c8 ignore next 4 -- entrada direta do processo, coberta pelo empacotamento. */
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   void startFromEnvironment();
 }

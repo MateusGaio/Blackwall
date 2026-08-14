@@ -1,6 +1,8 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { sidecarUrl } from "../../platform/runtime";
 
+export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
+
 export type ConnectedProvider = {
   baseUrl: string;
   id: string;
@@ -40,6 +42,7 @@ export type VaultGraph = {
 };
 
 export type Session = {
+  createdAt: number;
   id: string;
   profileId: string | null;
   selectedModel: string | null;
@@ -94,10 +97,37 @@ type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
   id?: string;
   type?: ConnectedProvider["type"];
 };
-export type ChatMessage = { content: string; id: string; role: "assistant" | "system" | "user" };
+export type ChatMessage = {
+  content: string;
+  id: string;
+  role: "assistant" | "system" | "tool" | "user";
+  toolCallId?: string;
+  toolCalls?: ToolCall[];
+  toolName?: string;
+};
+
+export type WorkspaceToolName =
+  | "apply_patch"
+  | "create_or_update_file"
+  | "execute_command"
+  | "list_directory"
+  | "read_file"
+  | "search_text";
+
+export type WorkspaceToolApproval = {
+  args: Record<string, unknown>;
+  id: string;
+  requestId: string;
+  sessionId: string | null;
+  tool: WorkspaceToolName;
+  workspaceId: string;
+};
+
+export type WorkspaceToolDecision = "allow_once" | "allow_session" | "deny";
 
 export type Attachment = {
   byteSize: number;
+  createdAt?: number;
   filename: string;
   id: string;
   status: string;
@@ -115,7 +145,14 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   if (!baseUrl) {
     throw new Error("Abra o Blackwall pelo app desktop para conectar um provedor local.");
   }
-  const response = await fetch(`${baseUrl}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, init);
+  } catch {
+    throw new Error(
+      "Não foi possível acessar o serviço local do Blackwall. Reinicie o app e tente novamente.",
+    );
+  }
   const body = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? "Não foi possível concluir a ação local.");
   return body;
@@ -158,6 +195,7 @@ export type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
+  toolMode?: "auto" | "compatibility" | "disabled";
 };
 
 export async function discoverProviderModels(
@@ -177,6 +215,21 @@ export async function listStoredProviderModels(providerId: string): Promise<Prov
     { method: "GET" },
   );
   return response.models;
+}
+
+export async function setProviderModelToolMode(
+  providerId: string,
+  modelId: string,
+  toolMode: ProviderModel["toolMode"],
+): Promise<void> {
+  await request(
+    `/v1/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/tool-mode`,
+    {
+      body: JSON.stringify({ toolMode: toolMode ?? "auto" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
 }
 
 export async function setSessionModel(
@@ -231,6 +284,10 @@ export async function updateProfile(
   return response.profile;
 }
 
+export async function deleteProfile(profileId: string): Promise<AppState> {
+  return request(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
+}
+
 export async function listProviders(): Promise<ConnectedProvider[]> {
   const response = await request<{ providers: ConnectedProvider[] }>("/v1/providers", {
     method: "GET",
@@ -238,9 +295,13 @@ export async function listProviders(): Promise<ConnectedProvider[]> {
   return response.providers;
 }
 
-export async function createSession(workspaceId: string | null, title?: string): Promise<Session> {
+export async function createSession(
+  workspaceId: string | null,
+  title?: string,
+  profileId?: string | null,
+): Promise<Session> {
   const response = await request<{ session: Session }>("/v1/sessions", {
-    body: JSON.stringify({ title, workspaceId }),
+    body: JSON.stringify({ profileId, title, workspaceId }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });
@@ -326,6 +387,9 @@ export async function persistMessage(
     providerId?: string | null;
     role: StoredMessage["role"];
     status?: string;
+    toolCallId?: string | null;
+    toolCalls?: ToolCall[] | null;
+    toolName?: string | null;
   },
 ): Promise<StoredMessage> {
   const response = await request<{ message: StoredMessage }>(`/v1/sessions/${sessionId}/messages`, {
@@ -334,6 +398,30 @@ export async function persistMessage(
     method: "POST",
   });
   return response.message;
+}
+
+export async function editSessionMessage(
+  sessionId: string,
+  messageId: string,
+  content: string,
+): Promise<StoredMessage[]> {
+  const response = await request<{ messages: StoredMessage[] }>(
+    `/v1/sessions/${sessionId}/messages/${messageId}/edit`,
+    {
+      body: JSON.stringify({ content }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.messages;
+}
+
+export async function regenerateSession(sessionId: string): Promise<StoredMessage[]> {
+  const response = await request<{ messages: StoredMessage[] }>(
+    `/v1/sessions/${sessionId}/regenerate`,
+    { method: "POST" },
+  );
+  return response.messages;
 }
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -365,6 +453,17 @@ export async function uploadAttachment(
   return response.attachment;
 }
 
+export async function listAttachments(
+  workspaceId: string,
+  sessionId?: string,
+): Promise<Attachment[]> {
+  const response = await request<{ attachments: Attachment[] }>(
+    `/v1/attachments?workspaceId=${encodeURIComponent(workspaceId)}&sessionId=${encodeURIComponent(sessionId ?? "")}`,
+    { method: "GET" },
+  );
+  return response.attachments;
+}
+
 export async function searchAttachments(
   workspaceId: string,
   query: string,
@@ -380,16 +479,35 @@ export async function removeAttachment(attachmentId: string): Promise<void> {
   await request(`/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
 }
 
-type StreamResult = {
+export type StreamResult = {
   content: string;
+  error?: string;
+  failed?: boolean;
+  persisted?: boolean;
   provider: ConnectedProvider | null;
   stopped?: boolean;
+  toolCalls?: ToolCall[];
 };
 
-type StreamHandlers = {
+export type StreamHandlers = {
   onDelta: (delta: string) => void;
+  onApproval?: (
+    approval: WorkspaceToolApproval,
+    resolve: (decision: WorkspaceToolDecision) => void,
+  ) => void;
+  onToolCompleted?: (result: unknown, callId?: string) => void;
+  onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
   onRetry?: (message: string) => void;
 };
+
+export function isStreamEventForRequest(
+  eventRequestId: string | undefined,
+  requestId: string,
+): boolean {
+  return (
+    !eventRequestId || eventRequestId === requestId || eventRequestId.startsWith(`${requestId}:`)
+  );
+}
 
 type ActiveStream = {
   done: Promise<StreamResult>;
@@ -403,6 +521,7 @@ export async function streamMessage(
   workspaceId: string,
   handlers: StreamHandlers,
   profileId?: string,
+  sessionId?: string,
 ): Promise<ActiveStream> {
   const baseUrl = await sidecarUrl();
   if (!baseUrl) throw new Error("O sidecar local não está disponível.");
@@ -427,6 +546,7 @@ export async function streamMessage(
         profileId,
         providerId,
         requestId,
+        sessionId,
         type: "chat.start",
         workspaceId: workspaceId === "default" ? undefined : workspaceId,
       }),
@@ -438,24 +558,78 @@ export async function streamMessage(
       delta?: string;
       message?: string;
       provider?: ConnectedProvider;
+      persisted?: boolean;
+      requestId?: string;
+      args?: Record<string, unknown>;
+      callId?: string;
+      id?: string;
+      result?: unknown;
+      sessionId?: string;
+      tool?: WorkspaceToolName;
       type?: string;
     };
+    // A socket normally carries one request, but keeping the guard here makes
+    // multiplexed/late events harmless when the user changes sessions.
+    if (!isStreamEventForRequest(message.requestId, requestId)) return;
     if (message.type === "chat.delta" && message.delta) {
       content += message.delta;
       handlers.onDelta(message.delta);
     }
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? "Tentando novamente…");
+    if (message.type === "tool.started" && message.tool)
+      handlers.onToolStarted?.(message.tool, message.args ?? {}, message.callId);
+    if (message.type === "approval.requested" && message.tool && handlers.onApproval) {
+      handlers.onApproval(
+        {
+          args: message.args ?? {},
+          id: message.id ?? crypto.randomUUID(),
+          requestId: message.requestId ?? requestId,
+          sessionId: message.sessionId ?? sessionId ?? null,
+          tool: message.tool,
+          workspaceId,
+        },
+        (decision) => {
+          if (socket.readyState === WebSocket.OPEN)
+            socket.send(
+              JSON.stringify({
+                decision,
+                requestId: message.requestId ?? requestId,
+                type: "approval.resolve",
+              }),
+            );
+        },
+      );
+    }
+    if (message.type === "tool.completed") {
+      handlers.onToolCompleted?.(message.result, message.callId);
+    }
     if (message.type === "chat.completed") {
-      resolveDone({ content: message.content ?? content, provider: message.provider ?? null });
+      resolveDone({
+        content: message.content ?? content,
+        persisted: message.persisted,
+        provider: message.provider ?? null,
+        toolCalls: [],
+      });
       socket.close();
     }
     if (message.type === "chat.stopped") {
-      resolveDone({ content, provider: null, stopped: true });
+      resolveDone({
+        content: message.content ?? content,
+        persisted: message.persisted,
+        provider: null,
+        stopped: true,
+      });
       socket.close();
     }
     if (message.type === "chat.failed") {
-      rejectDone(new Error(message.message ?? "Não foi possível obter resposta."));
+      resolveDone({
+        content: message.content ?? content,
+        error: message.message ?? "Não foi possível obter resposta.",
+        failed: true,
+        persisted: message.persisted,
+        provider: message.provider ?? null,
+      });
       socket.close();
     }
   });

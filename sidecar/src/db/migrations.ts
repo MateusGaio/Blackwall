@@ -186,4 +186,25 @@ export function applyMigrations(client: Database.Database) {
     client.exec("ALTER TABLE profiles ADD COLUMN avatar_data TEXT");
     client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(4, Date.now());
   }
+
+  const toolCallingColumns = client.prepare("SELECT id FROM _migrations WHERE id = 5").get();
+  if (!toolCallingColumns) {
+    const columns = (table: string) =>
+      new Set(
+        (client.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+    const modelColumns = columns("models");
+    const messageColumns = columns("messages");
+    if (!modelColumns.has("tool_mode"))
+      client.exec("ALTER TABLE models ADD COLUMN tool_mode TEXT NOT NULL DEFAULT 'auto'");
+    if (!messageColumns.has("tool_calls"))
+      client.exec("ALTER TABLE messages ADD COLUMN tool_calls TEXT");
+    if (!messageColumns.has("tool_name"))
+      client.exec("ALTER TABLE messages ADD COLUMN tool_name TEXT");
+    if (!messageColumns.has("tool_call_id"))
+      client.exec("ALTER TABLE messages ADD COLUMN tool_call_id TEXT");
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(5, Date.now());
+  }
 }

@@ -1,12 +1,21 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
-import { type FolderSelection, pickDirectory } from "../../../platform/runtime";
+import {
+  browserFilesToFolderSelection,
+  currentRuntime,
+  type FolderSelection,
+  pickBrowserDirectory,
+  pickDirectory,
+} from "../../../platform/runtime";
 import {
   type ConnectedProvider,
   connectProvider,
   createWorkspace,
   deleteProvider,
+  discoverProviderModels,
   type Profile,
+  type ProviderModel,
+  setProviderModelToolMode,
   setWorkspaceSoul,
   testProvider,
   updateProfile,
@@ -14,10 +23,12 @@ import {
   type Workspace,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
+import { SoulPicker } from "../../../shared/components/SoulPicker";
 
 type ProviderManagerProps = {
   activeWorkspaceId: string | null;
   onClose: () => void;
+  onDeleteProfile: (profileId: string) => Promise<void>;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
   onProfileChange: (profile: Profile) => void;
   onSignOut: () => Promise<void>;
@@ -49,6 +60,7 @@ const emptyForm: ProviderForm = {
 export function ProviderManager({
   activeWorkspaceId,
   onClose,
+  onDeleteProfile,
   onProvidersChange,
   onProfileChange,
   onSignOut,
@@ -69,6 +81,8 @@ export function ProviderManager({
   const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
+  const [isDeletingProfile, setIsDeletingProfile] = useState(false);
+  const [profileToDelete, setProfileToDelete] = useState<Profile | null>(null);
   const [profileName, setProfileName] = useState(profile?.name ?? "");
   const [profileSoul, setProfileSoul] = useState(profile?.soul ?? "");
   const [profileAvatar, setProfileAvatar] = useState<string | null>(profile?.avatarData ?? null);
@@ -76,9 +90,15 @@ export function ProviderManager({
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
+  const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
+  const [isListingModels, setIsListingModels] = useState(false);
+  const [toolMode, setToolMode] = useState<ProviderModel["toolMode"]>("auto");
+  const runtime = currentRuntime();
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+  const profileLocale = profile?.locale === "en" ? "en" : "pt-BR";
+  const isEnglish = profileLocale === "en";
 
   useEffect(() => {
     setProfileName(profile?.name ?? "");
@@ -105,6 +125,7 @@ export function ProviderManager({
     });
     setError("");
     setStatus("");
+    setProviderModels([]);
   }
 
   function reset() {
@@ -112,6 +133,59 @@ export function ProviderManager({
     setForm(emptyForm);
     setError("");
     setStatus("");
+    setProviderModels([]);
+  }
+
+  async function listModels() {
+    setError("");
+    setIsListingModels(true);
+    try {
+      const listed = await discoverProviderModels({
+        apiKey: form.apiKey || undefined,
+        baseUrl: form.baseUrl,
+        id: editingId ?? undefined,
+        name: form.name,
+        type: form.type,
+      });
+      setProviderModels(listed);
+      setToolMode(
+        listed.find((model) => model.id === (form.model || listed[0]?.id))?.toolMode ?? "auto",
+      );
+      if (!form.model && listed[0]) updateForm("model", listed[0].id);
+      if (!listed.length)
+        setStatus(
+          isEnglish
+            ? "This provider returned no models."
+            : "Nenhum modelo foi retornado por este provedor.",
+        );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not list models."
+            : "Não foi possível listar os modelos.",
+      );
+    } finally {
+      setIsListingModels(false);
+    }
+  }
+
+  async function changeToolMode(next: ProviderModel["toolMode"]) {
+    setToolMode(next);
+    if (!editingId || !form.model || !next) return;
+    try {
+      await setProviderModelToolMode(editingId, form.model, next);
+      setStatus(isEnglish ? "Tool mode saved." : "Modo de ferramentas salvo.");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not save tool mode."
+            : "Não foi possível salvar o modo de ferramentas.",
+      );
+    }
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -127,10 +201,16 @@ export function ProviderManager({
         soul: profileSoul,
       });
       onProfileChange(saved);
-      setProfileStatus("Perfil salvo neste dispositivo.");
+      setProfileStatus(
+        isEnglish ? "Profile saved on this device." : "Perfil salvo neste dispositivo.",
+      );
     } catch (reason) {
       setProfileError(
-        reason instanceof Error ? reason.message : "Não foi possível salvar o perfil.",
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not save the profile."
+            : "Não foi possível salvar o perfil.",
       );
     } finally {
       setIsSavingProfile(false);
@@ -142,7 +222,11 @@ export function ProviderManager({
     event.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
-      setProfileError("Escolha uma imagem PNG, JPEG, WebP ou GIF de até 2 MB.");
+      setProfileError(
+        isEnglish
+          ? "Choose a PNG, JPEG, WebP or GIF image up to 2 MB."
+          : "Escolha uma imagem PNG, JPEG, WebP ou GIF de até 2 MB.",
+      );
       return;
     }
     const reader = new FileReader();
@@ -151,10 +235,13 @@ export function ProviderManager({
       if (typeof result === "string") {
         setProfileAvatar(result);
         setProfileError("");
-        setProfileStatus("Foto pronta para salvar.");
+        setProfileStatus(isEnglish ? "Photo ready to save." : "Foto pronta para salvar.");
       }
     };
-    reader.onerror = () => setProfileError("Não foi possível ler essa imagem.");
+    reader.onerror = () =>
+      setProfileError(
+        isEnglish ? "Could not read this image." : "Não foi possível ler essa imagem.",
+      );
     reader.readAsDataURL(file);
   }
 
@@ -167,10 +254,18 @@ export function ProviderManager({
     try {
       const saved = await setWorkspaceSoul(activeWorkspace.id, workspaceSoul);
       onWorkspaceChange(saved);
-      setWorkspaceStatus("Soul do workspace salva neste dispositivo.");
+      setWorkspaceStatus(
+        profileLocale === "en"
+          ? "Workspace context saved on this device."
+          : "Contexto do workspace salvo neste dispositivo.",
+      );
     } catch (reason) {
       setWorkspaceStatus(
-        reason instanceof Error ? reason.message : "Não foi possível salvar a Soul do workspace.",
+        reason instanceof Error
+          ? reason.message
+          : profileLocale === "en"
+            ? "Could not save workspace context."
+            : "Não foi possível salvar o contexto do workspace.",
       );
     } finally {
       setIsSaving(false);
@@ -198,10 +293,20 @@ export function ProviderManager({
         : [...providers, saved];
       onProvidersChange(next);
       onSelect(saved);
-      setStatus("Provedor salvo e validado neste dispositivo.");
+      setStatus(
+        isEnglish
+          ? "Provider saved and validated on this device."
+          : "Provedor salvo e validado neste dispositivo.",
+      );
       reset();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível salvar o provedor.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not save the provider."
+            : "Não foi possível salvar o provedor.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -212,9 +317,15 @@ export function ProviderManager({
     setStatus("");
     try {
       await testProvider({ ...form, apiKey: form.apiKey || undefined });
-      setStatus("Conexão validada.");
+      setStatus(isEnglish ? "Connection validated." : "Conexão validada.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível testar o provedor.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not test the provider."
+            : "Não foi possível testar o provedor.",
+      );
     }
   }
 
@@ -225,16 +336,64 @@ export function ProviderManager({
       onProvidersChange(next);
       reset();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível remover o provedor.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not remove the provider."
+            : "Não foi possível remover o provedor.",
+      );
+    }
+  }
+
+  async function removeProfile() {
+    if (!profile) return;
+    setIsDeletingProfile(true);
+    setProfileError("");
+    try {
+      await onDeleteProfile(profile.id);
+    } catch (reason) {
+      setProfileError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not delete the profile."
+            : "Não foi possível excluir o perfil.",
+      );
+    } finally {
+      setIsDeletingProfile(false);
     }
   }
 
   async function chooseWorkspaceFolder() {
-    const selected = await pickDirectory();
-    if (!selected) return;
-    setWorkspaceFolder(selected);
-    setWorkspaceName((current) => current || selected.name);
     setWorkspaceStatus("");
+    try {
+      const selected =
+        currentRuntime() === "web"
+          ? await pickBrowserDirectory(profileLocale)
+          : await pickDirectory(profileLocale);
+      if (!selected) return;
+      setWorkspaceFolder(selected);
+      setWorkspaceName((current) => current || selected.name);
+    } catch (reason) {
+      setWorkspaceStatus(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not choose the folder."
+            : "Não foi possível escolher a pasta.",
+      );
+    }
+  }
+
+  function chooseBrowserWorkspaceFolder(event: ChangeEvent<HTMLInputElement>) {
+    void browserFilesToFolderSelection(event.target.files ?? []).then((selected) => {
+      event.target.value = "";
+      if (!selected) return;
+      setWorkspaceFolder(selected);
+      setWorkspaceName((current) => current || selected.name);
+      setWorkspaceStatus("");
+    });
   }
 
   async function submitWorkspace(event: FormEvent<HTMLFormElement>) {
@@ -248,16 +407,22 @@ export function ProviderManager({
         name: workspaceName.trim(),
         profileId,
         rootPath: workspaceFolder.path ?? "",
-        soul: "Preserve o contexto e as convenções deste workspace.",
+        soul: "",
         workspaceFiles: workspaceFolder.files,
       });
       await onWorkspaceSelected(created);
       setWorkspaceName("");
       setWorkspaceFolder(null);
-      setWorkspaceStatus(`Workspace ${created.name} adicionado.`);
+      setWorkspaceStatus(
+        isEnglish ? `Workspace ${created.name} added.` : `Workspace ${created.name} adicionado.`,
+      );
     } catch (reason) {
       setWorkspaceStatus(
-        reason instanceof Error ? reason.message : "Não foi possível criar o workspace.",
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not create the workspace."
+            : "Não foi possível criar o workspace.",
       );
     } finally {
       setIsSaving(false);
@@ -266,18 +431,30 @@ export function ProviderManager({
 
   return (
     <div className="settings-backdrop" role="presentation">
+      <button
+        aria-label={isEnglish ? "Close settings" : "Fechar configurações"}
+        className="settings-backdrop-dismiss"
+        onClick={onClose}
+        type="button"
+      />
       <section
         aria-busy={isSaving || isSavingProfile}
-        aria-label="Configurações de provedores"
+        aria-label={isEnglish ? "Provider settings" : "Configurações de provedores"}
         className="settings-panel"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
+        tabIndex={-1}
       >
         <header className="settings-panel-header">
           <div>
-            <p className="eyebrow">Configurações</p>
-            <h2>Perfil, workspaces e provedores</h2>
+            <p className="eyebrow">{isEnglish ? "Settings" : "Configurações"}</p>
+            <h2>
+              {isEnglish ? "Profile, workspaces and providers" : "Perfil, workspaces e provedores"}
+            </h2>
           </div>
           <button
-            aria-label="Fechar configurações"
+            aria-label={isEnglish ? "Close settings" : "Fechar configurações"}
             className="icon-button"
             onClick={onClose}
             type="button"
@@ -288,15 +465,15 @@ export function ProviderManager({
         <form className="settings-section profile-settings" onSubmit={saveProfile}>
           <div className="settings-section-heading">
             <div>
-              <p className="eyebrow">Perfil</p>
-              <h3>Como você quer ser chamado?</h3>
+              <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
+              <h3>{isEnglish ? "What should we call you?" : "Como você quer ser chamado?"}</h3>
             </div>
             <div className="profile-avatar-preview" aria-hidden="true">
               {profileAvatar ? <img alt="" src={profileAvatar} /> : <span>BW</span>}
             </div>
           </div>
           <label className="field-label" htmlFor="settings-profile-name">
-            Nome
+            {isEnglish ? "Name" : "Nome"}
             <input
               id="settings-profile-name"
               onChange={(event) => setProfileName(event.target.value)}
@@ -305,7 +482,7 @@ export function ProviderManager({
           </label>
           <div className="profile-avatar-actions">
             <label className="button button-secondary" htmlFor="settings-profile-avatar">
-              Alterar foto
+              {isEnglish ? "Change photo" : "Alterar foto"}
               <input
                 accept="image/png,image/jpeg,image/webp,image/gif"
                 className="sr-only"
@@ -316,27 +493,41 @@ export function ProviderManager({
             </label>
             {profileAvatar && (
               <button className="text-button" onClick={() => setProfileAvatar(null)} type="button">
-                Remover foto
+                {isEnglish ? "Remove photo" : "Remover foto"}
               </button>
             )}
-            <small>PNG, JPEG, WebP ou GIF · até 2 MB · fica somente neste dispositivo</small>
+            <small>
+              {isEnglish
+                ? "PNG, JPEG, WebP or GIF · up to 2 MB · stays on this device"
+                : "PNG, JPEG, WebP ou GIF · até 2 MB · fica somente neste dispositivo"}
+            </small>
           </div>
-          <label className="field-label" htmlFor="settings-profile-soul">
-            Soul do perfil
-            <textarea
-              id="settings-profile-soul"
-              onChange={(event) => setProfileSoul(event.target.value)}
-              rows={4}
-              value={profileSoul}
-            />
-          </label>
+          <SoulPicker
+            hint={
+              isEnglish
+                ? "Choose a ready-made personality or write your own prompt."
+                : "Escolha uma personalidade pronta ou escreva seu próprio prompt."
+            }
+            id="settings-profile-soul"
+            label={isEnglish ? "Profile Soul" : "Soul do perfil"}
+            locale={profileLocale}
+            onChange={setProfileSoul}
+            rows={4}
+            value={profileSoul}
+          />
           <div className="settings-actions">
             <button
               className="button button-primary"
               disabled={isSavingProfile || !profileName.trim() || !profileSoul.trim()}
               type="submit"
             >
-              {isSavingProfile ? "Salvando…" : "Salvar perfil"}
+              {isSavingProfile
+                ? isEnglish
+                  ? "Saving…"
+                  : "Salvando…"
+                : isEnglish
+                  ? "Save profile"
+                  : "Salvar perfil"}
             </button>
           </div>
           {profileStatus && <p className="settings-status">{profileStatus}</p>}
@@ -348,7 +539,7 @@ export function ProviderManager({
         </form>
         <section aria-labelledby="workspace-settings-title" className="settings-section">
           <p className="eyebrow" id="workspace-settings-title">
-            Workspaces
+            {isEnglish ? "Workspaces" : "Workspaces"}
           </p>
           <div className="settings-workspace-list">
             {workspaces.map((workspace) => (
@@ -366,52 +557,96 @@ export function ProviderManager({
               </button>
             ))}
             {workspaces.length === 0 && (
-              <p className="settings-empty">Nenhum workspace com pasta selecionada.</p>
+              <p className="settings-empty">
+                {isEnglish
+                  ? "No workspace folder selected."
+                  : "Nenhum workspace com pasta selecionada."}
+              </p>
             )}
           </div>
           <form className="workspace-create-form" onSubmit={submitWorkspace}>
             <label className="field-label" htmlFor="settings-workspace-name">
-              Nome do workspace
+              {isEnglish ? "Workspace name" : "Nome do workspace"}
               <input
                 id="settings-workspace-name"
                 onChange={(event) => setWorkspaceName(event.target.value)}
-                placeholder="Meu projeto"
+                placeholder={isEnglish ? "My project" : "Meu projeto"}
                 value={workspaceName}
               />
             </label>
-            <button
-              className="folder-select-button settings-folder-button"
-              onClick={() => void chooseWorkspaceFolder()}
-              type="button"
-            >
-              <strong>{workspaceFolder?.name ?? "Escolher pasta"}</strong>
-              <small>Selecione uma pasta para habilitar Vault, grafo e ferramentas.</small>
-            </button>
+            {runtime === "web" ? (
+              <label className="folder-select-button settings-folder-button">
+                <input
+                  aria-label={isEnglish ? "Choose workspace folder" : "Escolher pasta do workspace"}
+                  onChange={chooseBrowserWorkspaceFolder}
+                  ref={(input) => {
+                    input?.setAttribute("webkitdirectory", "");
+                    input?.setAttribute("directory", "");
+                  }}
+                  type="file"
+                />
+                <strong>
+                  {workspaceFolder?.name ?? (isEnglish ? "Choose folder" : "Escolher pasta")}
+                </strong>
+                <small>
+                  {isEnglish
+                    ? "Choose a folder to enable the Vault, graph and tools."
+                    : "Selecione uma pasta para habilitar Vault, grafo e ferramentas."}
+                </small>
+              </label>
+            ) : (
+              <button
+                className="folder-select-button settings-folder-button"
+                onClick={() => void chooseWorkspaceFolder()}
+                type="button"
+              >
+                <strong>
+                  {workspaceFolder?.name ?? (isEnglish ? "Choose folder" : "Escolher pasta")}
+                </strong>
+                <small>
+                  {isEnglish
+                    ? "Choose a folder to enable the Vault, graph and tools."
+                    : "Selecione uma pasta para habilitar Vault, grafo e ferramentas."}
+                </small>
+              </button>
+            )}
             <button
               className="button button-primary"
               disabled={isSaving || !workspaceName.trim() || !workspaceFolder}
               type="submit"
             >
-              {isSaving ? "Salvando…" : "Adicionar workspace"}
+              {isSaving
+                ? isEnglish
+                  ? "Saving…"
+                  : "Salvando…"
+                : isEnglish
+                  ? "Add workspace"
+                  : "Adicionar workspace"}
             </button>
           </form>
           {activeWorkspace && (
             <form className="workspace-soul-form" onSubmit={saveWorkspaceSoulDraft}>
               <label className="field-label" htmlFor="settings-workspace-soul">
-                Soul do workspace selecionado
+                {profileLocale === "en" ? "Workspace context" : "Contexto do workspace"}
                 <textarea
                   id="settings-workspace-soul"
                   onChange={(event) => setWorkspaceSoulDraft(event.target.value)}
-                  rows={4}
+                  placeholder={
+                    profileLocale === "en"
+                      ? "Describe the project, conventions and goals…"
+                      : "Descreva o projeto, as convenções e os objetivos…"
+                  }
+                  rows={6}
                   value={workspaceSoul}
                 />
+                <span className="field-hint">
+                  {profileLocale === "en"
+                    ? "Add context that should guide conversations in this workspace."
+                    : "Adicione o contexto que deve orientar as conversas neste workspace."}
+                </span>
               </label>
-              <button
-                className="button button-secondary"
-                disabled={isSaving || !workspaceSoul.trim()}
-                type="submit"
-              >
-                Salvar Soul
+              <button className="button button-secondary" disabled={isSaving} type="submit">
+                {profileLocale === "en" ? "Save context" : "Salvar contexto"}
               </button>
             </form>
           )}
@@ -423,29 +658,41 @@ export function ProviderManager({
               <button onClick={() => onSelect(provider)} type="button">
                 <strong>{provider.name}</strong>
                 <span>
-                  {provider.type} · {provider.model || "sem modelo"}
+                  {provider.type} · {provider.model || (isEnglish ? "no model" : "sem modelo")}
                 </span>
               </button>
               <div>
                 <button className="text-button" onClick={() => edit(provider)} type="button">
-                  Editar
+                  {isEnglish ? "Edit" : "Editar"}
                 </button>
                 <button
                   className="text-button danger"
                   onClick={() => setProviderToRemove(provider)}
                   type="button"
                 >
-                  Remover
+                  {isEnglish ? "Remove" : "Remover"}
                 </button>
               </div>
             </article>
           ))}
-          {providers.length === 0 && <p className="settings-empty">Nenhum provedor configurado.</p>}
+          {providers.length === 0 && (
+            <p className="settings-empty">
+              {isEnglish ? "No providers configured." : "Nenhum provedor configurado."}
+            </p>
+          )}
         </div>
         <form className="provider-form settings-form" onSubmit={submit}>
-          <p className="eyebrow">{editingId ? "Editar provedor" : "Adicionar provedor"}</p>
+          <p className="eyebrow">
+            {editingId
+              ? isEnglish
+                ? "Edit provider"
+                : "Editar provedor"
+              : isEnglish
+                ? "Add provider"
+                : "Adicionar provedor"}
+          </p>
           <label className="field-label" htmlFor="settings-provider-type">
-            Tipo
+            {isEnglish ? "Type" : "Tipo"}
             <select
               id="settings-provider-type"
               onChange={(event) => updateForm("type", event.target.value)}
@@ -456,7 +703,7 @@ export function ProviderManager({
             </select>
           </label>
           <label className="field-label" htmlFor="settings-provider-name">
-            Nome
+            {isEnglish ? "Name" : "Nome"}
             <input
               id="settings-provider-name"
               onChange={(event) => updateForm("name", event.target.value)}
@@ -472,21 +719,72 @@ export function ProviderManager({
             />
           </label>
           <label className="field-label" htmlFor="settings-provider-model">
-            Modelo padrão
-            <input
-              id="settings-provider-model"
-              onChange={(event) => updateForm("model", event.target.value)}
-              value={form.model}
-            />
+            {isEnglish ? "Default model" : "Modelo padrão"}
+            <div className="model-input-row">
+              <input
+                id="settings-provider-model"
+                onChange={(event) => updateForm("model", event.target.value)}
+                value={form.model}
+              />
+              <button
+                className="button button-secondary"
+                disabled={
+                  isListingModels ||
+                  (!editingId && form.type === "openai-compatible" && !form.apiKey.trim())
+                }
+                onClick={() => void listModels()}
+                type="button"
+              >
+                {isListingModels
+                  ? isEnglish
+                    ? "Listing…"
+                    : "Listando…"
+                  : isEnglish
+                    ? "List models"
+                    : "Listar modelos"}
+              </button>
+            </div>
+            {providerModels.length > 0 && (
+              <select
+                aria-label={isEnglish ? "Available models" : "Modelos disponíveis"}
+                onChange={(event) => updateForm("model", event.target.value)}
+                value={form.model}
+              >
+                {providerModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {editingId && providerModels.length > 0 && (
+              <select
+                aria-label={isEnglish ? "Tool calling mode" : "Modo de ferramentas"}
+                onChange={(event) =>
+                  void changeToolMode(event.target.value as ProviderModel["toolMode"])
+                }
+                value={toolMode}
+              >
+                <option value="auto">
+                  {isEnglish ? "Native tools (automatic)" : "Ferramentas nativas (automático)"}
+                </option>
+                <option value="compatibility">
+                  {isEnglish ? "Compatibility JSON (opt-in)" : "JSON de compatibilidade (opt-in)"}
+                </option>
+                <option value="disabled">{isEnglish ? "Disabled" : "Desativado"}</option>
+              </select>
+            )}
           </label>
           {form.type === "openai-compatible" && (
             <label className="field-label" htmlFor="settings-provider-key">
-              Chave de API
+              {isEnglish ? "API key" : "Chave de API"}
               <input
                 autoComplete="off"
                 id="settings-provider-key"
                 onChange={(event) => updateForm("apiKey", event.target.value)}
-                placeholder={editingId ? "Manter chave atual" : "sk-…"}
+                placeholder={
+                  editingId ? (isEnglish ? "Keep current key" : "Manter chave atual") : "sk-…"
+                }
                 type="password"
                 value={form.apiKey}
               />
@@ -499,18 +797,18 @@ export function ProviderManager({
               onClick={() => void testCurrent()}
               type="button"
             >
-              Testar
+              {isEnglish ? "Test" : "Testar"}
             </button>
             <button
               className="button button-primary"
               disabled={isSaving || !form.name.trim() || !form.baseUrl.trim() || !form.model.trim()}
               type="submit"
             >
-              {isSaving ? "Salvando…" : "Salvar"}
+              {isSaving ? (isEnglish ? "Saving…" : "Salvando…") : isEnglish ? "Save" : "Salvar"}
             </button>
             {editingId && (
               <button className="text-button" onClick={reset} type="button">
-                Cancelar
+                {isEnglish ? "Cancel" : "Cancelar"}
               </button>
             )}
             <button
@@ -518,8 +816,18 @@ export function ProviderManager({
               onClick={() => void onSignOut()}
               type="button"
             >
-              Sair do perfil
+              {isEnglish ? "Sign out" : "Sair do perfil"}
             </button>
+            {profile && (
+              <button
+                className="text-button danger settings-delete-profile"
+                disabled={isDeletingProfile}
+                onClick={() => setProfileToDelete(profile)}
+                type="button"
+              >
+                {isEnglish ? "Delete profile" : "Excluir perfil"}
+              </button>
+            )}
           </div>
           {status && <p className="settings-status">{status}</p>}
           {error && (
@@ -531,15 +839,38 @@ export function ProviderManager({
       </section>
       {providerToRemove && (
         <ConfirmDialog
-          confirmLabel="Remover provedor"
-          description={`A configuração de ${providerToRemove.name} será removida deste dispositivo.`}
+          confirmLabel={isEnglish ? "Remove provider" : "Remover provedor"}
+          description={
+            isEnglish
+              ? `The ${providerToRemove.name} configuration will be removed from this device.`
+              : `A configuração de ${providerToRemove.name} será removida deste dispositivo.`
+          }
           onCancel={() => setProviderToRemove(null)}
           onConfirm={() => {
             const provider = providerToRemove;
             setProviderToRemove(null);
             void remove(provider);
           }}
-          title={`Remover ${providerToRemove.name}?`}
+          headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
+          title={`${isEnglish ? "Remove" : "Remover"} ${providerToRemove.name}?`}
+        />
+      )}
+      {profileToDelete && (
+        <ConfirmDialog
+          cancelLabel={isEnglish ? "Cancel" : "Cancelar"}
+          confirmLabel={isEnglish ? "Delete profile" : "Excluir perfil"}
+          description={
+            isEnglish
+              ? "All sessions, workspaces, messages and attachments from this profile will be removed from this device. This cannot be undone."
+              : "Todas as sessões, workspaces, mensagens e anexos deste perfil serão removidos deste dispositivo. Essa ação é definitiva."
+          }
+          onCancel={() => setProfileToDelete(null)}
+          onConfirm={() => {
+            setProfileToDelete(null);
+            void removeProfile();
+          }}
+          headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
+          title={`${isEnglish ? "Delete" : "Excluir"} ${profileToDelete.name}?`}
         />
       )}
     </div>

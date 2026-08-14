@@ -7,9 +7,15 @@ import {
   getProvider,
   listProviderModels,
   normalizeBaseUrl,
+  OpenAICompatibleProvider,
+  type ProviderConnectionError,
+  ProviderHttpError,
   providerApiKey,
   removeProvider,
+  resolveProviderModelInput,
+  routeCandidates,
   saveProvider,
+  syncProviderModels,
   validateProvider,
 } from "./providers.js";
 
@@ -96,6 +102,52 @@ describe("providers", () => {
     expect(request).toHaveBeenCalledWith("http://127.0.0.1:11434/api/tags", expect.anything());
   });
 
+  it("normaliza endpoints Ollama com sufixo de API e explica falhas de conexão", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ models: [] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+    await expect(
+      listProviderModels(
+        {
+          baseUrl: "http://localhost:11434/api/v1",
+          name: "Ollama",
+          type: "ollama",
+        },
+        request,
+      ),
+    ).resolves.toEqual([]);
+    expect(request).toHaveBeenCalledWith("http://localhost:11434/api/tags", expect.anything());
+
+    const unavailable = vi
+      .fn()
+      .mockRejectedValue(new TypeError("fetch failed")) as unknown as typeof fetch;
+    await expect(
+      listProviderModels(
+        {
+          baseUrl: "http://localhost:11434/api/v1",
+          name: "Ollama",
+          type: "ollama",
+        },
+        unavailable,
+      ),
+    ).rejects.toMatchObject({
+      name: "ProviderConnectionError",
+      retryable: true,
+    } satisfies Partial<ProviderConnectionError>);
+    await expect(
+      listProviderModels(
+        {
+          baseUrl: "http://localhost:11434/api/v1",
+          name: "Ollama",
+          type: "ollama",
+        },
+        unavailable,
+      ),
+    ).rejects.toThrow("Verifique se o Ollama está em execução");
+  });
+
   it("edita e remove um provedor sem colocar segredos no cadastro", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-edit-"));
     directories.push(directory);
@@ -121,5 +173,142 @@ describe("providers", () => {
     await expect(providerApiKey(provider.id, directory)).resolves.toBe("keep-me-encrypted");
     await expect(removeProvider(provider.id, directory)).resolves.toEqual({ id: provider.id });
     await expect(getProvider(provider.id, directory)).rejects.toThrow("não existe");
+  });
+
+  it("usa a URL editada e recupera a chave salva ao listar modelos", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-discovery-"));
+    directories.push(directory);
+    const provider = await saveProvider(
+      {
+        apiKey: "stored-discovery-key",
+        baseUrl: "https://old.example.com/v1",
+        model: "old-model",
+        name: "Existing provider",
+      },
+      directory,
+    );
+
+    const resolved = await resolveProviderModelInput(
+      {
+        baseUrl: "https://opencode.ai/zen/v1",
+        id: provider.id,
+        model: "discovery",
+        name: "OpenCode Zen",
+      },
+      directory,
+    );
+    expect(resolved).toMatchObject({
+      apiKey: "stored-discovery-key",
+      baseUrl: "https://opencode.ai/zen/v1",
+      id: provider.id,
+      model: "discovery",
+      name: "OpenCode Zen",
+      type: "openai-compatible",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ id: "deepseek-v4-flash-free" }] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+    await expect(listProviderModels(resolved, request)).resolves.toEqual([
+      { capabilities: [], id: "deepseek-v4-flash-free", name: "deepseek-v4-flash-free" },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      "https://opencode.ai/zen/v1/models",
+      expect.objectContaining({
+        headers: { authorization: "Bearer stored-discovery-key" },
+      }),
+    );
+  });
+
+  it("usa adaptadores e mapeia erros de configuração sem torná-los elegíveis para fallback", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 404 })) as unknown as typeof fetch;
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.example.com/v1",
+      model: "model",
+      name: "Example",
+    });
+    await expect(adapter.validate(request)).rejects.toMatchObject({
+      name: "ProviderHttpError",
+      status: 404,
+      retryable: false,
+    });
+    await expect(adapter.validate(request)).rejects.toThrow("endpoint não foi encontrado");
+    expect(adapter.chatRequest("model", [{ role: "user", content: "Oi" }]).endpoint).toBe(
+      "https://api.example.com/v1/chat/completions",
+    );
+    expect(new ProviderHttpError(429).retryable).toBe(true);
+  });
+
+  it("envia o contrato de ferramentas apenas quando o modelo permite", () => {
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.example.com/v1",
+      model: "model",
+      name: "Example",
+    });
+    const tools = [
+      {
+        function: {
+          description: "Read a file",
+          name: "read_file" as const,
+          parameters: { type: "object" },
+          strict: true as const,
+        },
+        type: "function" as const,
+      },
+    ];
+    const native = adapter.chatRequest("model", [], undefined, { toolMode: "auto", tools });
+    expect(JSON.parse(String(native.body))).toMatchObject({ tool_choice: "auto", tools });
+    const disabled = adapter.chatRequest("model", [], undefined, {
+      toolMode: "disabled",
+      tools,
+    });
+    expect(JSON.parse(String(disabled.body))).not.toHaveProperty("tools");
+    const compatibility = adapter.chatRequest("model", [], undefined, {
+      toolMode: "compatibility",
+      tools,
+    });
+    expect(JSON.parse(String(compatibility.body))).not.toHaveProperty("tools");
+  });
+
+  it("sincroniza modelos no SQLite e preserva a ordem configurada da rota", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-models-"));
+    directories.push(directory);
+    const provider = await saveProvider(
+      {
+        apiKey: "sync-key",
+        baseUrl: "https://api.example.com/v1",
+        model: "first",
+        name: "Example",
+      },
+      directory,
+    );
+    const request = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: "first" }, { id: "second" }] }), {
+        status: 200,
+      }),
+    ) as unknown as typeof fetch;
+    await expect(
+      syncProviderModels(
+        provider.id,
+        {
+          apiKey: "sync-key",
+          baseUrl: provider.baseUrl,
+          model: provider.model,
+          name: provider.name,
+        },
+        directory,
+        request,
+      ),
+    ).resolves.toHaveLength(2);
+    const route = routeCandidates({ model: "first", providerId: provider.id }, [
+      { modelId: "fallback-b", position: 2, providerId: "b" },
+      { modelId: "fallback-a", position: 1, providerId: "a" },
+    ]);
+    expect(route.map((candidate) => candidate.providerId)).toEqual([provider.id, "a", "b"]);
   });
 });

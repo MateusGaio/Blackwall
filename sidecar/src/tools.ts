@@ -6,9 +6,60 @@ import { and, eq } from "drizzle-orm";
 import { dataDirectory, openDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
 
-const maxReadBytes = 1_000_000;
+const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
 const commandTimeoutMs = 15_000;
+const ignoredDirectoryNames = new Set([
+  ".cache",
+  ".git",
+  ".mypy_cache",
+  ".next",
+  ".pytest_cache",
+  ".tox",
+  ".venv",
+  "__pycache__",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "target",
+  "vendor",
+]);
+const binaryExtensions = new Set([
+  ".7z",
+  ".a",
+  ".bin",
+  ".class",
+  ".dll",
+  ".dylib",
+  ".exe",
+  ".gif",
+  ".gz",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".lockb",
+  ".o",
+  ".pdf",
+  ".png",
+  ".so",
+  ".tar",
+  ".wasm",
+  ".webp",
+  ".zip",
+]);
+
+const commandEnvironmentKeys = [
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "PATH",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "USER",
+];
 
 export type ToolName =
   | "apply_patch"
@@ -163,7 +214,7 @@ export async function resolveApproval(
     .where(eq(approvals.id, approval.id))
     .run();
   database.close();
-  if (decision === "allow_session") {
+  if (decision === "allow_session" && !isDestructive(approval.tool as ToolName)) {
     sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
   }
   const pending = pendingApprovals.get(requestId);
@@ -173,6 +224,28 @@ export async function resolveApproval(
     pending.resolve(decision);
   }
   return { requestId, decision };
+}
+
+/**
+ * Closing a browser window or switching away from a chat must not leave an
+ * approval promise alive. Pending requests are explicitly denied and marked
+ * as such in SQLite so a later reconnect cannot resume an old action.
+ */
+export function cancelPendingApprovals(requestId: string, storageDirectory = dataDirectory()) {
+  const database = openDatabase(storageDirectory);
+  database.client
+    .prepare(
+      "UPDATE approvals SET resolved_at = ?, status = 'denied' WHERE status = 'pending' AND (request_id = ? OR request_id LIKE ?)",
+    )
+    .run(Date.now(), requestId, `${requestId}:%`);
+  database.close();
+
+  for (const [pendingRequestId, pending] of pendingApprovals) {
+    if (pendingRequestId !== requestId && !pendingRequestId.startsWith(`${requestId}:`)) continue;
+    clearTimeout(pending.timer);
+    pendingApprovals.delete(pendingRequestId);
+    pending.resolve("deny");
+  }
 }
 
 export async function executeTool(
@@ -206,37 +279,77 @@ export async function executeTool(
   const root = await workspaceRoot(workspace);
   switch (input.tool) {
     case "list_directory": {
-      const path = await safePath(root, String(input.args.path ?? "."));
+      const path = await safePath(root, String(input.args.path || "."));
       const entries = await readdir(path, { withFileTypes: true });
       return {
-        entries: entries.map((entry) => ({
-          name: entry.name,
-          type: entry.isDirectory() ? "directory" : "file",
-        })),
+        path: relative(root, path) || ".",
+        entries: await Promise.all(
+          entries
+            .filter(
+              (entry) =>
+                !entry.isSymbolicLink() &&
+                !(entry.isDirectory() && ignoredDirectoryNames.has(entry.name)),
+            )
+            .map(async (entry) => {
+              const child = join(path, entry.name);
+              const info = await stat(child).catch(() => null);
+              return {
+                name: entry.name,
+                path: relative(root, child).split("\\").join("/"),
+                size: entry.isFile() ? (info?.size ?? 0) : null,
+                type: entry.isDirectory() ? "directory" : "file",
+              };
+            }),
+        ),
       };
     }
     case "read_file": {
       const path = await safePath(root, String(input.args.path ?? ""));
       const info = await stat(path);
       if (!info.isFile()) throw new Error("O caminho solicitado não é um arquivo.");
-      if (info.size > maxReadBytes) throw new Error("O arquivo excede o limite local de 1 MB.");
-      return { content: await readFile(path, "utf8"), path: relative(root, path) };
+      const handle = await import("node:fs/promises").then(({ open }) => open(path, "r"));
+      try {
+        const length = Math.min(info.size, maxReadBytes);
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, 0);
+        if (buffer.includes(0))
+          throw new Error("O arquivo parece ser binário e não pode ser lido.");
+        return {
+          bytesRead: length,
+          content: buffer.toString("utf8"),
+          end: length,
+          path: relative(root, path).split("\\").join("/"),
+          size: info.size,
+          start: 0,
+          truncated: info.size > length,
+        };
+      } finally {
+        await handle.close();
+      }
     }
     case "search_text": {
       const query = String(input.args.query ?? "");
       if (!query.trim()) throw new Error("Informe o texto a pesquisar.");
-      const start = await safePath(root, String(input.args.path ?? "."));
+      const start = await safePath(root, String(input.args.path || "."));
       const matches: Array<{ line: number; path: string; text: string }> = [];
       async function walk(directory: string) {
         if (matches.length >= 100) return;
         const entries = await readdir(directory, { withFileTypes: true });
         for (const entry of entries) {
-          if (matches.length >= 100 || entry.name === ".git" || entry.name === "node_modules")
+          if (
+            matches.length >= 100 ||
+            entry.isSymbolicLink() ||
+            (entry.isDirectory() && ignoredDirectoryNames.has(entry.name))
+          )
             continue;
           const child = join(directory, entry.name);
           if (entry.isDirectory()) await walk(child);
           else if (entry.isFile()) {
-            if ((await stat(child)).size > maxReadBytes) continue;
+            const extension = entry.name.includes(".")
+              ? `.${entry.name.split(".").at(-1)?.toLocaleLowerCase()}`
+              : "";
+            if (binaryExtensions.has(extension) || (await stat(child)).size > maxReadBytes)
+              continue;
             const content = await readFile(child, "utf8").catch(() => "");
             content.split("\n").forEach((line, index) => {
               if (
@@ -277,9 +390,14 @@ export async function executeTool(
       if (!command) throw new Error("Informe um comando estruturado.");
       const cwd = await safePath(root, String(input.args.cwd ?? "."));
       const { spawn } = await import("node:child_process");
+      const env = Object.fromEntries(
+        commandEnvironmentKeys.flatMap((key) =>
+          process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
+        ),
+      );
       return new Promise<{ code: number | null; stderr: string; stdout: string }>(
         (resolveCommand, reject) => {
-          const child = spawn(command, args, { cwd, shell: false });
+          const child = spawn(command, args, { cwd, env, shell: false });
           let stdout = "";
           let stderr = "";
           const timer = setTimeout(() => {
