@@ -11,7 +11,8 @@ Este arquivo é lido por qualquer agente (Codex, Claude Code, Cursor, Windsurf, 
 1. Leia `PRODUCT.md` para entender o que o Blackwall é e para quem é.
 2. Leia `ARCHITECTURE.md` para entender a stack e as decisões já tomadas (ADRs).
 3. Leia `UX_SPEC.md` para entender navegação, estados vazios, onboarding e identidade visual — **nenhuma tela nova é aceita sem estar de acordo com esse documento**.
-4. **Não reabra decisões já tomadas** (stack, licença, storage, ADRs de UX) sem alinhar antes — trate-as como travadas a menos que o Mateus peça explicitamente para revisar.
+4. Leia `SECURITY.md` antes de manipular workspaces, provedores, credenciais, telemetria ou artefatos de release.
+5. **Não reabra decisões já tomadas** (stack, licença, storage, ADRs de UX) sem alinhar antes — trate-as como travadas a menos que o Mateus peça explicitamente para revisar.
 
 ---
 
@@ -33,7 +34,7 @@ Toda tarefa (correção, melhoria ou nova função) segue este fluxo:
 
 ### 2.0 Regra obrigatória de rastreabilidade e release
 
-- O repositório público é [`MateusGaio/Blackwall.`](https://github.com/MateusGaio/Blackwall.). A branch `main` é a base estável e padrão.
+- O repositório remoto é [`MateusGaio/Blackwall.`](https://github.com/MateusGaio/Blackwall.). Ele permanece **privado durante o desenvolvimento atual**; uma publicação pública só pode acontecer após a revisão de segurança e governança descrita abaixo. A branch `main` é a base estável e padrão.
 - Nenhum agente deve iniciar implementação de uma correção, melhoria ou função nova sem uma Issue aberta. Se a tarefa ainda não tiver Issue, crie-a antes de criar a branch.
 - Todo trabalho deve ocorrer em branch própria e chegar à `main` por Pull Request. Push direto na `main`, merge local e deploy manual fora do PR são proibidos.
 - O nome da branch deve conter o número da Issue: `feat/<issue>-descricao`, `fix/<issue>-descricao` ou `chore/<issue>-descricao`.
@@ -48,6 +49,34 @@ Toda tarefa (correção, melhoria ou nova função) segue este fluxo:
 - GitHub Connector ou `gh`: criar e consultar Issues, abrir/atualizar PRs, acompanhar checks e revisar o estado do remoto.
 - Antes de usar `gh`, valide a sessão com `gh auth status`. Nunca cole tokens em comandos, arquivos, Issues, PRs, logs ou telemetria. Se a autenticação estiver inválida, pare a publicação e peça ao owner para executar `gh auth login -h github.com`.
 - Depois do push, confirme a branch remota e os checks. Não declare uma Issue ou PR como publicado apenas porque o commit local existe.
+
+#### 2.0.1 Estado privado e pré-voo do GitHub
+
+- Não altere a visibilidade do repositório, crie uma Release pública, ative um updater público, faça merge, feche PRs ou modifique a proteção da `main` sem autorização explícita do owner para aquela ação.
+- Antes de qualquer ação externa, confira o remoto e a autenticação sem imprimir credenciais:
+
+  ```bash
+  git remote -v
+  gh auth status
+  gh repo view MateusGaio/Blackwall. --json isPrivate,defaultBranchRef
+  ```
+
+- Se `gh auth status` falhar, não tente contornar com tokens em argumentos, arquivos, variáveis persistentes, Issues ou logs. Pare a publicação e peça ao owner para renovar a sessão com `gh auth login -h github.com`.
+- `git status --short --branch`, `git diff --check` e a confirmação da branch remota são obrigatórios antes do push. Um commit local ou uma branch local nunca equivale a um PR publicado.
+- Toda alteração em CI, workflows, permissões, updater, dependências ou scripts de release deve ser revisada como mudança de segurança. Não aceite mudanças de Actions de terceiros sem fixar a versão e justificar a origem.
+- Nunca inclua no GitHub: API keys, tokens, `secrets.enc`, `secrets.key`, prompts, respostas, conteúdo de arquivos do usuário, dumps do banco, caminhos pessoais ou logs com dados sensíveis. Se um segredo aparecer no histórico, interrompa o push e trate a rotação antes de qualquer publicação.
+
+#### 2.0.2 Gate para futura publicação pública
+
+Antes de tornar o repositório público, o owner deve aprovar um PR de preparação que:
+
+1. faça uma varredura do histórico e dos artefatos versionados em busca de segredos;
+2. revise `AGENTS.md`, `PRODUCT.md`, `ARCHITECTURE.md`, `UX_SPEC.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, Issues e templates para remover dados pessoais e exemplos reais;
+3. confirme licença, avisos de terceiros, política de segurança, CI sem segredos expostos e artefatos de release reproduzíveis;
+4. habilite proteção da `main` com os checks obrigatórios e revisão por PR;
+5. só então altere a visibilidade e publique a primeira Release.
+
+Até esse gate ser concluído, trate o remoto, os artefatos de CI e os workspaces de teste como material privado.
 
 ### 2.1 Issue primeiro
 Nenhuma tarefa é iniciada sem uma Issue correspondente no GitHub. Toda Issue tem um tipo, marcado por label:

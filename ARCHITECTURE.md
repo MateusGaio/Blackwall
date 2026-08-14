@@ -7,7 +7,7 @@
 
 ## 1. Contexto e objetivo
 
-Blackwall é um harness de IA local-first, open source e gratuito, com foco em código. Ele combina, num único app desktop:
+Blackwall é um harness de IA local-first e gratuito, licenciado em MIT e preparado para publicação pública futura, com foco em código. Durante o desenvolvimento atual, o repositório e seus artefatos permanecem privados. Ele combina, num único app desktop:
 
 - Perfis + Workspaces + Souls (prompt base combinável)
 - Um Vault estilo Obsidian embutido (notas reais em `.md`, grafo de conhecimento, RAG)
@@ -210,7 +210,7 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 ### Fase 0 — Fundação do repositório
 - Scaffolding Tauri + React/Vite + sidecar Node/Bun.
 - CI básico no GitHub Actions: Biome, Knip, dependency-cruiser, Vitest, Codecov.
-- `AGENTS.md`, `PRODUCT.md`, `ARCHITECTURE.md` publicados.
+- `AGENTS.md`, `PRODUCT.md`, `ARCHITECTURE.md` e `CONTRIBUTING.md` mantidos como referência operacional; a publicação pública desses documentos depende do gate de segurança e governança.
 - OpenTelemetry instrumentado desde o início (mesmo com exporter "no-op" por padrão).
 - Templates de Issue e PR configurados.
 
@@ -246,3 +246,5 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 - **Rust como barreira de entrada** para contribuidores que só conhecem TS — mitigar mantendo a superfície de Rust pequena (só o shell, não a lógica de IA).
 - **Custo de manter 3 sidecars** (Rust + Node + Python opcional) — mitigar deixando o sidecar Python estritamente opt-in e documentado como "avançado".
 - **Telemetria vs. privacidade** — qualquer decisão de observabilidade precisa reforçar que é opt-in e anonimizada, para não contradizer o pilar "local-first e privado" do produto.
+- **Repositório privado durante a construção** — Issues, PRs, logs de CI, fixtures e artefatos podem conter contexto operacional; o pipeline não deve tratá-los como material público antes da revisão de publicação.
+- **Publicação futura** — mudar a visibilidade, habilitar Releases públicas ou abrir a `main` exige revisão de histórico, segredos, licença, dependências, Actions e proteção de branch. Nenhuma automação deve executar esse passo implicitamente.

@@ -1,6 +1,8 @@
 # Blackwall
 
-Harness de IA local-first e open source para código.
+Harness de IA local-first para código, licenciado em MIT e com publicação pública planejada.
+
+> Estado do repositório: privado durante o desenvolvimento. Não inclua dados reais de usuários, chaves ou conteúdo de workspaces em commits, Issues, PRs, logs ou artefatos. A abertura pública será feita somente após o gate de segurança e governança documentado em [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md) e [`SECURITY.md`](SECURITY.md).
 
 O Blackwall combina perfis, workspaces, Souls e um chat persistente com provedores OpenAI-compatible ou Ollama — sempre com dados sob controle local do usuário. Também é possível iniciar uma conversa sem workspace e adicionar uma pasta depois. A Fase 1 inclui sessões persistentes, anexos pesquisáveis por FTS5, fallback de rede e permissões por workspace.
 
@@ -29,6 +31,21 @@ Para validar a base:
 ```bash
 npm run check
 ```
+
+O dashboard de uso é local e observacional: ele conta as tentativas e os tokens
+informados pelo provedor, mas não promete consultar o saldo ou o limite atual da
+chave. Quando o provedor retornar `401`, `403`, `429` ou outro erro de quota, a
+mensagem exibida é a fonte de verdade; `Uso indisponível` significa que o
+endpoint não forneceu um denominador confiável.
+
+## Contribuição segura
+
+Toda tarefa segue Issue → branch → PR. Valide `gh auth status` antes de usar o
+GitHub CLI e nunca coloque tokens, `secrets.enc`, `secrets.key`, prompts,
+respostas, dumps do banco, caminhos pessoais ou arquivos de workspace no Git.
+Não faça push direto na `main`, merge local, Release pública ou alteração de
+visibilidade. Consulte [`AGENTS.md`](AGENTS.md) para o pré-voo do GitHub, os
+quality gates e o procedimento de futura publicação.
 
 ## Aplicativo desktop
 
@@ -68,7 +85,7 @@ nenhum dado do usuário é alterado.
 - FTS5 para indexação textual local de Markdown, código, dados e PDFs pesquisáveis.
 - Vault Markdown local com leitura de notas e grafo de `[[wikilinks]]`; RAG semântico/LanceDB, MCP, agentes e LoRA permanecem no roadmap das fases seguintes.
 
-Consulte `PRODUCT.md` e os documentos de arquitetura e UX no harness antes de contribuir.
+Consulte `PRODUCT.md` e os documentos de arquitetura e UX no harness antes de contribuir. Leia também [`SECURITY.md`](SECURITY.md) antes de manipular workspaces, provedores ou artefatos de release.
 
 ## Licença
 
