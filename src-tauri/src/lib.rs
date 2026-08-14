@@ -87,6 +87,10 @@ pub fn run() {
                     command.env("BLACKWALL_DATA_DIR", data_directory);
                 }
                 if has_argument("--blackwall-e2e-agent") {
+                    eprintln!(
+                        "BLACKWALL_E2E data_dir={:?}",
+                        argument_value("--blackwall-data-dir")
+                    );
                     command
                         .env("BLACKWALL_E2E", "1")
                         .env("BLACKWALL_E2E_AGENT", "1")

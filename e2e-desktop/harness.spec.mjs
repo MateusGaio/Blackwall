@@ -7,6 +7,9 @@ const prompt =
 
 describe("Blackwall desktop harness", () => {
   it("explora, autoriza, escreve, abre no Vault e restaura", async () => {
+    const body = await $("body");
+    await body.waitForDisplayed();
+    console.info(`BLACKWALL_DESKTOP_BODY:\n${await body.getText()}`);
     const profile = await $("button*=Perfil Desktop E2E");
     await profile.waitForDisplayed();
     await profile.click();
