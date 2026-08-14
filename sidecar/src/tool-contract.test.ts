@@ -10,6 +10,10 @@ import {
   resolveToolCallBudget,
   shouldStopAfterNoProgress,
   shouldStopAfterRepeatedToolError,
+  toOllamaTools,
+  toOpenAIChatTools,
+  toOpenAIResponsesTools,
+  workspaceToolDefinitions,
 } from "./tool-contract.js";
 
 describe("contrato de ferramentas", () => {
@@ -36,6 +40,7 @@ describe("contrato de ferramentas", () => {
     expect(parseToolArguments("execute_command", '{"command":"node"}')).toEqual({
       args: [],
       command: "node",
+      cwd: ".",
     });
   });
 
@@ -69,5 +74,21 @@ describe("contrato de ferramentas", () => {
     expect(() => parseToolArguments("execute_command", '{"command":"ls","args":"-la"}')).toThrow(
       "lista de textos",
     );
+  });
+
+  it("serializa o mesmo contrato para Chat, Responses e Ollama", () => {
+    for (const tool of workspaceToolDefinitions) {
+      const properties = tool.function.parameters.properties as Record<string, unknown>;
+      const required = tool.function.parameters.required as string[];
+      expect(tool.function.parameters.additionalProperties).toBe(false);
+      expect(required.slice().sort()).toEqual(Object.keys(properties).sort());
+    }
+    expect(toOpenAIChatTools(workspaceToolDefinitions)[0]?.function.strict).toBe(true);
+    expect(toOllamaTools(workspaceToolDefinitions)[0]?.function.strict).toBe(true);
+    expect(toOpenAIResponsesTools(workspaceToolDefinitions)[0]).toMatchObject({
+      name: "list_directory",
+      strict: true,
+      type: "function",
+    });
   });
 });

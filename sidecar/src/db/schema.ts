@@ -64,6 +64,12 @@ export const models = sqliteTable(
     displayName: text("display_name").notNull(),
     capabilities: text("capabilities").notNull().default("[]"),
     available: integer("available", { mode: "boolean" }).notNull().default(true),
+    protocolPreference: text("protocol_preference").notNull().default("auto"),
+    resolvedProtocol: text("resolved_protocol"),
+    toolSupport: text("tool_support").notNull().default("unknown"),
+    toolSupportSource: text("tool_support_source"),
+    toolCheckedAt: integer("tool_checked_at"),
+    toolProbeErrorCode: text("tool_probe_error_code"),
     toolMode: text("tool_mode").notNull().default("auto"),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -138,6 +144,69 @@ export const appSettings = sqliteTable("app_settings", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const providerUsageEvents = sqliteTable(
+  "provider_usage_events",
+  {
+    requestId: text("request_id").notNull(),
+    attemptId: text("attempt_id").notNull(),
+    sessionId: text("session_id"),
+    profileId: text("profile_id").notNull().default(""),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    status: text("status").notNull().default("completed"),
+    errorCode: text("error_code"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    cachedInputTokens: integer("cached_input_tokens"),
+    reasoningTokens: integer("reasoning_tokens"),
+    totalTokens: integer("total_tokens"),
+    windowsJson: text("windows_json").notNull().default("[]"),
+    observedAt: integer("observed_at").notNull(),
+  },
+  (table) => ({
+    requestAttempt: uniqueIndex("provider_usage_request_attempt").on(
+      table.requestId,
+      table.attemptId,
+    ),
+  }),
+);
+
+export const providerUsageDaily = sqliteTable(
+  "provider_usage_daily",
+  {
+    profileId: text("profile_id").notNull().default(""),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    dateKey: text("date_key").notNull(),
+    requests: integer("requests").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+    reasoningTokens: integer("reasoning_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => ({
+    profileProviderModelDay: uniqueIndex("provider_usage_daily_key").on(
+      table.profileId,
+      table.providerId,
+      table.modelId,
+      table.dateKey,
+    ),
+  }),
+);
+
+export const providerUsageLimits = sqliteTable("provider_usage_limits", {
+  id: text("id").primaryKey(),
+  providerId: text("provider_id").notNull(),
+  metric: text("metric").notNull(),
+  label: text("label").notNull(),
+  limitValue: integer("limit_value").notNull(),
+  windowSeconds: integer("window_seconds").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const schema = {
   profiles,
   workspaces,
@@ -149,4 +218,7 @@ export const schema = {
   attachments,
   approvals,
   appSettings,
+  providerUsageEvents,
+  providerUsageDaily,
+  providerUsageLimits,
 };

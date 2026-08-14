@@ -15,6 +15,8 @@ import {
   discoverProviderModels,
   type Profile,
   type ProviderModel,
+  probeProviderModel,
+  setProviderModelProtocol,
   setProviderModelToolMode,
   setWorkspaceSoul,
   testProvider,
@@ -24,9 +26,11 @@ import {
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 import { SoulPicker } from "../../../shared/components/SoulPicker";
+import { UsageDashboard } from "./UsageDashboard";
 
 type ProviderManagerProps = {
   activeWorkspaceId: string | null;
+  activeProviderId?: string | null;
   onClose: () => void;
   onDeleteProfile: (profileId: string) => Promise<void>;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
@@ -59,6 +63,7 @@ const emptyForm: ProviderForm = {
 
 export function ProviderManager({
   activeWorkspaceId,
+  activeProviderId,
   onClose,
   onDeleteProfile,
   onProvidersChange,
@@ -93,6 +98,9 @@ export function ProviderManager({
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [isListingModels, setIsListingModels] = useState(false);
   const [toolMode, setToolMode] = useState<ProviderModel["toolMode"]>("auto");
+  const [protocolPreference, setProtocolPreference] =
+    useState<ProviderModel["protocolPreference"]>("auto");
+  const [isProbingTools, setIsProbingTools] = useState(false);
   const runtime = currentRuntime();
 
   const activeWorkspace =
@@ -151,6 +159,10 @@ export function ProviderManager({
       setToolMode(
         listed.find((model) => model.id === (form.model || listed[0]?.id))?.toolMode ?? "auto",
       );
+      setProtocolPreference(
+        listed.find((model) => model.id === (form.model || listed[0]?.id))?.protocolPreference ??
+          "auto",
+      );
       if (!form.model && listed[0]) updateForm("model", listed[0].id);
       if (!listed.length)
         setStatus(
@@ -168,6 +180,54 @@ export function ProviderManager({
       );
     } finally {
       setIsListingModels(false);
+    }
+  }
+
+  async function changeProtocol(next: NonNullable<ProviderModel["protocolPreference"]>) {
+    setProtocolPreference(next);
+    if (!editingId || !form.model) return;
+    try {
+      await setProviderModelProtocol(editingId, form.model, next);
+      setStatus(isEnglish ? "Protocol preference saved." : "Preferência de protocolo salva.");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not save protocol."
+            : "Não foi possível salvar o protocolo.",
+      );
+    }
+  }
+
+  async function probeTools() {
+    if (!editingId || !form.model) return;
+    setIsProbingTools(true);
+    setError("");
+    try {
+      const probed = await probeProviderModel(
+        editingId,
+        form.model,
+        protocolPreference === "auto"
+          ? undefined
+          : protocolPreference === "openai-responses"
+            ? "openai-responses"
+            : "openai-chat",
+      );
+      setProviderModels((current) =>
+        current.map((model) => (model.id === probed.id ? { ...model, ...probed } : model)),
+      );
+      setStatus(isEnglish ? "Tool support checked." : "Suporte a ferramentas verificado.");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not test tools."
+            : "Não foi possível testar as ferramentas.",
+      );
+    } finally {
+      setIsProbingTools(false);
     }
   }
 
@@ -462,6 +522,12 @@ export function ProviderManager({
             ×
           </button>
         </header>
+        <UsageDashboard
+          activeProviderId={activeProviderId}
+          isEnglish={isEnglish}
+          profileId={profileId}
+          providers={providers}
+        />
         <form className="settings-section profile-settings" onSubmit={saveProfile}>
           <div className="settings-section-heading">
             <div>
@@ -758,21 +824,73 @@ export function ProviderManager({
               </select>
             )}
             {editingId && providerModels.length > 0 && (
-              <select
-                aria-label={isEnglish ? "Tool calling mode" : "Modo de ferramentas"}
-                onChange={(event) =>
-                  void changeToolMode(event.target.value as ProviderModel["toolMode"])
-                }
-                value={toolMode}
-              >
-                <option value="auto">
-                  {isEnglish ? "Native tools (automatic)" : "Ferramentas nativas (automático)"}
-                </option>
-                <option value="compatibility">
-                  {isEnglish ? "Compatibility JSON (opt-in)" : "JSON de compatibilidade (opt-in)"}
-                </option>
-                <option value="disabled">{isEnglish ? "Disabled" : "Desativado"}</option>
-              </select>
+              <>
+                <select
+                  aria-label={isEnglish ? "Tool calling mode" : "Modo de ferramentas"}
+                  onChange={(event) =>
+                    void changeToolMode(event.target.value as ProviderModel["toolMode"])
+                  }
+                  value={toolMode}
+                >
+                  <option value="auto">
+                    {isEnglish ? "Native tools (automatic)" : "Ferramentas nativas (automático)"}
+                  </option>
+                  <option value="compatibility">
+                    {isEnglish ? "Compatibility JSON (opt-in)" : "JSON de compatibilidade (opt-in)"}
+                  </option>
+                  <option value="disabled">{isEnglish ? "Disabled" : "Desativado"}</option>
+                </select>
+                <select
+                  aria-label={isEnglish ? "Protocol preference" : "Preferência de protocolo"}
+                  onChange={(event) =>
+                    void changeProtocol(
+                      event.target.value as NonNullable<ProviderModel["protocolPreference"]>,
+                    )
+                  }
+                  value={protocolPreference}
+                >
+                  <option value="auto">
+                    {isEnglish ? "Protocol: automatic" : "Protocolo: automático"}
+                  </option>
+                  <option value="openai-chat">OpenAI Chat Completions</option>
+                  <option value="openai-responses">OpenAI Responses</option>
+                </select>
+                <div className="provider-model-capability" aria-live="polite">
+                  {(() => {
+                    const selected = providerModels.find((model) => model.id === form.model);
+                    const support = selected?.toolSupport ?? "unknown";
+                    return support === "native"
+                      ? isEnglish
+                        ? "Native tools · verified"
+                        : "Ferramentas nativas · verificado"
+                      : support === "unsupported"
+                        ? isEnglish
+                          ? "This model does not advertise tools"
+                          : "Este modelo não anuncia ferramentas"
+                        : support === "probe-error"
+                          ? isEnglish
+                            ? "Tool probe failed"
+                            : "O teste de ferramentas falhou"
+                          : isEnglish
+                            ? "Tool support not tested"
+                            : "Suporte a ferramentas não testado";
+                  })()}
+                </div>
+                <button
+                  className="button button-secondary"
+                  disabled={isProbingTools}
+                  onClick={() => void probeTools()}
+                  type="button"
+                >
+                  {isProbingTools
+                    ? isEnglish
+                      ? "Testing…"
+                      : "Testando…"
+                    : isEnglish
+                      ? "Test tools"
+                      : "Testar ferramentas"}
+                </button>
+              </>
             )}
           </label>
           {form.type === "openai-compatible" && (

@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { saveProvider } from "./providers.js";
-import { isRetryableProviderError, scriptedHarnessTurn, streamChatMessage } from "./streaming.js";
+import {
+  isRetryableProviderError,
+  probeProviderTools,
+  scriptedHarnessTurn,
+  streamChatMessage,
+} from "./streaming.js";
 
 const directories: string[] = [];
 
@@ -158,7 +163,7 @@ describe("streaming de provedores", () => {
       request,
     );
     expect(result.toolCalls).toEqual([
-      { arguments: '{"path":"PRODUCT.md"}', id: "tool-call-0", name: "read_file" },
+      { arguments: '{"path":"PRODUCT.md"}', id: "provider-id", name: "read_file" },
     ]);
   });
 
@@ -194,6 +199,77 @@ describe("streaming de provedores", () => {
     expect(result.toolCalls).toEqual([
       { arguments: '{"path":"README.md"}', id: "tool-call-0", name: "read_file" },
     ]);
+  });
+
+  it("preserva call_id e argumentos fragmentados do protocolo Responses", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-responses-tools-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      apiKey: "stream-key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4.1",
+      name: "OpenAI",
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        responseWithLines([
+          'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_responses","name":"read_file","arguments":""}}',
+          'data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_1","delta":"{\\"path\\":\\"README"}',
+          'data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_1","delta":".md\\"}"}',
+          'data: {"type":"response.completed"}',
+        ]),
+      ) as unknown as typeof fetch;
+    const result = await streamChatMessage(
+      provider.id,
+      [{ content: "Leia", role: "user" }],
+      provider.model,
+      () => undefined,
+      new AbortController().signal,
+      request,
+      directory,
+      { protocol: "openai-responses", toolMode: "auto" },
+    );
+    expect(result.toolCalls).toEqual([
+      { arguments: '{"path":"README.md"}', id: "call_responses", name: "read_file" },
+    ]);
+  });
+
+  it("faz probe nativo sem executar ferramentas do workspace", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-probe-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      apiKey: "probe-key",
+      baseUrl: "https://api.example.com/v1",
+      model: "probe-model",
+      name: "Probe provider",
+    });
+    let nonce = "";
+    const request = vi.fn((_url: string, _init?: RequestInit) => {
+      if (request.mock.calls.length === 1) {
+        const body = JSON.parse(String(_init?.body)) as { messages?: Array<{ content?: string }> };
+        nonce =
+          body.messages
+            ?.find((message) => message.content?.startsWith("Probe nonce:"))
+            ?.content?.slice(13) ?? "";
+        return Promise.resolve(
+          responseWithLines([
+            `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"probe-call","function":{"name":"blackwall_capability_probe","arguments":"{\\"nonce\\":\\"${nonce}\\"}"}}]}}]}`,
+            "data: [DONE]",
+          ]),
+        );
+      }
+      return Promise.resolve(
+        responseWithLines(['data: {"choices":[{"delta":{"content":"probe ok"}}]}', "data: [DONE]"]),
+      );
+    }) as unknown as typeof fetch;
+    await expect(
+      probeProviderTools(provider.id, provider.model, "openai-chat", request, directory),
+    ).resolves.toMatchObject({ protocol: "openai-chat", support: "native" });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(nonce).not.toBe("");
   });
 
   it("envia argumentos estruturados ao Ollama ao continuar um ciclo de ferramenta", async () => {

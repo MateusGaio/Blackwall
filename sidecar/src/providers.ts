@@ -8,7 +8,17 @@ import { openDatabase } from "./db/database.js";
 import { models } from "./db/schema.js";
 import { withAsyncInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret, removeSecret } from "./secrets.js";
-import type { ToolDefinition, ToolMode } from "./tool-contract.js";
+import {
+  type ProtocolPreference,
+  type ResolvedProtocol,
+  type ToolDefinition,
+  type ToolMode,
+  type ToolSupport,
+  type ToolSupportSource,
+  toOllamaTools,
+  toOpenAIChatTools,
+  toOpenAIResponsesTools,
+} from "./tool-contract.js";
 
 export type ProviderInput = {
   apiKey?: string;
@@ -29,6 +39,12 @@ export type ProviderModel = {
   capabilities: string[];
   id: string;
   name: string;
+  protocolPreference?: ProtocolPreference;
+  resolvedProtocol?: ResolvedProtocol;
+  toolCheckedAt?: number;
+  toolProbeErrorCode?: string;
+  toolSupport?: ToolSupport;
+  toolSupportSource?: ToolSupportSource;
   toolMode?: ToolMode;
 };
 
@@ -45,7 +61,11 @@ export interface ProviderAdapter {
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
-    options?: { toolMode?: ToolMode; tools?: ToolDefinition[] },
+    options?: {
+      protocol?: ResolvedProtocol;
+      toolMode?: ToolMode;
+      tools?: ToolDefinition[];
+    },
   ): RequestInit & {
     endpoint: string;
   };
@@ -53,6 +73,50 @@ export interface ProviderAdapter {
 
 type ProviderDocument = { providers: Provider[] };
 type FetchLike = typeof fetch;
+
+function isOpenRouter(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.endsWith("openrouter.ai");
+  } catch {
+    return false;
+  }
+}
+
+function messagesToResponsesInput(messages: unknown[]): unknown[] {
+  const output: unknown[] = [];
+  for (const message of messages) {
+    if (!message || typeof message !== "object") continue;
+    const item = message as Record<string, unknown>;
+    if (item.role === "assistant" && Array.isArray(item.tool_calls)) {
+      output.push(
+        ...item.tool_calls.flatMap((rawCall) => {
+          if (!rawCall || typeof rawCall !== "object") return [];
+          const call = rawCall as Record<string, unknown>;
+          const fn = call.function as Record<string, unknown> | undefined;
+          return [
+            {
+              arguments: String(fn?.arguments ?? "{}"),
+              call_id: String(call.id ?? ""),
+              name: String(fn?.name ?? ""),
+              type: "function_call",
+            },
+          ];
+        }),
+      );
+      continue;
+    }
+    if (item.role === "tool") {
+      output.push({
+        call_id: String(item.tool_call_id ?? item.toolCallId ?? ""),
+        output: String(item.content ?? ""),
+        type: "function_call_output",
+      });
+      continue;
+    }
+    output.push({ content: String(item.content ?? ""), role: item.role ?? "user" });
+  }
+  return output;
+}
 
 const emptyDocument = (): ProviderDocument => ({ providers: [] });
 
@@ -143,7 +207,11 @@ abstract class BaseProviderAdapter implements ProviderAdapter {
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
-    options?: { toolMode?: ToolMode; tools?: ToolDefinition[] },
+    options?: {
+      protocol?: ResolvedProtocol;
+      toolMode?: ToolMode;
+      tools?: ToolDefinition[];
+    },
   ): RequestInit & {
     endpoint: string;
   };
@@ -166,11 +234,28 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
       await this.request("/models", request, { headers: this.headers() }, "listar os modelos"),
       "listar os modelos",
     );
-    const body = (await response.json()) as { data?: Array<{ id?: string; name?: string }> };
+    const body = (await response.json()) as {
+      data?: Array<{ id?: string; name?: string; supported_parameters?: string[] }>;
+    };
     return (body.data ?? [])
       .map((model) => {
         const id = model.id ?? model.name ?? "";
-        return { capabilities: [], id, name: id };
+        const capabilities = Array.isArray(model.supported_parameters)
+          ? model.supported_parameters.filter((item): item is string => typeof item === "string")
+          : [];
+        return {
+          capabilities,
+          id,
+          name: id,
+          ...(capabilities.length
+            ? {
+                toolSupport: capabilities.includes("tools")
+                  ? ("native" as const)
+                  : ("unsupported" as const),
+                toolSupportSource: "metadata" as const,
+              }
+            : {}),
+        };
       })
       .filter((model) => model.id);
   }
@@ -179,15 +264,49 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
-    options: { toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+    options: {
+      protocol?: ResolvedProtocol;
+      toolMode?: ToolMode;
+      tools?: ToolDefinition[];
+    } = {},
   ) {
+    if (options.protocol === "openai-responses")
+      return this.responsesRequest(model, messages, signal, options);
     const body: Record<string, unknown> = { messages, model, stream: true };
     if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
       body.tool_choice = "auto";
-      body.tools = options.tools;
+      body.tools = toOpenAIChatTools(options.tools);
+      body.parallel_tool_calls = false;
+      if (isOpenRouter(this.provider.baseUrl)) body.provider = { require_parameters: true };
     }
     return {
       endpoint: this.endpoint("/chat/completions"),
+      body: JSON.stringify(body),
+      headers: { ...this.headers(), "content-type": "application/json" },
+      method: "POST" as const,
+      signal,
+    };
+  }
+
+  private responsesRequest(
+    model: string,
+    messages: unknown[],
+    signal: AbortSignal | undefined,
+    options: { toolMode?: ToolMode; tools?: ToolDefinition[] },
+  ) {
+    const body: Record<string, unknown> = {
+      input: messagesToResponsesInput(messages),
+      model,
+      store: false,
+      stream: true,
+    };
+    if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
+      body.tools = toOpenAIResponsesTools(options.tools);
+      body.tool_choice = "auto";
+      body.parallel_tool_calls = false;
+    }
+    return {
+      endpoint: this.endpoint("/responses"),
       body: JSON.stringify(body),
       headers: { ...this.headers(), "content-type": "application/json" },
       method: "POST" as const,
@@ -222,25 +341,73 @@ class OllamaProvider extends BaseProviderAdapter {
       "listar os modelos",
     );
     const body = (await response.json()) as {
-      models?: Array<{ name?: string; model?: string }>;
+      models?: Array<{ capabilities?: string[]; name?: string; model?: string }>;
     };
-    return (body.models ?? [])
+    const listed = (body.models ?? [])
       .map((model) => {
         const id = model.name ?? model.model ?? "";
-        return { capabilities: [], id, name: id };
+        const capabilities = Array.isArray(model.capabilities) ? model.capabilities : [];
+        return {
+          capabilities,
+          id,
+          name: id,
+          ...(capabilities.length
+            ? {
+                toolSupport: capabilities.includes("tools")
+                  ? ("native" as const)
+                  : ("unsupported" as const),
+                toolSupportSource: "metadata" as const,
+              }
+            : {}),
+        };
       })
       .filter((model) => model.id);
+    const enriched = await Promise.all(
+      listed.map(async (model) => {
+        try {
+          const details = await this.request(
+            "/api/show",
+            request,
+            {
+              body: JSON.stringify({ name: model.id }),
+              headers: { ...this.headers(), "content-type": "application/json" },
+              method: "POST",
+            },
+            "consultar capacidades do modelo",
+          );
+          if (!details.ok) return model;
+          const detailBody = (await details.json()) as { capabilities?: unknown };
+          const capabilities = Array.isArray(detailBody.capabilities)
+            ? detailBody.capabilities.filter((item): item is string => typeof item === "string")
+            : [];
+          return capabilities.length
+            ? {
+                ...model,
+                capabilities,
+                toolSupport: capabilities.includes("tools")
+                  ? ("native" as const)
+                  : ("unsupported" as const),
+                toolSupportSource: "metadata" as const,
+              }
+            : model;
+        } catch {
+          // Tags remain authoritative when /api/show is unavailable on a compatible endpoint.
+          return model;
+        }
+      }),
+    );
+    return enriched;
   }
 
   chatRequest(
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
-    options: { toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+    options: { protocol?: ResolvedProtocol; toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
   ) {
     const body: Record<string, unknown> = { messages, model, stream: true };
     if ((options.toolMode ?? "auto") === "auto" && options.tools?.length)
-      body.tools = options.tools;
+      body.tools = toOllamaTools(options.tools);
     return {
       endpoint: this.endpoint("/api/chat"),
       body: JSON.stringify(body),
@@ -420,7 +587,7 @@ export async function syncProviderModels(
   const database = openDatabase(dataDirectory);
   const timestamp = Date.now();
   const upsert = database.client.prepare(
-    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, tool_mode, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, updated_at = excluded.updated_at",
+    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_support_source, tool_checked_at, tool_probe_error_code, tool_mode, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', NULL, ?, ?, NULL, NULL, 'auto', ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, tool_support = CASE WHEN excluded.tool_support = 'unknown' THEN models.tool_support ELSE excluded.tool_support END, tool_support_source = CASE WHEN excluded.tool_support_source IS NULL THEN models.tool_support_source ELSE excluded.tool_support_source END, updated_at = excluded.updated_at",
   );
   const save = database.client.transaction(() => {
     database.client
@@ -433,6 +600,8 @@ export async function syncProviderModels(
         model.id,
         model.name,
         JSON.stringify(model.capabilities),
+        model.toolSupport ?? "unknown",
+        model.toolSupportSource ?? null,
         timestamp,
       );
     }
@@ -488,7 +657,25 @@ export async function listStoredProviderModels(
   database.close();
   return listed.map((model) => ({
     ...model,
-    toolMode: stored.find((row) => row.modelId === model.id)?.toolMode as ToolMode | undefined,
+    ...(stored.find((row) => row.modelId === model.id)
+      ? {
+          protocolPreference: stored.find((row) => row.modelId === model.id)
+            ?.protocolPreference as ProtocolPreference,
+          resolvedProtocol: stored.find((row) => row.modelId === model.id)?.resolvedProtocol as
+            | ResolvedProtocol
+            | undefined,
+          toolCheckedAt: stored.find((row) => row.modelId === model.id)?.toolCheckedAt ?? undefined,
+          toolMode: stored.find((row) => row.modelId === model.id)?.toolMode as
+            | ToolMode
+            | undefined,
+          toolProbeErrorCode:
+            stored.find((row) => row.modelId === model.id)?.toolProbeErrorCode ?? undefined,
+          toolSupport: stored.find((row) => row.modelId === model.id)?.toolSupport as ToolSupport,
+          toolSupportSource: stored.find((row) => row.modelId === model.id)?.toolSupportSource as
+            | ToolSupportSource
+            | undefined,
+        }
+      : {}),
   }));
 }
 
@@ -509,4 +696,52 @@ export function setModelToolMode(
   database.close();
   if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
   return { providerId, modelId, toolMode };
+}
+
+export function setModelProtocol(
+  providerId: string,
+  modelId: string,
+  protocolPreference: ProtocolPreference,
+  dataDirectory = providerDataDirectory(),
+) {
+  if (!["auto", "openai-chat", "openai-responses"].includes(protocolPreference))
+    throw new Error("Preferência de protocolo inválida.");
+  const database = openDatabase(dataDirectory);
+  const result = database.db
+    .update(models)
+    .set({ protocolPreference, toolSupportSource: "manual", updatedAt: Date.now() })
+    .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+    .run();
+  database.close();
+  if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
+  return { modelId, protocolPreference, providerId };
+}
+
+export function setModelCapability(
+  providerId: string,
+  modelId: string,
+  input: {
+    protocol?: ResolvedProtocol | null;
+    support: ToolSupport;
+    source: ToolSupportSource;
+    errorCode?: string | null;
+  },
+  dataDirectory = providerDataDirectory(),
+) {
+  const database = openDatabase(dataDirectory);
+  const result = database.db
+    .update(models)
+    .set({
+      resolvedProtocol: input.protocol ?? null,
+      toolCheckedAt: Date.now(),
+      toolProbeErrorCode: input.errorCode ?? null,
+      toolSupport: input.support,
+      toolSupportSource: input.source,
+      updatedAt: Date.now(),
+    })
+    .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+    .run();
+  database.close();
+  if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
+  return { modelId, providerId, ...input };
 }

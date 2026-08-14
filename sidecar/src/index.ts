@@ -1,4 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
+import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
@@ -28,11 +30,13 @@ import {
   resolveProviderModelInput,
   routeCandidates,
   saveProvider,
+  setModelCapability,
+  setModelProtocol,
   setModelToolMode,
   syncProviderModels,
   validateProvider,
 } from "./providers.js";
-import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
+import { isRetryableProviderError, probeProviderTools, streamChatMessage } from "./streaming.js";
 import {
   isToolName,
   MAX_TOOL_RESULT_BYTES_PER_TURN,
@@ -42,6 +46,7 @@ import {
   shouldStopAfterRepeatedToolError,
   type ToolMode,
   ToolValidationFailure,
+  toCompatibilityPrompt,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
 import {
@@ -51,6 +56,14 @@ import {
   resolveApproval,
   type ToolInput,
 } from "./tools.js";
+import {
+  clearUsageHistory,
+  getUsageSummary,
+  pruneUsage,
+  recordProviderUsage,
+  setUsageLimits,
+  type UsageWindow,
+} from "./usage.js";
 import { scanVault } from "./vault.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
@@ -85,7 +98,7 @@ function allowOrigin(
   if (origin && allowedOrigins.has(origin))
     response.setHeader("access-control-allow-origin", origin);
   response.setHeader("access-control-allow-headers", "content-type");
-  response.setHeader("access-control-allow-methods", "DELETE, GET, PATCH, POST, OPTIONS");
+  response.setHeader("access-control-allow-methods", "DELETE, GET, PATCH, POST, PUT, OPTIONS");
 }
 
 function requestBody(request: import("node:http").IncomingMessage): Promise<unknown> {
@@ -127,11 +140,47 @@ function providerMessage(message: ChatMessage): ChatMessage {
   return { content: message.content, role: message.role };
 }
 
+function appendToolExchange(
+  transcript: ChatMessage[],
+  call: { arguments: string; id: string; name: string },
+  result: unknown,
+  toolMode: ToolMode,
+): ChatMessage[] {
+  if (toolMode === "compatibility") {
+    let parsedArguments: unknown = call.arguments;
+    try {
+      parsedArguments = JSON.parse(call.arguments);
+    } catch {
+      // Preserve malformed text as data so the model can correct it once.
+    }
+    return [
+      ...transcript,
+      { content: JSON.stringify({ args: parsedArguments, tool: call.name }), role: "assistant" },
+      {
+        content: JSON.stringify({ callId: call.id, result, tool: call.name }),
+        role: "user",
+      },
+    ];
+  }
+  return [
+    ...transcript,
+    {
+      content: "",
+      role: "assistant",
+      tool_calls: [
+        { function: { arguments: call.arguments, name: call.name }, id: call.id, type: "function" },
+      ],
+    },
+    { content: JSON.stringify(result), name: call.name, role: "tool", tool_call_id: call.id },
+  ];
+}
+
 export function createSidecar(
   port = 0,
   storageDirectory = dataDirectory(),
 ): Promise<{ port: number; server: Server }> {
   const database = openDatabase(storageDirectory);
+  pruneUsage(database.client);
   const store = createStore(database, storageDirectory);
   const server = createServer(async (request, response) => {
     allowOrigin(request, response);
@@ -144,6 +193,56 @@ export function createSidecar(
     try {
       if (request.method === "GET" && pathname === "/v1/state") {
         writeJson(response, 200, store.getState());
+        return;
+      }
+      if (request.method === "GET" && pathname === "/v1/usage/summary") {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        writeJson(
+          response,
+          200,
+          getUsageSummary(database.client, {
+            from: Number(url.searchParams.get("from")) || undefined,
+            modelId: url.searchParams.get("modelId"),
+            profileId: url.searchParams.get("profileId"),
+            providerId: url.searchParams.get("providerId"),
+            sessionId: url.searchParams.get("sessionId"),
+            to: Number(url.searchParams.get("to")) || undefined,
+          }),
+        );
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/usage$/.test(pathname)) {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        writeJson(
+          response,
+          200,
+          getUsageSummary(database.client, {
+            from: Number(url.searchParams.get("from")) || undefined,
+            modelId: url.searchParams.get("modelId"),
+            profileId: url.searchParams.get("profileId"),
+            providerId: pathname.split("/")[3],
+            sessionId: url.searchParams.get("sessionId"),
+            to: Number(url.searchParams.get("to")) || undefined,
+          }),
+        );
+        return;
+      }
+      if (request.method === "PUT" && /^\/v1\/providers\/[^/]+\/usage-limits$/.test(pathname)) {
+        const input = (await requestBody(request)) as {
+          limits?: Array<{
+            label: string;
+            limit: number;
+            metric: "requests" | "tokens" | "credits";
+            windowSeconds: number;
+          }>;
+        };
+        setUsageLimits(database.client, pathname.split("/")[3], input.limits ?? []);
+        writeJson(response, 200, { ok: true });
+        return;
+      }
+      if (request.method === "DELETE" && pathname === "/v1/usage/history") {
+        clearUsageHistory(database.client);
+        writeJson(response, 200, { ok: true });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/bootstrap") {
@@ -406,6 +505,71 @@ export function createSidecar(
         });
         return;
       }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/providers\/[^/]+\/models\/[^/]+\/probe$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const providerId = parts[3];
+        const modelId = decodeURIComponent(parts[5]);
+        const input = (await requestBody(request)) as {
+          protocol?: import("./tool-contract.js").ResolvedProtocol;
+        };
+        const provider = await getProvider(providerId, storageDirectory);
+        const storedModel = database.db
+          .select({ protocolPreference: models.protocolPreference })
+          .from(models)
+          .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+          .get();
+        const protocol =
+          input.protocol ??
+          (provider.type === "ollama"
+            ? "ollama-chat"
+            : storedModel?.protocolPreference === "openai-responses"
+              ? "openai-responses"
+              : provider.baseUrl.includes("api.openai.com")
+                ? "openai-responses"
+                : "openai-chat");
+        const result = await probeProviderTools(
+          providerId,
+          modelId,
+          protocol,
+          fetch,
+          storageDirectory,
+        );
+        writeJson(response, 200, {
+          model: setModelCapability(
+            providerId,
+            modelId,
+            {
+              errorCode: result.errorCode ?? null,
+              protocol: result.protocol,
+              source: "probe",
+              support: result.support,
+            },
+            storageDirectory,
+          ),
+        });
+        return;
+      }
+      if (
+        request.method === "PATCH" &&
+        /^\/v1\/providers\/[^/]+\/models\/[^/]+\/protocol$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const input = (await requestBody(request)) as {
+          protocolPreference: import("./tool-contract.js").ProtocolPreference;
+        };
+        writeJson(response, 200, {
+          model: setModelProtocol(
+            parts[3],
+            decodeURIComponent(parts[5]),
+            input.protocolPreference,
+            storageDirectory,
+          ),
+        });
+        return;
+      }
       if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/model$/.test(pathname)) {
         const input = (await requestBody(request)) as { model: string; providerId?: string | null };
         writeJson(response, 200, {
@@ -583,8 +747,14 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         let content = "";
         let transcript: ChatMessage[] = promptMessages.map(providerMessage);
         try {
+          const provider = await getProvider(candidate.providerId, storageDirectory);
           const modelRecord = database.db
-            .select({ toolMode: models.toolMode })
+            .select({
+              protocolPreference: models.protocolPreference,
+              resolvedProtocol: models.resolvedProtocol,
+              toolSupport: models.toolSupport,
+              toolMode: models.toolMode,
+            })
             .from(models)
             .where(
               and(
@@ -594,39 +764,117 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
             )
             .get();
           const toolMode = (modelRecord?.toolMode as ToolMode | undefined) ?? "auto";
+          const manualProtocol =
+            modelRecord?.protocolPreference === "openai-responses"
+              ? ("openai-responses" as const)
+              : modelRecord?.protocolPreference === "openai-chat"
+                ? ("openai-chat" as const)
+                : undefined;
+          const protocol =
+            provider.type === "ollama"
+              ? ("ollama-chat" as const)
+              : (manualProtocol ??
+                (modelRecord?.resolvedProtocol as
+                  | import("./tool-contract.js").ResolvedProtocol
+                  | null) ??
+                (provider.baseUrl.includes("api.openai.com") ? "openai-responses" : "openai-chat"));
+          const toolsEnabled =
+            Boolean(input.workspaceId) &&
+            toolMode !== "disabled" &&
+            (toolMode === "compatibility" || modelRecord?.toolSupport !== "unsupported");
           if (toolMode === "compatibility") {
             transcript = [
               {
-                content:
-                  'Para solicitar uma ferramenta, responda exclusivamente com JSON no formato {"tool":"nome","args":{...}}. Não inclua Markdown, explicações ou comandos fora desse envelope.',
+                content: toCompatibilityPrompt(workspaceToolDefinitions),
                 role: "system",
               },
               ...transcript,
             ];
           }
           while (true) {
-            const result = await streamChatMessage(
-              candidate.providerId,
-              transcript,
-              candidate.model,
-              (delta) => {
-                content += delta;
+            const attemptId = randomUUID();
+            let result: Awaited<ReturnType<typeof streamChatMessage>>;
+            try {
+              result = await streamChatMessage(
+                candidate.providerId,
+                transcript,
+                candidate.model,
+                (delta) => {
+                  content += delta;
+                  socket.send(
+                    JSON.stringify({
+                      delta,
+                      requestId: input.requestId,
+                      sessionId: input.sessionId,
+                      type: "chat.delta",
+                    }),
+                  );
+                },
+                controller.signal,
+                fetch,
+                storageDirectory,
+                {
+                  protocol,
+                  toolMode,
+                  tools: toolsEnabled ? workspaceToolDefinitions : [],
+                },
+              );
+            } catch (error) {
+              const rateLimitWindows =
+                typeof error === "object" && error && "windows" in error
+                  ? ((error as { windows?: UsageWindow[] }).windows ?? [])
+                  : [];
+              recordProviderUsage(database.client, {
+                attemptId,
+                errorCode:
+                  typeof error === "object" && error && "status" in error
+                    ? `http_${String((error as { status?: number }).status ?? "unknown")}`
+                    : "provider_error",
+                modelId: candidate.model ?? "",
+                observedAt: Date.now(),
+                profileId: input.profileId,
+                providerId: candidate.providerId,
+                requestId: input.requestId,
+                sessionId: input.sessionId,
+                status: "failed",
+                windows: rateLimitWindows,
+              });
+              if (rateLimitWindows.length) {
                 socket.send(
                   JSON.stringify({
-                    delta,
+                    model: candidate.model,
+                    providerId: candidate.providerId,
                     requestId: input.requestId,
                     sessionId: input.sessionId,
-                    type: "chat.delta",
+                    type: "usage.updated",
+                    windows: rateLimitWindows,
                   }),
                 );
-              },
-              controller.signal,
-              fetch,
-              storageDirectory,
-              {
-                toolMode,
-                tools: input.workspaceId ? workspaceToolDefinitions : [],
-              },
+              }
+              throw error;
+            }
+            recordProviderUsage(database.client, {
+              attemptId,
+              modelId: candidate.model ?? "",
+              observedAt: Date.now(),
+              profileId: input.profileId,
+              providerId: result.provider.id,
+              requestId: input.requestId,
+              sessionId: input.sessionId,
+              status: "completed",
+              tokens: result.tokens,
+              windows: result.windows,
+            });
+            socket.send(
+              JSON.stringify({
+                model: candidate.model,
+                providerId: result.provider.id,
+                requestId: input.requestId,
+                sessionId: input.sessionId,
+                tokens: result.tokens,
+                type: "usage.updated",
+                windows: result.windows,
+              }),
             );
             if (result.toolCalls.length && !input.workspaceId)
               throw new Error("Selecione um workspace antes de usar ferramentas locais.");
@@ -652,7 +900,9 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   provider: result.provider,
                   requestId: input.requestId,
                   sessionId: input.sessionId,
+                  tokens: result.tokens,
                   type: "chat.completed",
+                  windows: result.windows,
                 }),
               );
               return;
@@ -664,10 +914,13 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 throw new Error("Selecione um workspace antes de usar ferramentas locais.");
               if (!isToolName(call.name))
                 throw new Error(`A ferramenta ${call.name} não é permitida.`);
-              const callId =
-                call.id.startsWith("tool-call-") || seenToolCallIds.has(call.id)
-                  ? `${input.requestId}:${toolCount}:${call.id}`
-                  : call.id;
+              if (call.name === "blackwall_capability_probe")
+                throw new Error(
+                  "A ferramenta interna de diagnóstico não pode ser executada no chat.",
+                );
+              const callId = seenToolCallIds.has(call.id)
+                ? `${input.requestId}:${toolCount}:${call.id}`
+                : call.id;
               const normalizedCall = { ...call, id: callId };
               seenToolCallIds.add(callId);
               let args: Record<string, unknown>;
@@ -736,29 +989,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                     `A ferramenta ${normalizedCall.name} repetiu uma chamada inválida: ${errorMessage}. O ciclo foi interrompido para evitar spam.`,
                   );
                 }
-                transcript = [
-                  ...transcript,
-                  {
-                    content: "",
-                    role: "assistant",
-                    tool_calls: [
-                      {
-                        function: {
-                          arguments: normalizedCall.arguments,
-                          name: normalizedCall.name,
-                        },
-                        id: normalizedCall.id,
-                        type: "function",
-                      },
-                    ],
-                  },
-                  {
-                    content: JSON.stringify(toolResult),
-                    name: normalizedCall.name,
-                    role: "tool",
-                    tool_call_id: normalizedCall.id,
-                  },
-                ];
+                transcript = appendToolExchange(transcript, normalizedCall, toolResult, toolMode);
                 continue;
               }
               socket.send(
@@ -806,7 +1037,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                         args,
                         requestId: toolRequestId,
                         sessionId: input.sessionId,
-                        tool: normalizedCall.name,
+                        tool: normalizedCall.name as import("./tools.js").ToolName,
                         workspaceId: activeWorkspaceId,
                       },
                       storageDirectory,
@@ -884,29 +1115,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               } else {
                 toolErrorCounts.clear();
               }
-              transcript = [
-                ...transcript,
-                {
-                  content: "",
-                  role: "assistant",
-                  tool_calls: [
-                    {
-                      function: {
-                        arguments: canonicalArguments,
-                        name: normalizedCall.name,
-                      },
-                      id: normalizedCall.id,
-                      type: "function",
-                    },
-                  ],
-                },
-                {
-                  content: JSON.stringify(toolResult),
-                  name: normalizedCall.name,
-                  role: "tool",
-                  tool_call_id: normalizedCall.id,
-                },
-              ];
+              transcript = appendToolExchange(
+                transcript,
+                { ...normalizedCall, arguments: canonicalArguments },
+                toolResult,
+                toolMode,
+              );
             }
           }
         } catch (error) {

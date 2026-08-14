@@ -20,6 +20,7 @@ import {
   deleteSession,
   editSessionMessage,
   getAppState,
+  getProviderUsage,
   listAttachments,
   listProviders,
   listStoredProviderModels,
@@ -89,6 +90,20 @@ function CompactIcon({
   );
 }
 
+function usageBadgeLabel(
+  summary: import("../shared/api/sidecar").UsageSummary | null,
+  isEnglish: boolean,
+) {
+  const restrictive = summary?.windows
+    .filter((window) => window.remainingPercent !== undefined)
+    .sort((left, right) => (left.remainingPercent ?? 101) - (right.remainingPercent ?? 101))[0];
+  if (restrictive?.remainingPercent !== undefined)
+    return `${Math.round(restrictive.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`;
+  if (summary && summary.totals.totalTokens > 0)
+    return `${new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(summary.totals.totalTokens)} ${isEnglish ? "tokens" : "tokens"}`;
+  return isEnglish ? "Usage unavailable" : "Uso indisponível";
+}
+
 type WorkspaceShellProps = {
   appState: AppState | null;
   onDeleteProfile: (profileId: string) => Promise<void>;
@@ -147,6 +162,10 @@ export default function WorkspaceShell({
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
   const [permissionError, setPermissionError] = useState("");
+  const [usageSummary, setUsageSummary] = useState<
+    import("../shared/api/sidecar").UsageSummary | null
+  >(null);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [toolApproval, setToolApproval] = useState<WorkspaceToolApproval | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
@@ -188,6 +207,28 @@ export default function WorkspaceShell({
   );
   const selectedModel =
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
+
+  useEffect(() => {
+    if (!activeProvider) {
+      setUsageSummary(null);
+      return;
+    }
+    let cancelled = false;
+    void getProviderUsage(activeProvider.id, {
+      modelId: selectedModel || undefined,
+      profileId: state?.activeProfileId ?? undefined,
+      sessionId: activeSession?.id,
+    })
+      .then((summary) => {
+        if (!cancelled) setUsageSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setUsageSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProvider, activeSession?.id, selectedModel, state?.activeProfileId]);
 
   useEffect(() => {
     if (!appState || appState === lastAppStateRef.current) return;
@@ -621,6 +662,15 @@ export default function WorkspaceShell({
             streamingContentRef.current += delta;
             setStreamingContent(streamingContentRef.current);
             setStreamingStatus("Gerando…");
+          },
+          onUsage: () => {
+            void getProviderUsage(requestProvider.id, {
+              modelId: requestModel || undefined,
+              profileId: requestProfileId,
+              sessionId,
+            })
+              .then(setUsageSummary)
+              .catch(() => undefined);
           },
           onRetry: (message) => {
             if (activeSessionIdRef.current === sessionId) setStreamingStatus(message);
@@ -1096,6 +1146,50 @@ export default function WorkspaceShell({
                 </select>
               </label>
             )}
+            {activeProvider && (
+              <div className="usage-indicator-wrap">
+                <button
+                  aria-expanded={usageOpen}
+                  className="usage-indicator"
+                  onClick={() => setUsageOpen((current) => !current)}
+                  title={isEnglish ? "Provider usage" : "Uso do provedor"}
+                  type="button"
+                >
+                  {usageBadgeLabel(usageSummary, isEnglish)}
+                </button>
+                {usageOpen && (
+                  <div className="usage-popover" role="dialog">
+                    <strong>{isEnglish ? "Current usage" : "Uso atual"}</strong>
+                    <span>
+                      {isEnglish ? "Requests" : "Requisições"}: {usageSummary?.totals.requests ?? 0}
+                    </span>
+                    <span>
+                      {isEnglish ? "Tokens" : "Tokens"}: {usageSummary?.totals.totalTokens ?? 0}
+                    </span>
+                    {usageSummary?.windows.map((window) => (
+                      <span key={`${window.metric}-${window.label}`}>
+                        {window.label}:{" "}
+                        {window.remainingPercent === undefined
+                          ? isEnglish
+                            ? "limit unavailable"
+                            : "limite indisponível"
+                          : `${Math.round(window.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`}
+                      </span>
+                    ))}
+                    <button
+                      className="text-button"
+                      onClick={() => {
+                        setUsageOpen(false);
+                        setShowSettings(true);
+                      }}
+                      type="button"
+                    >
+                      {isEnglish ? "View full usage" : "Ver uso completo"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               aria-pressed={Boolean(workspace && showVault)}
               className={`header-toggle ${showVault && workspace ? "is-active" : ""}`}
@@ -1469,6 +1563,7 @@ export default function WorkspaceShell({
       {showSettings && (
         <ProviderManager
           activeWorkspaceId={state?.activeWorkspaceId ?? null}
+          activeProviderId={activeProvider?.id ?? null}
           onClose={() => setShowSettings(false)}
           onDeleteProfile={onDeleteProfile}
           onProvidersChange={(next) => {
