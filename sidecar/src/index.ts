@@ -516,8 +516,20 @@ export function createSidecar(
           protocol?: import("./tool-contract.js").ResolvedProtocol;
         };
         const provider = await getProvider(providerId, storageDirectory);
+        const storedModel = database.db
+          .select({ protocolPreference: models.protocolPreference })
+          .from(models)
+          .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+          .get();
         const protocol =
-          input.protocol ?? (provider.type === "ollama" ? "ollama-chat" : "openai-chat");
+          input.protocol ??
+          (provider.type === "ollama"
+            ? "ollama-chat"
+            : storedModel?.protocolPreference === "openai-responses"
+              ? "openai-responses"
+              : provider.baseUrl.includes("api.openai.com")
+                ? "openai-responses"
+                : "openai-chat");
         const result = await probeProviderTools(
           providerId,
           modelId,
