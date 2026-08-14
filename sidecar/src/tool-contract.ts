@@ -64,11 +64,30 @@ export class ToolValidationFailure extends Error {
 }
 
 export const MAX_REPEATED_TOOL_ERRORS = 2;
-export const MAX_TOOL_CALLS_PER_TURN = 32;
+/**
+ * The agent loop is budgeted instead of being capped at the old 32-call
+ * ceiling. The default is deliberately generous for real repositories while
+ * the upper bound keeps a broken provider from running forever.
+ */
+export const DEFAULT_TOOL_CALL_BUDGET = 128;
+export const MAX_TOOL_CALL_BUDGET = 512;
 export const MAX_TOOL_RESULT_BYTES_PER_TURN = 512_000;
+export const MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS = 3;
 
 export function shouldStopAfterRepeatedToolError(failureCount: number): boolean {
   return failureCount >= MAX_REPEATED_TOOL_ERRORS;
+}
+
+export function shouldStopAfterNoProgress(repetitionCount: number): boolean {
+  return repetitionCount >= MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS;
+}
+
+export function resolveToolCallBudget(
+  value: unknown = process.env.BLACKWALL_TOOL_CALL_BUDGET,
+): number {
+  const requested = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_TOOL_CALL_BUDGET;
+  return Math.min(MAX_TOOL_CALL_BUDGET, Math.max(1, Math.floor(requested)));
 }
 
 const objectSchema = (

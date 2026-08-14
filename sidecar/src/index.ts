@@ -35,9 +35,10 @@ import {
 import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
 import {
   isToolName,
-  MAX_TOOL_CALLS_PER_TURN,
   MAX_TOOL_RESULT_BYTES_PER_TURN,
   parseToolArguments,
+  resolveToolCallBudget,
+  shouldStopAfterNoProgress,
   shouldStopAfterRepeatedToolError,
   type ToolMode,
   ToolValidationFailure,
@@ -485,11 +486,13 @@ export function createSidecar(
       requestId: string;
       profileId?: string;
       sessionId?: string;
+      toolBudget?: number;
       workspaceId?: string;
     },
   ) {
     const controller = new AbortController();
     activeRequests.set(input.requestId, { controller, socket });
+    const toolBudget = resolveToolCallBudget(input.toolBudget);
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
       : null;
@@ -561,6 +564,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       });
     };
     try {
+      let toolCount = 0;
+      let toolResultBytes = 0;
+      const seenToolCallIds = new Set<string>();
+      const toolErrorCounts = new Map<string, number>();
+      const successfulToolResults = new Map<string, unknown>();
+      const toolCallRepetitions = new Map<string, number>();
       for (const candidate of candidates) {
         if (controller.signal.aborted) return;
         socket.send(
@@ -573,11 +582,6 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         );
         let content = "";
         let transcript: ChatMessage[] = promptMessages.map(providerMessage);
-        let toolCount = 0;
-        let toolResultBytes = 0;
-        const seenToolCallIds = new Set<string>();
-        const toolErrorCounts = new Map<string, number>();
-        const successfulToolResults = new Map<string, unknown>();
         try {
           const modelRecord = database.db
             .select({ toolMode: models.toolMode })
@@ -658,11 +662,6 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               const activeWorkspaceId = input.workspaceId;
               if (!activeWorkspaceId)
                 throw new Error("Selecione um workspace antes de usar ferramentas locais.");
-              toolCount += 1;
-              if (toolCount > MAX_TOOL_CALLS_PER_TURN)
-                throw new Error(
-                  `O limite de ${MAX_TOOL_CALLS_PER_TURN} ferramentas por turno foi atingido.`,
-                );
               if (!isToolName(call.name))
                 throw new Error(`A ferramenta ${call.name} não é permitida.`);
               const callId =
@@ -675,6 +674,11 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               try {
                 args = parseToolArguments(normalizedCall.name, normalizedCall.arguments);
               } catch (error) {
+                toolCount += 1;
+                if (toolCount > toolBudget)
+                  throw new Error(
+                    `O orçamento de ${toolBudget} chamadas de ferramentas por turno foi atingido.`,
+                  );
                 const errorMessage =
                   error instanceof Error
                     ? error.message
@@ -776,33 +780,50 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               };
               const executionSignature = `${normalizedCall.name}:${canonicalArguments}`;
               const toolRequestId = `${input.requestId}:${normalizedCall.id}`;
-              const cachedResult = successfulToolResults.get(executionSignature);
+              const repetitionCount = (toolCallRepetitions.get(executionSignature) ?? 0) + 1;
+              toolCallRepetitions.set(executionSignature, repetitionCount);
+              if (shouldStopAfterNoProgress(repetitionCount)) {
+                throw new Error(
+                  `A ferramenta ${normalizedCall.name} repetiu a mesma chamada sem progresso. O ciclo foi interrompido para evitar spam.`,
+                );
+              }
+              const hasCachedResult = successfulToolResults.has(executionSignature);
+              if (!hasCachedResult) {
+                toolCount += 1;
+                if (toolCount > toolBudget)
+                  throw new Error(
+                    `O orçamento de ${toolBudget} chamadas de ferramentas por turno foi atingido.`,
+                  );
+              }
+              const cachedResult = hasCachedResult
+                ? successfulToolResults.get(executionSignature)
+                : undefined;
               try {
-                toolResult =
-                  cachedResult ??
-                  (await executeTool(
-                    {
-                      args,
-                      requestId: toolRequestId,
-                      sessionId: input.sessionId,
-                      tool: normalizedCall.name,
-                      workspaceId: activeWorkspaceId,
-                    },
-                    storageDirectory,
-                    {
-                      onApproval: (approval) =>
-                        socket.send(
-                          JSON.stringify({
-                            ...approval,
-                            args,
-                            callId: normalizedCall.id,
-                            requestId: toolRequestId,
-                            sessionId: input.sessionId,
-                            type: "approval.requested",
-                          }),
-                        ),
-                    },
-                  ));
+                toolResult = hasCachedResult
+                  ? cachedResult
+                  : await executeTool(
+                      {
+                        args,
+                        requestId: toolRequestId,
+                        sessionId: input.sessionId,
+                        tool: normalizedCall.name,
+                        workspaceId: activeWorkspaceId,
+                      },
+                      storageDirectory,
+                      {
+                        onApproval: (approval) =>
+                          socket.send(
+                            JSON.stringify({
+                              ...approval,
+                              args,
+                              callId: normalizedCall.id,
+                              requestId: toolRequestId,
+                              sessionId: input.sessionId,
+                              type: "approval.requested",
+                            }),
+                          ),
+                      },
+                    );
               } catch (error) {
                 toolError = true;
                 toolResult = {
@@ -811,7 +832,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               }
               if (!toolError) successfulToolResults.set(executionSignature, toolResult);
               const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));
-              toolResultBytes += cachedResult ? 0 : resultBytes;
+              toolResultBytes += hasCachedResult ? 0 : resultBytes;
               if (toolResultBytes > MAX_TOOL_RESULT_BYTES_PER_TURN) {
                 throw new Error(
                   "O orçamento de leitura deste turno foi atingido. Refine a exploração e continue em uma nova mensagem.",
@@ -943,6 +964,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       requestId: string;
       profileId?: string;
       sessionId?: string;
+      toolBudget?: number;
       workspaceId?: string;
     },
   ) {
