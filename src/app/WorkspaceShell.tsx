@@ -37,6 +37,7 @@ import {
   uploadAttachment,
   type WorkspaceToolApproval,
   type WorkspaceToolDecision,
+  type WorkspaceToolName,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
 import { SafeMarkdown } from "../shared/components/SafeMarkdown";
@@ -120,6 +121,7 @@ export default function WorkspaceShell({
     readBooleanPreference(vaultCollapsedPreference),
   );
   const [vaultTab, setVaultTab] = useState<VaultTab>("files");
+  const [vaultRefreshKey, setVaultRefreshKey] = useState(0);
   const [vaultWidth, setVaultWidth] = useState(() =>
     Math.min(
       maximumVaultWidth,
@@ -161,6 +163,7 @@ export default function WorkspaceShell({
   const activeStream = useRef<{ stop: () => void } | null>(null);
   const pendingToolDecision = useRef<((decision: WorkspaceToolDecision) => void) | null>(null);
   const streamingContentRef = useRef("");
+  const runningToolRef = useRef<WorkspaceToolName | null>(null);
   const messageListRef = useRef<HTMLOListElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -632,10 +635,14 @@ export default function WorkspaceShell({
             setStreamingStatus(isEnglish ? "Waiting for permission…" : "Aguardando autorização…");
           },
           onToolStarted: (tool) => {
+            runningToolRef.current = tool;
             if (activeSessionIdRef.current === sessionId)
               setStreamingStatus(`${isEnglish ? "Running" : "Executando"} ${tool}…`);
           },
           onToolCompleted: () => {
+            if (runningToolRef.current === "create_or_update_file")
+              setVaultRefreshKey((key) => key + 1);
+            runningToolRef.current = null;
             if (activeSessionIdRef.current === sessionId)
               setStreamingStatus(isEnglish ? "Continuing…" : "Continuando…");
           },
@@ -1344,6 +1351,7 @@ export default function WorkspaceShell({
             )}
             <textarea
               aria-label={isEnglish ? "Message" : "Mensagem"}
+              data-testid="chat-composer"
               disabled={!activeProvider || !activeSession || isSending}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -1450,6 +1458,7 @@ export default function WorkspaceShell({
                 locale={isEnglish ? "en" : "pt-BR"}
                 onCollapse={() => setVaultCollapsed(true)}
                 onTabChange={setVaultTab}
+                refreshKey={vaultRefreshKey}
                 tab={vaultTab}
                 workspaceId={workspace.id}
               />

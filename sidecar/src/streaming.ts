@@ -13,6 +13,7 @@ import {
   type ToolCall,
   type ToolDefinition,
   type ToolMode,
+  type ToolName,
 } from "./tool-contract.js";
 
 export type StreamMessage = {
@@ -42,6 +43,80 @@ export type StreamResponse = {
   provider: Provider;
   toolCalls: ToolCall[];
 };
+
+const harnessContext = `# Blackwall Context
+
+## Objetivo
+
+Projeto de teste usado para validar a exploração local do Blackwall.
+
+## Stack e dependências
+
+TypeScript com scripts Node e testes automatizados.
+
+## Estrutura relevante
+
+- [entrada](src/index.ts)
+- [testes](tests/index.test.ts)
+
+## Documentação
+
+Consulte [[README]] e [[ARCHITECTURE]].
+
+## Fluxos principais
+
+O ponto de entrada executa a função principal e os testes validam o comportamento.
+
+## Qualidade, observabilidade e persistência
+
+Os comandos e decisões encontrados estão descritos nas notas do projeto.
+
+## Riscos e próximos passos
+
+Manter os testes verdes e revisar as lacunas documentadas em [[ARCHITECTURE]].
+`;
+
+export function scriptedHarnessTurn(messages: StreamMessage[]): {
+  content: string;
+  toolCalls: ToolCall[];
+} | null {
+  const request = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  if (!request.includes("Explore o workspace selecionado")) return null;
+  const results = messages.filter((message) => message.role === "tool");
+  const step = results.length;
+  const calls: Array<{ arguments: Record<string, unknown>; name: ToolName }> = [
+    { arguments: { path: "." }, name: "list_directory" },
+    // Intentionally malformed: the agent runtime must repair the missing args and workspace alias.
+    { arguments: { command: "node --version", cwd: "/workspace" }, name: "execute_command" },
+    { arguments: { path: "README.md" }, name: "read_file" },
+    { arguments: { path: "ARCHITECTURE.md" }, name: "read_file" },
+    { arguments: { path: "src/index.ts" }, name: "read_file" },
+    { arguments: { path: "tests/index.test.ts" }, name: "read_file" },
+    {
+      arguments: { content: harnessContext, path: "BLACKWALL_CONTEXT.md" },
+      name: "create_or_update_file",
+    },
+    { arguments: { path: "BLACKWALL_CONTEXT.md" }, name: "read_file" },
+  ];
+  const next = calls[step];
+  if (!next) {
+    return {
+      content:
+        "Workspace analisado. Criei e validei BLACKWALL_CONTEXT.md na raiz, com wikilinks para README e ARCHITECTURE e links para o código e os testes.",
+      toolCalls: [],
+    };
+  }
+  return {
+    content: "",
+    toolCalls: [
+      {
+        arguments: JSON.stringify(next.arguments),
+        id: `harness-tool-${step + 1}`,
+        name: next.name,
+      },
+    ],
+  };
+}
 
 /** Provider-neutral events emitted by a streaming adapter. */
 export type ProviderStreamEvent =
@@ -208,6 +283,14 @@ export async function streamChatMessage(
   const apiKey = await providerApiKey(providerId, dataDirectory);
   const model = modelOverride?.trim() || provider.model;
   const ollama = provider.type === "ollama";
+  if (process.env.BLACKWALL_E2E_AGENT === "1") {
+    const scripted = scriptedHarnessTurn(messages);
+    if (scripted) {
+      if (scripted.content) onDelta(scripted.content);
+      for (const call of scripted.toolCalls) options.onToolCall?.(call);
+      return { ...scripted, provider };
+    }
+  }
   if (process.env.BLACKWALL_E2E_MOCK === "1") {
     onDelta("Resposta ");
     onDelta("de teste.");

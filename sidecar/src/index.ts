@@ -36,9 +36,11 @@ import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
 import {
   isToolName,
   MAX_TOOL_CALLS_PER_TURN,
+  MAX_TOOL_RESULT_BYTES_PER_TURN,
   parseToolArguments,
   shouldStopAfterRepeatedToolError,
   type ToolMode,
+  ToolValidationFailure,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
 import {
@@ -56,6 +58,10 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:1420",
   "http://tauri.localhost",
 ]);
+if (process.env.BLACKWALL_E2E === "1") {
+  allowedOrigins.add("http://localhost:1421");
+  allowedOrigins.add("http://127.0.0.1:1421");
+}
 
 export function healthPayload() {
   return {
@@ -568,8 +574,10 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         let content = "";
         let transcript: ChatMessage[] = promptMessages.map(providerMessage);
         let toolCount = 0;
+        let toolResultBytes = 0;
         const seenToolCallIds = new Set<string>();
         const toolErrorCounts = new Map<string, number>();
+        const successfulToolResults = new Map<string, unknown>();
         try {
           const modelRecord = database.db
             .select({ toolMode: models.toolMode })
@@ -671,7 +679,20 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   error instanceof Error
                     ? error.message
                     : "Os argumentos da ferramenta são inválidos.";
-                const toolResult = { error: errorMessage };
+                const toolResult = {
+                  error:
+                    error instanceof ToolValidationFailure
+                      ? error.toJSON()
+                      : {
+                          code: "invalid_tool_arguments",
+                          expectedExample:
+                            normalizedCall.name === "execute_command"
+                              ? { args: ["status", "--short"], command: "git", cwd: "." }
+                              : undefined,
+                          message: errorMessage,
+                          retryable: true,
+                        },
+                };
                 socket.send(
                   JSON.stringify({
                     callId: normalizedCall.id,
@@ -708,7 +729,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
                   throw new Error(
-                    `A ferramenta ${normalizedCall.name} falhou três vezes com o mesmo erro: ${errorMessage}. O ciclo foi interrompido. Corrija o formato dos argumentos e tente novamente.`,
+                    `A ferramenta ${normalizedCall.name} repetiu uma chamada inválida: ${errorMessage}. O ciclo foi interrompido para evitar spam.`,
                   );
                 }
                 transcript = [
@@ -748,36 +769,53 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               );
               let toolResult: unknown;
               let toolError = false;
+              const canonicalArguments = JSON.stringify(args);
+              const canonicalCall = {
+                ...normalizedCall,
+                arguments: canonicalArguments,
+              };
+              const executionSignature = `${normalizedCall.name}:${canonicalArguments}`;
               const toolRequestId = `${input.requestId}:${normalizedCall.id}`;
+              const cachedResult = successfulToolResults.get(executionSignature);
               try {
-                toolResult = await executeTool(
-                  {
-                    args,
-                    requestId: toolRequestId,
-                    sessionId: input.sessionId,
-                    tool: normalizedCall.name,
-                    workspaceId: activeWorkspaceId,
-                  },
-                  storageDirectory,
-                  {
-                    onApproval: (approval) =>
-                      socket.send(
-                        JSON.stringify({
-                          ...approval,
-                          args,
-                          callId: normalizedCall.id,
-                          requestId: toolRequestId,
-                          sessionId: input.sessionId,
-                          type: "approval.requested",
-                        }),
-                      ),
-                  },
-                );
+                toolResult =
+                  cachedResult ??
+                  (await executeTool(
+                    {
+                      args,
+                      requestId: toolRequestId,
+                      sessionId: input.sessionId,
+                      tool: normalizedCall.name,
+                      workspaceId: activeWorkspaceId,
+                    },
+                    storageDirectory,
+                    {
+                      onApproval: (approval) =>
+                        socket.send(
+                          JSON.stringify({
+                            ...approval,
+                            args,
+                            callId: normalizedCall.id,
+                            requestId: toolRequestId,
+                            sessionId: input.sessionId,
+                            type: "approval.requested",
+                          }),
+                        ),
+                    },
+                  ));
               } catch (error) {
                 toolError = true;
                 toolResult = {
                   error: error instanceof Error ? error.message : "A ferramenta falhou.",
                 };
+              }
+              if (!toolError) successfulToolResults.set(executionSignature, toolResult);
+              const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));
+              toolResultBytes += cachedResult ? 0 : resultBytes;
+              if (toolResultBytes > MAX_TOOL_RESULT_BYTES_PER_TURN) {
+                throw new Error(
+                  "O orçamento de leitura deste turno foi atingido. Refine a exploração e continue em uma nova mensagem.",
+                );
               }
               if (input.sessionId) {
                 store.appendMessage({
@@ -787,7 +825,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   role: "assistant",
                   sessionId: input.sessionId,
                   status: "complete",
-                  toolCalls: [normalizedCall],
+                  toolCalls: [canonicalCall],
                 });
                 store.appendMessage({
                   content: JSON.stringify(toolResult),
@@ -819,7 +857,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
                   throw new Error(
-                    `A ferramenta ${normalizedCall.name} falhou três vezes com o mesmo erro: ${errorMessage}. O ciclo foi interrompido. Verifique os caminhos retornados pela listagem do workspace e não repita o mesmo caminho.`,
+                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha: ${errorMessage}. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
                   );
                 }
               } else {
@@ -833,7 +871,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   tool_calls: [
                     {
                       function: {
-                        arguments: normalizedCall.arguments,
+                        arguments: canonicalArguments,
                         name: normalizedCall.name,
                       },
                       id: normalizedCall.id,

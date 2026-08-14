@@ -25,6 +25,7 @@ type VaultPanelProps = {
   locale: "pt-BR" | "en";
   onCollapse: () => void;
   onTabChange: (tab: VaultTab) => void;
+  refreshKey?: number;
   tab: VaultTab;
   workspaceId: string;
 };
@@ -456,7 +457,14 @@ function GraphView({
   );
 }
 
-export function VaultPanel({ locale, onCollapse, onTabChange, tab, workspaceId }: VaultPanelProps) {
+export function VaultPanel({
+  locale,
+  onCollapse,
+  onTabChange,
+  refreshKey = 0,
+  tab,
+  workspaceId,
+}: VaultPanelProps) {
   const isEnglish = locale === "en";
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState("");
@@ -465,6 +473,8 @@ export function VaultPanel({ locale, onCollapse, onTabChange, tab, workspaceId }
   const fileListRef = useRef<HTMLUListElement | null>(null);
 
   useEffect(() => {
+    // The increment is the explicit signal that a tool changed workspace files.
+    void refreshKey;
     let cancelled = false;
     setGraph(null);
     setError("");
@@ -486,7 +496,7 @@ export function VaultPanel({ locale, onCollapse, onTabChange, tab, workspaceId }
     return () => {
       cancelled = true;
     };
-  }, [isEnglish, workspaceId]);
+  }, [isEnglish, refreshKey, workspaceId]);
 
   const selectedNote = graph?.files.find((file) => file.path === selectedNotePath) ?? null;
 

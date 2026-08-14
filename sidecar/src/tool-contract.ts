@@ -33,8 +33,39 @@ export type ToolResult = {
   name: ToolName;
 };
 
-export const MAX_REPEATED_TOOL_ERRORS = 3;
+export type ToolValidationFailureShape = {
+  code: string;
+  expectedExample: unknown;
+  message: string;
+  retryable: boolean;
+};
+
+export class ToolValidationFailure extends Error {
+  readonly code: string;
+  readonly expectedExample: unknown;
+  readonly retryable: boolean;
+
+  constructor(failure: ToolValidationFailureShape) {
+    super(failure.message);
+    this.name = "ToolValidationFailure";
+    this.code = failure.code;
+    this.expectedExample = failure.expectedExample;
+    this.retryable = failure.retryable;
+  }
+
+  toJSON(): ToolValidationFailureShape {
+    return {
+      code: this.code,
+      expectedExample: this.expectedExample,
+      message: this.message,
+      retryable: this.retryable,
+    };
+  }
+}
+
+export const MAX_REPEATED_TOOL_ERRORS = 2;
 export const MAX_TOOL_CALLS_PER_TURN = 32;
+export const MAX_TOOL_RESULT_BYTES_PER_TURN = 512_000;
 
 export function shouldStopAfterRepeatedToolError(failureCount: number): boolean {
   return failureCount >= MAX_REPEATED_TOOL_ERRORS;
@@ -152,7 +183,7 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`Os argumentos da ferramenta ${name} devem ser um objeto.`);
   }
-  const args = value as Record<string, unknown>;
+  const args = normalizeToolArguments(name, value as Record<string, unknown>);
   const fields: Record<ToolName, { required: string[]; optional: string[] }> = {
     apply_patch: { optional: [], required: ["path", "oldText", "newText"] },
     create_or_update_file: { optional: [], required: ["path", "content"] },
@@ -189,6 +220,85 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
     );
   }
   return args;
+}
+
+const unsafeShellSyntax = /(?:\|\||&&|[|;<>`]|\$\(|\$\{|\n|\r)/;
+const environmentAssignment = /^[A-Za-z_][A-Za-z\d_]*=/;
+
+/**
+ * Repairs only common provider formatting mistakes. This is not a shell
+ * parser: operators, substitutions and environment assignments are rejected
+ * before tokenization, and the resulting command is still executed with
+ * `shell: false`.
+ */
+export function normalizeToolArguments(
+  name: ToolName,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  if (name !== "execute_command") return { ...input };
+  const result = { ...input };
+  if (!("args" in result)) result.args = [];
+  if (result.cwd === "/workspace" || result.cwd === "workspace") result.cwd = ".";
+  if (typeof result.command !== "string") return result;
+  const rawCommand = result.command.trim();
+  if (!rawCommand) return result;
+  if (unsafeShellSyntax.test(rawCommand) || environmentAssignment.test(rawCommand)) {
+    throw new ToolValidationFailure({
+      code: "unsafe_command_syntax",
+      expectedExample: { args: ["status", "--short"], command: "git", cwd: "." },
+      message: "Operadores de shell, redireções e variáveis inline não são permitidos.",
+      retryable: false,
+    });
+  }
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (const character of rawCommand) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      else current += character;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (/\s/.test(character)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += character;
+  }
+  if (escaped || quote) {
+    throw new ToolValidationFailure({
+      code: "invalid_command_quoting",
+      expectedExample: { args: ["path with spaces"], command: "ls", cwd: "." },
+      message: "As aspas ou escapes do comando estão incompletos.",
+      retryable: true,
+    });
+  }
+  if (current) tokens.push(current);
+  if (tokens.length > 1) {
+    const existingArgs = Array.isArray(result.args) ? result.args : [];
+    result.command = tokens[0];
+    result.args = [...tokens.slice(1), ...existingArgs];
+  } else {
+    result.command = tokens[0] ?? rawCommand;
+  }
+  return result;
 }
 
 export function parseCompatibilityToolCall(content: string): ToolCall | null {

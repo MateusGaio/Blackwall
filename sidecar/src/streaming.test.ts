@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { saveProvider } from "./providers.js";
-import { isRetryableProviderError, streamChatMessage } from "./streaming.js";
+import { isRetryableProviderError, scriptedHarnessTurn, streamChatMessage } from "./streaming.js";
 
 const directories: string[] = [];
 
@@ -28,6 +28,21 @@ function responseWithLines(lines: string[]) {
 }
 
 describe("streaming de provedores", () => {
+  it("roteiriza o cenário determinístico e inclui uma chamada reparável", () => {
+    const prompt = { content: "Explore o workspace selecionado", role: "user" as const };
+    expect(scriptedHarnessTurn([prompt])?.toolCalls[0]).toMatchObject({
+      name: "list_directory",
+    });
+    expect(
+      scriptedHarnessTurn([
+        prompt,
+        { content: '{"entries":[]}', name: "list_directory", role: "tool" },
+      ])?.toolCalls[0],
+    ).toMatchObject({
+      arguments: '{"command":"node --version","cwd":"/workspace"}',
+      name: "execute_command",
+    });
+  });
   it("emite deltas de OpenAI-compatible", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-"));
     directories.push(directory);

@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -40,6 +40,46 @@ async function fixture(permissionMode: "ask" | "automatic" | "read-only" = "ask"
 }
 
 describe("ferramentas locais e permissões", () => {
+  it("lista caminhos canônicos, ignora dependências e trunca arquivos grandes", async () => {
+    const { directory, state, workspaceRoot } = await fixture("automatic");
+    await mkdir(join(workspaceRoot, "src"));
+    await mkdir(join(workspaceRoot, "node_modules"));
+    await writeFile(join(workspaceRoot, "src", "index.ts"), "export const value = 1;\n");
+    await writeFile(join(workspaceRoot, "large.txt"), "x".repeat(140_000));
+    const listing = await executeTool(
+      {
+        args: { path: "." },
+        tool: "list_directory",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+    );
+    expect(listing.path).toBe(".");
+    expect(listing.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "src", type: "directory" }),
+        expect.objectContaining({ path: "large.txt", size: 140_000, type: "file" }),
+      ]),
+    );
+    expect(listing.entries.some((entry) => entry.name === "node_modules")).toBe(false);
+    const read = await executeTool(
+      {
+        args: { path: "large.txt" },
+        tool: "read_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+    );
+    expect(read).toMatchObject({
+      bytesRead: 128_000,
+      end: 128_000,
+      path: "large.txt",
+      size: 140_000,
+      start: 0,
+      truncated: true,
+    });
+  });
+
   it("permite leitura automática e bloqueia escrita no modo read-only", async () => {
     const { directory, state, workspaceRoot } = await fixture("read-only");
     await expect(
@@ -52,7 +92,7 @@ describe("ferramentas locais e permissões", () => {
         },
         directory,
       ),
-    ).resolves.toEqual({ entries: [] });
+    ).resolves.toEqual({ entries: [], path: "." });
     await expect(
       executeTool(
         {
@@ -63,7 +103,7 @@ describe("ferramentas locais e permissões", () => {
         },
         directory,
       ),
-    ).resolves.toEqual({ entries: [] });
+    ).resolves.toEqual({ entries: [], path: "." });
     await expect(
       executeTool(
         {

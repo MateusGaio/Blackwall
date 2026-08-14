@@ -21,13 +21,74 @@ type BrowserDirectoryEntry = {
   values?: () => AsyncIterable<BrowserDirectoryEntry>;
 };
 
+const workspaceTextExtensions = new Set([
+  ".c",
+  ".cpp",
+  ".css",
+  ".csv",
+  ".go",
+  ".h",
+  ".html",
+  ".java",
+  ".js",
+  ".json",
+  ".jsx",
+  ".md",
+  ".markdown",
+  ".py",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
+const workspaceTextFiles = new Set([
+  ".env.example",
+  "cargo.lock",
+  "dockerfile",
+  "license",
+  "makefile",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "readme",
+  "yarn.lock",
+]);
+const ignoredWorkspaceSegments = new Set([
+  ".cache",
+  ".git",
+  ".next",
+  ".pytest_cache",
+  ".turbo",
+  ".venv",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+  "target",
+  "vendor",
+]);
+
+function canImportWorkspaceFile(path: string): boolean {
+  const segments = path.split("/").filter(Boolean);
+  if (segments.some((segment) => ignoredWorkspaceSegments.has(segment))) return false;
+  const name = segments.at(-1)?.toLowerCase() ?? "";
+  const dot = name.lastIndexOf(".");
+  return workspaceTextFiles.has(name) || (dot >= 0 && workspaceTextExtensions.has(name.slice(dot)));
+}
+
 async function readBrowserDirectory(
   entry: BrowserDirectoryEntry,
   prefix = "",
   output: WorkspaceFile[] = [],
 ) {
   if (output.length >= 500) return output;
-  if (entry.kind === "file" && entry.getFile && /\.(md|markdown)$/i.test(entry.name)) {
+  if (entry.kind === "file" && entry.getFile && canImportWorkspaceFile(`${prefix}${entry.name}`)) {
     const file = await entry.getFile();
     if (file.size <= 2_000_000) {
       output.push({ content: await file.text(), relativePath: `${prefix}${entry.name}` });
@@ -50,7 +111,13 @@ export async function browserFilesToFolderSelection(
   if (!selected.length) return null;
   const selectedFiles: WorkspaceFile[] = [];
   let totalBytes = 0;
-  for (const file of selected.filter((item) => /\.(md|markdown)$/i.test(item.name)).slice(0, 500)) {
+  for (const file of selected
+    .filter((item) =>
+      canImportWorkspaceFile(
+        (item as File & { webkitRelativePath?: string }).webkitRelativePath || item.name,
+      ),
+    )
+    .slice(0, 500)) {
     if (totalBytes >= 25_000_000 || file.size > 2_000_000) continue;
     const content = await file.text();
     if (totalBytes + content.length > 25_000_000) break;
@@ -64,7 +131,18 @@ export async function browserFilesToFolderSelection(
   const firstPath =
     (selected[0] as File & { webkitRelativePath?: string }).webkitRelativePath ?? selected[0].name;
   const name = firstPath.split("/").filter(Boolean)[0] ?? "Workspace";
-  return { files: selectedFiles, name, path: null, source: "web" };
+  const rootPrefix = `${name}/`;
+  return {
+    files: selectedFiles.map((file) => ({
+      ...file,
+      relativePath: file.relativePath.startsWith(rootPrefix)
+        ? file.relativePath.slice(rootPrefix.length)
+        : file.relativePath,
+    })),
+    name,
+    path: null,
+    source: "web",
+  };
 }
 
 function readBrowserInput(input: HTMLInputElement): Promise<FolderSelection | null> {
@@ -101,12 +179,20 @@ export function pickBrowserDirectory(
     try {
       return browserWindow
         .showDirectoryPicker()
-        .then(async (directory) => ({
-          files: await readBrowserDirectory(directory),
-          name: directory.name,
-          path: null,
-          source: "web" as const,
-        }))
+        .then(async (directory) => {
+          const rootPrefix = `${directory.name}/`;
+          return {
+            files: (await readBrowserDirectory(directory)).map((file) => ({
+              ...file,
+              relativePath: file.relativePath.startsWith(rootPrefix)
+                ? file.relativePath.slice(rootPrefix.length)
+                : file.relativePath,
+            })),
+            name: directory.name,
+            path: null,
+            source: "web" as const,
+          };
+        })
         .catch((error) => {
           if (error instanceof DOMException && error.name === "AbortError") return null;
           const input = document.createElement("input");

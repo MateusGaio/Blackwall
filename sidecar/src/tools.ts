@@ -6,9 +6,48 @@ import { and, eq } from "drizzle-orm";
 import { dataDirectory, openDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
 
-const maxReadBytes = 1_000_000;
+const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
 const commandTimeoutMs = 15_000;
+const ignoredDirectoryNames = new Set([
+  ".cache",
+  ".git",
+  ".mypy_cache",
+  ".next",
+  ".pytest_cache",
+  ".tox",
+  ".venv",
+  "__pycache__",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "target",
+  "vendor",
+]);
+const binaryExtensions = new Set([
+  ".7z",
+  ".a",
+  ".bin",
+  ".class",
+  ".dll",
+  ".dylib",
+  ".exe",
+  ".gif",
+  ".gz",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".lockb",
+  ".o",
+  ".pdf",
+  ".png",
+  ".so",
+  ".tar",
+  ".wasm",
+  ".webp",
+  ".zip",
+]);
 
 const commandEnvironmentKeys = [
   "HOME",
@@ -243,18 +282,50 @@ export async function executeTool(
       const path = await safePath(root, String(input.args.path || "."));
       const entries = await readdir(path, { withFileTypes: true });
       return {
-        entries: entries.map((entry) => ({
-          name: entry.name,
-          type: entry.isDirectory() ? "directory" : "file",
-        })),
+        path: relative(root, path) || ".",
+        entries: await Promise.all(
+          entries
+            .filter(
+              (entry) =>
+                !entry.isSymbolicLink() &&
+                !(entry.isDirectory() && ignoredDirectoryNames.has(entry.name)),
+            )
+            .map(async (entry) => {
+              const child = join(path, entry.name);
+              const info = await stat(child).catch(() => null);
+              return {
+                name: entry.name,
+                path: relative(root, child).split("\\").join("/"),
+                size: entry.isFile() ? (info?.size ?? 0) : null,
+                type: entry.isDirectory() ? "directory" : "file",
+              };
+            }),
+        ),
       };
     }
     case "read_file": {
       const path = await safePath(root, String(input.args.path ?? ""));
       const info = await stat(path);
       if (!info.isFile()) throw new Error("O caminho solicitado não é um arquivo.");
-      if (info.size > maxReadBytes) throw new Error("O arquivo excede o limite local de 1 MB.");
-      return { content: await readFile(path, "utf8"), path: relative(root, path) };
+      const handle = await import("node:fs/promises").then(({ open }) => open(path, "r"));
+      try {
+        const length = Math.min(info.size, maxReadBytes);
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, 0);
+        if (buffer.includes(0))
+          throw new Error("O arquivo parece ser binário e não pode ser lido.");
+        return {
+          bytesRead: length,
+          content: buffer.toString("utf8"),
+          end: length,
+          path: relative(root, path).split("\\").join("/"),
+          size: info.size,
+          start: 0,
+          truncated: info.size > length,
+        };
+      } finally {
+        await handle.close();
+      }
     }
     case "search_text": {
       const query = String(input.args.query ?? "");
@@ -265,12 +336,20 @@ export async function executeTool(
         if (matches.length >= 100) return;
         const entries = await readdir(directory, { withFileTypes: true });
         for (const entry of entries) {
-          if (matches.length >= 100 || entry.name === ".git" || entry.name === "node_modules")
+          if (
+            matches.length >= 100 ||
+            entry.isSymbolicLink() ||
+            (entry.isDirectory() && ignoredDirectoryNames.has(entry.name))
+          )
             continue;
           const child = join(directory, entry.name);
           if (entry.isDirectory()) await walk(child);
           else if (entry.isFile()) {
-            if ((await stat(child)).size > maxReadBytes) continue;
+            const extension = entry.name.includes(".")
+              ? `.${entry.name.split(".").at(-1)?.toLocaleLowerCase()}`
+              : "";
+            if (binaryExtensions.has(extension) || (await stat(child)).size > maxReadBytes)
+              continue;
             const content = await readFile(child, "utf8").catch(() => "");
             content.split("\n").forEach((line, index) => {
               if (

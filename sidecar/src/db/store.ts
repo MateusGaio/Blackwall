@@ -116,8 +116,18 @@ function permissionMode(value: string | undefined): PermissionMode {
 
 async function persistWorkspaceFiles(rootPath: string, files: WorkspaceFile[]) {
   const absoluteRoot = resolve(rootPath);
+  const textExtensions =
+    /\.(c|cpp|css|csv|go|h|html|java|js|json|jsx|md|markdown|py|rs|sh|sql|toml|ts|tsx|txt|xml|yaml|yml)$/i;
+  const textNames =
+    /(^|\/)(\.env\.example|cargo\.lock|dockerfile|license|makefile|package-lock\.json|pnpm-lock\.yaml|readme|yarn\.lock)$/i;
+  const ignored =
+    /(^|\/)(\.cache|\.git|\.next|\.pytest_cache|\.turbo|\.venv|build|coverage|dist|node_modules|out|target|vendor)(\/|$)/i;
   const selectedFiles = files
-    .filter((file) => /\.(md|markdown)$/i.test(file.relativePath))
+    .filter(
+      (file) =>
+        !ignored.test(file.relativePath) &&
+        (textExtensions.test(file.relativePath) || textNames.test(file.relativePath)),
+    )
     .slice(0, 500);
   for (const file of selectedFiles) {
     const target = resolve(absoluteRoot, file.relativePath);
