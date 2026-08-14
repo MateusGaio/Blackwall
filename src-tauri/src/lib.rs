@@ -6,6 +6,17 @@ use std::{process::Child, sync::Mutex};
 use tauri::path::BaseDirectory;
 use tauri::Manager;
 
+#[cfg(not(debug_assertions))]
+fn argument_value(name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    std::env::args().find_map(|argument| argument.strip_prefix(&prefix).map(str::to_owned))
+}
+
+#[cfg(not(debug_assertions))]
+fn has_argument(name: &str) -> bool {
+    std::env::args().any(|argument| argument == name)
+}
+
 #[derive(Clone, serde::Serialize)]
 struct RuntimeConfig {
     sidecar_url: String,
@@ -68,15 +79,24 @@ pub fn run() {
             let (sidecar_url, child) = {
                 let script = sidecar_script(app.handle()).map_err(std::io::Error::other)?;
                 let node = sidecar_node(app.handle()).map_err(std::io::Error::other)?;
-                let child = Command::new(node)
+                let mut command = Command::new(node);
+                command
                     .arg(script)
-                    .env("BLACKWALL_SIDECAR_PORT", port.to_string())
-                    .spawn()
-                    .map_err(|error| {
-                        std::io::Error::other(format!(
-                            "não foi possível iniciar o sidecar do Blackwall: {error}"
-                        ))
-                    })?;
+                    .env("BLACKWALL_SIDECAR_PORT", port.to_string());
+                if let Some(data_directory) = argument_value("--blackwall-data-dir") {
+                    command.env("BLACKWALL_DATA_DIR", data_directory);
+                }
+                if has_argument("--blackwall-e2e-agent") {
+                    command
+                        .env("BLACKWALL_E2E", "1")
+                        .env("BLACKWALL_E2E_AGENT", "1")
+                        .env("BLACKWALL_E2E_MOCK", "1");
+                }
+                let child = command.spawn().map_err(|error| {
+                    std::io::Error::other(format!(
+                        "não foi possível iniciar o sidecar do Blackwall: {error}"
+                    ))
+                })?;
                 (format!("http://127.0.0.1:{port}"), Some(child))
             };
             app.manage(RuntimeConfig { sidecar_url });

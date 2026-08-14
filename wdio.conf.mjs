@@ -6,6 +6,7 @@ export const config = {
     {
       "tauri:options": {
         application: resolve("src-tauri/target/release/blackwall"),
+        args: [`--blackwall-data-dir=${process.env.BLACKWALL_DATA_DIR}`, "--blackwall-e2e-agent"],
       },
     },
   ],
