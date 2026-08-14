@@ -162,7 +162,13 @@ export function isRetryableProviderError(error: unknown): boolean {
   return error instanceof TypeError || (error instanceof Error && error.name === "AbortError");
 }
 
-type ParsedToolCall = { arguments: string; id?: string; index: number; name?: string };
+type ParsedToolCall = {
+  arguments: string;
+  id?: string;
+  index: number;
+  name?: string;
+  replaceArguments?: boolean;
+};
 type ParsedChunk = { content?: string; toolCalls?: ParsedToolCall[]; tokens?: TokenUsage };
 
 function messagesForProvider(messages: StreamMessage[], ollama: boolean): StreamMessage[] {
@@ -226,8 +232,15 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
           }>;
         };
       }>;
+      arguments?: string;
       delta?: string;
-      item?: { arguments?: string; call_id?: string; id?: string; name?: string; type?: string };
+      item?: {
+        arguments?: string;
+        call_id?: string;
+        id?: string;
+        name?: string;
+        type?: string;
+      };
       item_id?: string;
       message?: {
         content?: string;
@@ -264,6 +277,24 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
           ],
         };
       }
+      if (
+        (body.type === "response.function_call_arguments.done" ||
+          body.type === "response.output_item.done") &&
+        (body.item?.type === "function_call" ||
+          body.type === "response.function_call_arguments.done")
+      ) {
+        return {
+          toolCalls: [
+            {
+              arguments: body.item?.arguments ?? body.arguments ?? body.delta ?? "",
+              id: body.item?.call_id ?? body.item?.id ?? body.item_id,
+              index: body.output_index ?? 0,
+              name: body.item?.name,
+              replaceArguments: true,
+            },
+          ],
+        };
+      }
       if (body.type === "response.output_item.added" && body.item?.type === "function_call") {
         return {
           toolCalls: [
@@ -272,6 +303,7 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
               id: body.item.call_id ?? body.item.id,
               index: body.output_index ?? 0,
               name: body.item.name,
+              replaceArguments: Boolean(body.item.arguments),
             },
           ],
         };
@@ -339,7 +371,9 @@ async function readStream(
       const key = `index:${call.index}`;
       const current = calls.get(key);
       calls.set(key, {
-        arguments: `${current?.arguments ?? ""}${call.arguments}`,
+        arguments: call.replaceArguments
+          ? call.arguments
+          : `${current?.arguments ?? ""}${call.arguments}`,
         id: current?.id ?? call.id,
         index: current?.index ?? call.index,
         name: current?.name ?? call.name,
