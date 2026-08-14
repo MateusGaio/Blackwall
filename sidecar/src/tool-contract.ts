@@ -2,6 +2,11 @@
 
 export type ToolMode = "auto" | "compatibility" | "disabled";
 
+export type ProtocolPreference = "auto" | "openai-chat" | "openai-responses";
+export type ResolvedProtocol = "openai-chat" | "openai-responses" | "ollama-chat";
+export type ToolSupport = "unknown" | "native" | "unsupported" | "probe-error";
+export type ToolSupportSource = "metadata" | "probe" | "manual";
+
 export type ToolDefinition = {
   type: "function";
   function: {
@@ -12,8 +17,17 @@ export type ToolDefinition = {
   };
 };
 
+export type ResponsesToolDefinition = {
+  type: "function";
+  name: ToolName | "blackwall_capability_probe";
+  description: string;
+  parameters: Record<string, unknown>;
+  strict: true;
+};
+
 export type ToolName =
   | "apply_patch"
+  | "blackwall_capability_probe"
   | "create_or_update_file"
   | "execute_command"
   | "list_directory"
@@ -130,7 +144,7 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
           path: stringProperty("Relative directory path to search from."),
           query: stringProperty("Text to search for."),
         },
-        ["query"],
+        ["path", "query"],
       ),
       strict: true,
     },
@@ -178,13 +192,23 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
           command: stringProperty("Executable name or path."),
           cwd: stringProperty("Relative working directory."),
         },
-        ["command", "args"],
+        ["command", "args", "cwd"],
       ),
       strict: true,
     },
     type: "function",
   },
 ];
+
+export const capabilityProbeTool: ToolDefinition = {
+  function: {
+    description: "Internal Blackwall capability probe. Do not use for workspace actions.",
+    name: "blackwall_capability_probe" as ToolName,
+    parameters: objectSchema({ nonce: stringProperty("Opaque probe nonce.") }, ["nonce"]),
+    strict: true,
+  },
+  type: "function",
+};
 
 const toolNames = new Set<ToolName>(workspaceToolDefinitions.map((item) => item.function.name));
 
@@ -205,11 +229,12 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
   const args = normalizeToolArguments(name, value as Record<string, unknown>);
   const fields: Record<ToolName, { required: string[]; optional: string[] }> = {
     apply_patch: { optional: [], required: ["path", "oldText", "newText"] },
+    blackwall_capability_probe: { optional: [], required: ["nonce"] },
     create_or_update_file: { optional: [], required: ["path", "content"] },
-    execute_command: { optional: ["cwd"], required: ["command", "args"] },
+    execute_command: { optional: [], required: ["command", "args", "cwd"] },
     list_directory: { optional: [], required: ["path"] },
     read_file: { optional: [], required: ["path"] },
-    search_text: { optional: ["path"], required: ["query"] },
+    search_text: { optional: [], required: ["path", "query"] },
   };
   const allowed = new Set([...fields[name].required, ...fields[name].optional]);
   for (const key of Object.keys(args)) {
@@ -224,6 +249,7 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
   if (name === "search_text") stringFields.push("query", "path");
   if (name === "create_or_update_file") stringFields.push("path", "content");
   if (name === "apply_patch") stringFields.push("path", "oldText", "newText");
+  if (name === "blackwall_capability_probe") stringFields.push("nonce");
   if (name === "execute_command") stringFields.push("command", "cwd");
   for (const field of stringFields) {
     if (args[field] !== undefined && typeof args[field] !== "string") {
@@ -241,6 +267,46 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
   return args;
 }
 
+/** Convert the Chat Completions envelope into the Responses API shape. */
+export function toOpenAIChatTools(tools: ToolDefinition[]): ToolDefinition[] {
+  return tools.map((tool) => ({
+    function: {
+      ...tool.function,
+      parameters: { ...tool.function.parameters, additionalProperties: false },
+      strict: true,
+    },
+    type: "function",
+  }));
+}
+
+export function toOpenAIResponsesTools(tools: ToolDefinition[]): ResponsesToolDefinition[] {
+  return tools.map((tool) => ({
+    description: tool.function.description,
+    name: tool.function.name,
+    parameters: tool.function.parameters,
+    strict: true,
+    type: "function",
+  }));
+}
+
+/** Ollama accepts the same function envelope but keeps arguments as JSON values. */
+export function toOllamaTools(tools: ToolDefinition[]): ToolDefinition[] {
+  return toOpenAIChatTools(tools);
+}
+
+export function toCompatibilityPrompt(tools: ToolDefinition[]): string {
+  const schema = tools.map((tool) => ({
+    name: tool.function.name,
+    parameters: tool.function.parameters,
+  }));
+  return [
+    "Blackwall compatibility tools: return only one JSON object when a local tool is needed.",
+    'Format: {"tool":"name","args":{...}}. Never return shell syntax or Markdown as a tool call.',
+    "Validate the arguments against this schema:",
+    JSON.stringify(schema),
+  ].join("\n");
+}
+
 const unsafeShellSyntax = /(?:\|\||&&|[|;<>`]|\$\(|\$\{|\n|\r)/;
 const environmentAssignment = /^[A-Za-z_][A-Za-z\d_]*=/;
 
@@ -254,10 +320,12 @@ export function normalizeToolArguments(
   name: ToolName,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (name !== "execute_command") return { ...input };
   const result = { ...input };
+  if (name === "search_text" && !("path" in result)) result.path = ".";
+  if (name !== "execute_command") return result;
   if (!("args" in result)) result.args = [];
-  if (result.cwd === "/workspace" || result.cwd === "workspace") result.cwd = ".";
+  if (!("cwd" in result) || result.cwd === "/workspace" || result.cwd === "workspace")
+    result.cwd = ".";
   if (typeof result.command !== "string") return result;
   const rawCommand = result.command.trim();
   if (!rawCommand) return result;

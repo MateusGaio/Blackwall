@@ -207,4 +207,80 @@ export function applyMigrations(client: Database.Database) {
       client.exec("ALTER TABLE messages ADD COLUMN tool_call_id TEXT");
     client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(5, Date.now());
   }
+
+  const providerCapabilities = client.prepare("SELECT id FROM _migrations WHERE id = 6").get();
+  if (!providerCapabilities) {
+    const columns = new Set(
+      (client.prepare("PRAGMA table_info(models)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    const additions: Array<[string, string]> = [
+      ["protocol_preference", "TEXT NOT NULL DEFAULT 'auto'"],
+      ["resolved_protocol", "TEXT"],
+      ["tool_support", "TEXT NOT NULL DEFAULT 'unknown'"],
+      ["tool_support_source", "TEXT"],
+      ["tool_checked_at", "INTEGER"],
+      ["tool_probe_error_code", "TEXT"],
+    ];
+    for (const [name, definition] of additions) {
+      if (!columns.has(name)) client.exec(`ALTER TABLE models ADD COLUMN ${name} ${definition}`);
+    }
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(6, Date.now());
+  }
+
+  const usageTables = client.prepare("SELECT id FROM _migrations WHERE id = 7").get();
+  if (!usageTables) {
+    client.exec(`
+      CREATE TABLE IF NOT EXISTS provider_usage_events (
+        request_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        session_id TEXT,
+        profile_id TEXT NOT NULL DEFAULT '',
+        provider_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed',
+        error_code TEXT,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cached_input_tokens INTEGER,
+        reasoning_tokens INTEGER,
+        total_tokens INTEGER,
+        windows_json TEXT NOT NULL DEFAULT '[]',
+        observed_at INTEGER NOT NULL,
+        UNIQUE(request_id, attempt_id)
+      );
+      CREATE TABLE IF NOT EXISTS provider_usage_daily (
+        profile_id TEXT NOT NULL DEFAULT '',
+        provider_id TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        date_key TEXT NOT NULL,
+        requests INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(profile_id, provider_id, model_id, date_key)
+      );
+      CREATE TABLE IF NOT EXISTS provider_usage_limits (
+        id TEXT PRIMARY KEY NOT NULL,
+        provider_id TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        label TEXT NOT NULL,
+        limit_value INTEGER NOT NULL,
+        window_seconds INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS provider_usage_events_provider_observed
+        ON provider_usage_events(provider_id, observed_at DESC);
+      CREATE INDEX IF NOT EXISTS provider_usage_events_session_observed
+        ON provider_usage_events(session_id, observed_at DESC);
+      CREATE INDEX IF NOT EXISTS provider_usage_daily_provider_date
+        ON provider_usage_daily(provider_id, date_key DESC);
+    `);
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(7, Date.now());
+  }
 }

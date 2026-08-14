@@ -102,6 +102,36 @@ describe("providers", () => {
     expect(request).toHaveBeenCalledWith("http://127.0.0.1:11434/api/tags", expect.anything());
   });
 
+  it("lê capabilities do /api/show do Ollama sem tornar o endpoint obrigatório", async () => {
+    const request = vi.fn((url: string) => {
+      if (url.endsWith("/api/tags"))
+        return Promise.resolve(
+          new Response(JSON.stringify({ models: [{ name: "qwen3:8b" }] }), { status: 200 }),
+        );
+      return Promise.resolve(
+        new Response(JSON.stringify({ capabilities: ["completion", "tools"] }), { status: 200 }),
+      );
+    }) as unknown as typeof fetch;
+    await expect(
+      listProviderModels(
+        { baseUrl: "http://127.0.0.1:11434", name: "Ollama", type: "ollama" },
+        request,
+      ),
+    ).resolves.toEqual([
+      {
+        capabilities: ["completion", "tools"],
+        id: "qwen3:8b",
+        name: "qwen3:8b",
+        toolSupport: "native",
+        toolSupportSource: "metadata",
+      },
+    ]);
+    expect(request).toHaveBeenCalledWith(
+      "http://127.0.0.1:11434/api/show",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("normaliza endpoints Ollama com sufixo de API e explica falhas de conexão", async () => {
     const request = vi
       .fn()
@@ -273,6 +303,90 @@ describe("providers", () => {
       tools,
     });
     expect(JSON.parse(String(compatibility.body))).not.toHaveProperty("tools");
+  });
+
+  it("preserva metadados OpenRouter e envia require_parameters", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "openai/gpt-4o", supported_parameters: ["tools", "tool_choice"] }],
+        }),
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const models = await listProviderModels(
+      {
+        apiKey: "key",
+        baseUrl: "https://openrouter.ai/api/v1",
+        model: "openai/gpt-4o",
+        name: "OpenRouter",
+      },
+      request,
+    );
+    expect(models[0]).toMatchObject({
+      capabilities: ["tools", "tool_choice"],
+      toolSupport: "native",
+      toolSupportSource: "metadata",
+    });
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://openrouter.ai/api/v1",
+      model: "openai/gpt-4o",
+      name: "OpenRouter",
+    });
+    const body = JSON.parse(
+      String(
+        adapter.chatRequest("openai/gpt-4o", [], undefined, {
+          toolMode: "auto",
+          tools: [
+            {
+              function: {
+                description: "read",
+                name: "read_file",
+                parameters: { additionalProperties: false, type: "object" },
+                strict: true,
+              },
+              type: "function",
+            },
+          ],
+        }).body,
+      ),
+    );
+    expect(body).toMatchObject({
+      parallel_tool_calls: false,
+      provider: { require_parameters: true },
+    });
+  });
+
+  it("serializa mensagens e ferramentas no protocolo Responses", () => {
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4.1",
+      name: "OpenAI",
+    });
+    const request = adapter.chatRequest(
+      "gpt-4.1",
+      [
+        { content: "Oi", role: "user" },
+        {
+          content: "",
+          role: "assistant",
+          tool_calls: [
+            {
+              function: { arguments: '{"path":"README.md"}', name: "read_file" },
+              id: "call_1",
+              type: "function",
+            },
+          ],
+        },
+        { content: "ok", role: "tool", tool_call_id: "call_1" },
+      ],
+      undefined,
+      { protocol: "openai-responses", toolMode: "auto", tools: [] },
+    );
+    expect(request.endpoint).toBe("https://api.openai.com/v1/responses");
+    expect(JSON.parse(String(request.body))).toMatchObject({ store: false, stream: true });
   });
 
   it("sincroniza modelos no SQLite e preserva a ordem configurada da rota", async () => {
