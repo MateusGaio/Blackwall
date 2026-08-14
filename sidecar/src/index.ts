@@ -708,7 +708,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
                   throw new Error(
-                    "A mesma ferramenta falhou três vezes com o mesmo erro; o ciclo foi interrompido. Corrija o formato dos argumentos e tente novamente.",
+                    `A ferramenta ${normalizedCall.name} falhou três vezes com o mesmo erro: ${errorMessage}. O ciclo foi interrompido. Corrija o formato dos argumentos e tente novamente.`,
                   );
                 }
                 transcript = [
@@ -819,7 +819,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
                   throw new Error(
-                    "A mesma ferramenta falhou três vezes com o mesmo erro; o ciclo foi interrompido. Verifique os caminhos retornados pela listagem do workspace.",
+                    `A ferramenta ${normalizedCall.name} falhou três vezes com o mesmo erro: ${errorMessage}. O ciclo foi interrompido. Verifique os caminhos retornados pela listagem do workspace e não repita o mesmo caminho.`,
                   );
                 }
               } else {
