@@ -1787,6 +1787,33 @@ button:disabled {
   color: #d9dadf;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.usage-window > span small {
+  color: #92949d;
+  font-family: inherit;
+  font-size: 10px;
+}
+.usage-daily-table-wrap {
+  margin: 16px 0;
+}
+.usage-daily-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+.usage-daily-table th,
+.usage-daily-table td {
+  border-bottom: 1px solid #2a2b31;
+  padding: 7px 5px;
+  text-align: left;
+}
+.usage-daily-table th {
+  color: #92949d;
+  font-weight: 500;
+}
+.usage-daily-table td {
+  color: #d9dadf;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .usage-manual-limit {
   align-items: end;
   display: flex;
