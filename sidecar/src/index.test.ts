@@ -6,9 +6,22 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { createSidecar, healthPayload, SIDECAR_HOST, startFromEnvironment } from "./index.js";
+import { saveProvider } from "./providers.js";
 
 const servers: import("node:http").Server[] = [];
 const directories: string[] = [];
+
+function responseWithLines(lines: string[]) {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const line of lines) controller.enqueue(new TextEncoder().encode(`${line}\n`));
+        controller.close();
+      },
+    }),
+    { status: 200 },
+  );
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -248,5 +261,171 @@ describe("sidecar health", () => {
       requestId: "workspace-access-request",
     });
     client.close();
+  });
+
+  it("poda o transcript intra-turno no pipeline WebSocket após três turnos", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-context-integration-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    for (let index = 0; index < 30; index += 1) {
+      await writeFile(
+        join(workspaceRoot, `note-${index}.md`),
+        `# Note ${index}\n${"x".repeat(1_780)}\n`,
+        "utf8",
+      );
+    }
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Context test",
+        profileSoul: "Use ferramentas com segurança.",
+        workspaceName: "Context workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Explore o código do workspace.",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "integration-key",
+        baseUrl: "https://integration.example/v1",
+        model: "integration-model",
+        name: "Integration provider",
+      },
+      directory,
+    );
+    type CapturedMessage = { content?: string; role?: string; [key: string]: unknown };
+    type CapturedRequest = { messages: CapturedMessage[]; turn: number };
+    const requests: CapturedRequest[] = [];
+    const localFetch = fetch;
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages?: CapturedMessage[] };
+      const messages = body.messages ?? [];
+      const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
+      const lastUser = messages[lastUserIndex]?.content ?? "";
+      const turnMatch = String(lastUser).match(/turno (\d+)/);
+      const turn = turnMatch ? Number(turnMatch[1]) : 0;
+      const toolCount = messages
+        .slice(lastUserIndex + 1)
+        .filter((message) => message.role === "tool").length;
+      requests.push({ messages, turn });
+      if (toolCount < 30) {
+        const payload = {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    function: {
+                      arguments: JSON.stringify({ path: `note-${toolCount}.md` }),
+                      name: "read_file",
+                    },
+                    id: `integration-${turn}-${toolCount}`,
+                    index: 0,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+        return Promise.resolve(
+          responseWithLines([`data: ${JSON.stringify(payload)}`, "data: [DONE]"]),
+        );
+      }
+      const payload = { choices: [{ delta: { content: `turno ${turn} concluído` } }] };
+      return Promise.resolve(
+        responseWithLines([`data: ${JSON.stringify(payload)}`, "data: [DONE]"]),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const queued: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const messageType = String(message.type ?? message.topic);
+        const resolveMessage = waiters.get(messageType);
+        if (resolveMessage) {
+          waiters.delete(messageType);
+          resolveMessage(message);
+        } else {
+          queued.push(message);
+        }
+      });
+      const waitFor = (type: string) => {
+        const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+        if (index >= 0)
+          return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+
+      for (let turn = 1; turn <= 3; turn += 1) {
+        const content = `Continue explorando o workspace no turno ${turn}`;
+        await localFetch(`${baseUrl}/v1/sessions/${state.activeSessionId}/messages`, {
+          body: JSON.stringify({ content, role: "user", status: "complete" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        });
+        const requestId = `context-integration-${turn}`;
+        client.send(
+          JSON.stringify({
+            messages: [{ content, role: "user" }],
+            model: provider.model,
+            profileId: state.activeProfileId,
+            providerId: provider.id,
+            requestId,
+            sessionId: state.activeSessionId,
+            toolBudget: 40,
+            type: "chat.start",
+            workspaceId: state.activeWorkspaceId,
+          }),
+        );
+        await expect(waitFor("chat.completed")).resolves.toMatchObject({
+          content: `turno ${turn} concluído`,
+          requestId,
+        });
+      }
+
+      const estimateTokens = (messages: CapturedMessage[]) =>
+        messages.reduce(
+          (total, message) =>
+            total + Math.ceil(Buffer.byteLength(String(message.content ?? "")) / 4),
+          0,
+        );
+      const firstRequest = requests.find((request) => request.turn === 1);
+      expect(firstRequest).toBeDefined();
+      expect(JSON.stringify(firstRequest?.messages)).not.toContain('"pruned":true');
+      const thirdTurnRequests = requests.filter((request) => request.turn === 3);
+      expect(thirdTurnRequests).toHaveLength(31);
+      const lateRequests = thirdTurnRequests.slice(-3);
+      expect(lateRequests.every((request) => estimateTokens(request.messages) <= 28_000)).toBe(
+        true,
+      );
+      expect(
+        lateRequests.some((request) =>
+          request.messages.some(
+            (message) => message.role === "tool" && message.content?.includes('"pruned":true'),
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
   });
 });
