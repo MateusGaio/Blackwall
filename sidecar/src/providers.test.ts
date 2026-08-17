@@ -109,7 +109,13 @@ describe("providers", () => {
           new Response(JSON.stringify({ models: [{ name: "qwen3:8b" }] }), { status: 200 }),
         );
       return Promise.resolve(
-        new Response(JSON.stringify({ capabilities: ["completion", "tools"] }), { status: 200 }),
+        new Response(
+          JSON.stringify({
+            capabilities: ["completion", "tools"],
+            model_info: { "qwen2.context_length": 32_768 },
+          }),
+          { status: 200 },
+        ),
       );
     }) as unknown as typeof fetch;
     await expect(
@@ -120,6 +126,7 @@ describe("providers", () => {
     ).resolves.toEqual([
       {
         capabilities: ["completion", "tools"],
+        contextLimit: 32_768,
         id: "qwen3:8b",
         name: "qwen3:8b",
         toolSupport: "native",
@@ -292,10 +299,17 @@ describe("providers", () => {
       },
     ];
     const native = adapter.chatRequest("model", [], undefined, { toolMode: "auto", tools });
-    expect(JSON.parse(String(native.body))).toMatchObject({ tool_choice: "auto", tools });
+    expect(JSON.parse(String(native.body))).toMatchObject({
+      stream_options: { include_usage: true },
+      tool_choice: "auto",
+      tools,
+    });
     const disabled = adapter.chatRequest("model", [], undefined, {
       toolMode: "disabled",
       tools,
+    });
+    expect(JSON.parse(String(disabled.body))).toMatchObject({
+      stream_options: { include_usage: true },
     });
     expect(JSON.parse(String(disabled.body))).not.toHaveProperty("tools");
     const compatibility = adapter.chatRequest("model", [], undefined, {
@@ -309,7 +323,13 @@ describe("providers", () => {
     const request = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: [{ id: "openai/gpt-4o", supported_parameters: ["tools", "tool_choice"] }],
+          data: [
+            {
+              context_length: 128_000,
+              id: "openai/gpt-4o",
+              supported_parameters: ["tools", "tool_choice"],
+            },
+          ],
         }),
         { status: 200 },
       ),
@@ -325,6 +345,7 @@ describe("providers", () => {
     );
     expect(models[0]).toMatchObject({
       capabilities: ["tools", "tool_choice"],
+      contextLimit: 128_000,
       toolSupport: "native",
       toolSupportSource: "metadata",
     });
@@ -353,9 +374,83 @@ describe("providers", () => {
       ),
     );
     expect(body).toMatchObject({
-      parallel_tool_calls: false,
+      parallel_tool_calls: true,
       provider: { require_parameters: true },
     });
+  });
+
+  it("mantém parallel_tool_calls desligado por padrão fora da OpenRouter", () => {
+    const adapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.example.com/v1",
+      model: "some-model",
+      name: "Generic",
+    });
+    const body = JSON.parse(
+      String(
+        adapter.chatRequest("some-model", [], undefined, {
+          toolMode: "auto",
+          tools: [
+            {
+              function: {
+                description: "read",
+                name: "read_file",
+                parameters: { additionalProperties: false, type: "object" },
+                strict: true,
+              },
+              type: "function",
+            },
+          ],
+        }).body,
+      ),
+    );
+    expect(body).toMatchObject({ parallel_tool_calls: false });
+  });
+
+  it("respeita override manual de parallel_tool_calls em qualquer provedor", () => {
+    const openRouterAdapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://openrouter.ai/api/v1",
+      model: "openai/gpt-4o",
+      name: "OpenRouter",
+    });
+    const genericAdapter = new OpenAICompatibleProvider({
+      apiKey: "key",
+      baseUrl: "https://api.example.com/v1",
+      model: "some-model",
+      name: "Generic",
+    });
+    const tools = [
+      {
+        function: {
+          description: "read",
+          name: "read_file",
+          parameters: { additionalProperties: false, type: "object" },
+          strict: true,
+        },
+        type: "function" as const,
+      },
+    ];
+    const forcedOff = JSON.parse(
+      String(
+        openRouterAdapter.chatRequest("openai/gpt-4o", [], undefined, {
+          parallelToolCalls: "disabled",
+          toolMode: "auto",
+          tools,
+        }).body,
+      ),
+    );
+    expect(forcedOff).toMatchObject({ parallel_tool_calls: false });
+    const forcedOn = JSON.parse(
+      String(
+        genericAdapter.chatRequest("some-model", [], undefined, {
+          parallelToolCalls: "enabled",
+          toolMode: "auto",
+          tools,
+        }).body,
+      ),
+    );
+    expect(forcedOn).toMatchObject({ parallel_tool_calls: true });
   });
 
   it("serializa mensagens e ferramentas no protocolo Responses", () => {

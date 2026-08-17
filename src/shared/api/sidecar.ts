@@ -31,6 +31,7 @@ export type UsageWindow = {
   source: UsageSource;
 };
 export type UsageSummary = {
+  /** Cumulative across every request in scope — a billing figure, not context occupancy. */
   totals: {
     requests: number;
     inputTokens: number;
@@ -38,6 +39,15 @@ export type UsageSummary = {
     cachedInputTokens: number;
     reasoningTokens: number;
     totalTokens: number;
+  };
+  /** The most recent request alone — how much context the conversation currently occupies. */
+  lastRequest?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+    contextLimit?: number;
   };
   windows: UsageWindow[];
   daily: Array<{
@@ -96,6 +106,7 @@ export type SessionSummary = Session & {
 
 export type StoredMessage = ChatMessage & {
   createdAt: number;
+  isSummary: boolean;
   model: string | null;
   providerId: string | null;
   sequence: number;
@@ -138,6 +149,7 @@ type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
 export type ChatMessage = {
   content: string;
   id: string;
+  isSummary?: boolean;
   role: "assistant" | "system" | "tool" | "user";
   toolCallId?: string;
   toolCalls?: ToolCall[];
@@ -240,6 +252,7 @@ export type ProviderModel = {
   toolSupport?: "unknown" | "native" | "unsupported" | "probe-error";
   toolSupportSource?: "metadata" | "probe" | "manual";
   toolMode?: "auto" | "compatibility" | "disabled";
+  parallelToolCalls?: "auto" | "enabled" | "disabled";
 };
 
 export async function discoverProviderModels(
@@ -270,6 +283,21 @@ export async function setProviderModelToolMode(
     `/v1/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/tool-mode`,
     {
       body: JSON.stringify({ toolMode: toolMode ?? "auto" }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+}
+
+export async function setProviderModelParallelToolCalls(
+  providerId: string,
+  modelId: string,
+  parallelToolCalls: ProviderModel["parallelToolCalls"],
+): Promise<void> {
+  await request(
+    `/v1/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/parallel-tool-calls`,
+    {
+      body: JSON.stringify({ parallelToolCalls: parallelToolCalls ?? "auto" }),
       headers: { "content-type": "application/json" },
       method: "PATCH",
     },
@@ -613,6 +641,7 @@ export type StreamResult = {
 
 export type StreamHandlers = {
   onDelta: (delta: string) => void;
+  onCompacting?: () => void;
   onApproval?: (
     approval: WorkspaceToolApproval,
     resolve: (decision: WorkspaceToolDecision) => void,
@@ -707,6 +736,7 @@ export async function streamMessage(
       content += message.delta;
       handlers.onDelta(message.delta);
     }
+    if (message.type === "chat.compacting") handlers.onCompacting?.();
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? "Tentando novamente…");
     if (message.type === "usage.updated")

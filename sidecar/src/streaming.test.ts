@@ -92,7 +92,9 @@ describe("streaming de provedores", () => {
     });
     const request = vi
       .fn()
-      .mockResolvedValue(new Response(null, { status: 429 })) as unknown as typeof fetch;
+      .mockResolvedValue(
+        new Response(null, { headers: { "retry-after": "2" }, status: 429 }),
+      ) as unknown as typeof fetch;
     try {
       await streamChatMessage(
         provider.id,
@@ -105,6 +107,9 @@ describe("streaming de provedores", () => {
       throw new Error("stream deveria falhar");
     } catch (error) {
       expect(isRetryableProviderError(error)).toBe(true);
+      expect(error).toMatchObject({
+        windows: [expect.objectContaining({ label: "retry-after", resetAt: expect.any(Number) })],
+      });
     }
   });
 
@@ -218,7 +223,7 @@ describe("streaming de provedores", () => {
           'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_responses","name":"read_file","arguments":""}}',
           'data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_1","delta":"{\\"path\\":\\"README"}',
           'data: {"type":"response.function_call_arguments.delta","output_index":0,"item_id":"item_1","delta":".md\\"}"}',
-          'data: {"type":"response.completed"}',
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":42,"output_tokens":7,"total_tokens":49}}}',
         ]),
       ) as unknown as typeof fetch;
     const result = await streamChatMessage(
@@ -234,6 +239,7 @@ describe("streaming de provedores", () => {
     expect(result.toolCalls).toEqual([
       { arguments: '{"path":"README.md"}', id: "call_responses", name: "read_file" },
     ]);
+    expect(result.tokens).toMatchObject({ inputTokens: 42, outputTokens: 7, totalTokens: 49 });
   });
 
   it("faz probe nativo sem executar ferramentas do workspace", async () => {

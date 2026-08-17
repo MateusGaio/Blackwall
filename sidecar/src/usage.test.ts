@@ -114,4 +114,32 @@ describe("usage persistence", () => {
     );
     database.close();
   });
+
+  it("separa o contexto atual (última requisição) do acumulado da sessão", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-usage-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+
+    // Cada requisição reenvia o transcript inteiro, então o acumulado cresce
+    // muito acima do contexto realmente ocupado pela conversa.
+    const requests = [1_000, 5_000, 9_000];
+    const start = Date.now() - requests.length * 1_000;
+    for (const [index, totalTokens] of requests.entries()) {
+      recordProviderUsage(database.client, {
+        attemptId: `attempt-${index}`,
+        modelId: "model",
+        observedAt: start + index * 1_000,
+        providerId: "provider",
+        requestId: `request-${index}`,
+        sessionId: "session",
+        tokens: { cachedInputTokens: totalTokens - 500, inputTokens: totalTokens, totalTokens },
+      });
+    }
+
+    const summary = getUsageSummary(database.client, { sessionId: "session" });
+    expect(summary.totals.totalTokens).toBe(15_000);
+    expect(summary.lastRequest?.totalTokens).toBe(9_000);
+    expect(summary.lastRequest?.cachedInputTokens).toBe(8_500);
+    database.close();
+  });
 });

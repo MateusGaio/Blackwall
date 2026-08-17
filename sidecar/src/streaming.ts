@@ -4,6 +4,7 @@ import { withAsyncInstrumentation } from "./observability.js";
 import {
   createProviderAdapter,
   getProvider,
+  type ParallelToolCallsMode,
   type Provider,
   ProviderHttpError,
   providerApiKey,
@@ -28,6 +29,7 @@ import {
 
 export type StreamMessage = {
   content: string;
+  isSummary?: boolean;
   name?: string;
   role: "assistant" | "system" | "tool" | "user";
   tool_name?: string;
@@ -48,6 +50,7 @@ export type StreamOptions = {
   toolMode?: ToolMode;
   tools?: ToolDefinition[];
   onToolCall?: (call: ToolCall) => void;
+  parallelToolCalls?: ParallelToolCallsMode;
 };
 
 export type StreamResponse = {
@@ -145,7 +148,7 @@ export type ProviderStreamEvent =
   | { arguments: string; id?: string; index: number; name?: string; type: "tool.call.delta" }
   | { type: "stream.completed" };
 
-class ProviderRequestError extends ProviderHttpError {
+export class ProviderRequestError extends ProviderHttpError {
   readonly windows: UsageWindow[];
 
   constructor(status: number, detail = "", headers?: Headers) {
@@ -258,19 +261,23 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
         type?: string;
       }>;
       output_index?: number;
+      response?: { usage?: Record<string, unknown> };
       usage?: Record<string, unknown>;
       prompt_eval_count?: number;
       eval_count?: number;
       type?: string;
     };
     if (protocol === "openai-responses") {
+      if (body.type === "response.completed" && body.response?.usage) {
+        return { tokens: normalizeTokenUsage({ usage: body.response.usage }) };
+      }
       if (body.type === "response.output_text.delta") return { content: body.delta };
       if (body.type === "response.function_call_arguments.delta") {
         return {
           toolCalls: [
             {
               arguments: body.delta ?? "",
-              id: body.item?.call_id ?? body.item?.id ?? body.item_id,
+              id: body.item?.call_id ?? body.item?.id,
               index: body.output_index ?? 0,
               name: body.item?.name,
             },
@@ -357,6 +364,7 @@ async function readStream(
   let content = "";
   let tokens: TokenUsage | undefined;
   const calls = new Map<string, ParsedToolCall>();
+  const callKeysByIndex = new Map<number, string>();
   const consume = (line: string) => {
     const chunk = parseLine(line.trim(), protocol);
     if (!chunk) return;
@@ -368,9 +376,11 @@ async function readStream(
     for (const call of chunk.toolCalls ?? []) {
       // Providers commonly send the id only in the first fragment. Index is
       // the stable correlation key for all subsequent fragments.
-      const key = `index:${call.index}`;
-      const current = calls.get(key);
-      calls.set(key, {
+      const key = call.id ? `id:${call.id}` : `index:${call.index}`;
+      const correlatedKey = call.id ? key : (callKeysByIndex.get(call.index) ?? key);
+      if (call.id) callKeysByIndex.set(call.index, key);
+      const current = calls.get(correlatedKey);
+      calls.set(correlatedKey, {
         arguments: call.replaceArguments
           ? call.arguments
           : `${current?.arguments ?? ""}${call.arguments}`,
@@ -436,12 +446,10 @@ export async function streamChatMessage(
     name: provider.name,
     type: provider.type,
   });
-  const requestInit = adapter.chatRequest(
-    model,
-    messagesForProvider(messages, protocol === "ollama-chat"),
-    signal,
-    options,
+  const providerMessages = messagesForProvider(messages, protocol === "ollama-chat").map(
+    ({ isSummary: _isSummary, ...message }) => message,
   );
+  const requestInit = adapter.chatRequest(model, providerMessages, signal, options);
   const response = await withAsyncInstrumentation("provider.chat.stream", () =>
     request(requestInit.endpoint, requestInit),
   );

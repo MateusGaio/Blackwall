@@ -412,6 +412,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
 
   function appendMessage(input: {
     content: string;
+    isSummary?: boolean;
     model?: string | null;
     providerId?: string | null;
     role: "assistant" | "system" | "tool" | "user";
@@ -438,6 +439,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       content: input.content,
       createdAt: timestamp,
       id: randomUUID(),
+      isSummary: input.isSummary ?? false,
       model: input.model ?? null,
       providerId: input.providerId ?? null,
       role: input.role,

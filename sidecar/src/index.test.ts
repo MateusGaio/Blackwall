@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
+import { openDatabase } from "./db/database.js";
 import { createSidecar, healthPayload, SIDECAR_HOST, startFromEnvironment } from "./index.js";
 import { saveProvider } from "./providers.js";
 
@@ -423,6 +424,206 @@ describe("sidecar health", () => {
           ),
         ),
       ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+
+  it("compacta uma vez, persiste o resumo e falha sem loop quando o resumo ainda estoura", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-compaction-integration-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Compaction test",
+        profileSoul: "Profile",
+        workspaceName: "Compaction workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "compaction-key",
+        baseUrl: "https://compaction.example/v1",
+        model: "compaction-model",
+        name: "Compaction provider",
+      },
+      directory,
+    );
+    let database = openDatabase(directory);
+    database.client
+      .prepare(
+        "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_support_source, tool_checked_at, tool_probe_error_code, tool_mode, parallel_tool_calls, context_limit, output_reserve, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', NULL, 'native', 'test', NULL, NULL, 'auto', 'disabled', ?, NULL, ?)",
+      )
+      .run(
+        `${provider.id}:${provider.model}`,
+        provider.id,
+        provider.model,
+        provider.model,
+        "[]",
+        4_000,
+        Date.now(),
+      );
+    database.close();
+
+    const localFetch = fetch;
+    const append = async (content: string, role: "assistant" | "user") => {
+      await localFetch(`${baseUrl}/v1/sessions/${state.activeSessionId}/messages`, {
+        body: JSON.stringify({ content, role, status: "complete" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+    };
+    await append(`histórico antigo 1 ${"a".repeat(8_000)}`, "user");
+    await append(`resposta antiga 1 ${"b".repeat(8_000)}`, "assistant");
+    await append(`histórico antigo 2 ${"c".repeat(8_000)}`, "user");
+    await append(`resposta antiga 2 ${"d".repeat(8_000)}`, "assistant");
+    await append("cauda protegida", "user");
+    await append("resposta protegida", "assistant");
+    await append("turno atual", "user");
+
+    type CapturedMessage = { content?: string; role?: string; [key: string]: unknown };
+    type CapturedBody = { messages?: CapturedMessage[]; stream?: boolean };
+    const summaryRequests: CapturedMessage[][] = [];
+    const mainRequests: CapturedMessage[][] = [];
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as CapturedBody;
+      const messages = body.messages ?? [];
+      if (body.stream === false) {
+        summaryRequests.push(messages);
+        const content =
+          summaryRequests.length === 1
+            ? "## Objetivo\n\nResumo determinístico.\n\n## Próximos passos\n\nContinuar."
+            : "resumo grande ".padEnd(40_000, "x");
+        return Promise.resolve(
+          new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+            headers: { "content-type": "application/json" },
+            status: 200,
+          }),
+        );
+      }
+      mainRequests.push(messages);
+      return Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "resposta compactada" } }] })}`,
+          "data: [DONE]",
+        ]),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const queued: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const messageType = String(message.type ?? message.topic);
+        const resolveMessage = waiters.get(messageType);
+        if (resolveMessage) {
+          waiters.delete(messageType);
+          resolveMessage(message);
+        } else queued.push(message);
+      });
+      const waitFor = (type: string) => {
+        const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+        if (index >= 0)
+          return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "turno atual", role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "compaction-success",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      await expect(waitFor("chat.compacting")).resolves.toMatchObject({
+        requestId: "compaction-success",
+      });
+      await expect(waitFor("chat.completed")).resolves.toMatchObject({
+        content: "resposta compactada",
+        requestId: "compaction-success",
+      });
+
+      const estimateTokens = (messages: CapturedMessage[]) =>
+        messages.reduce(
+          (total, message) =>
+            total + Math.ceil(Buffer.byteLength(String(message.content ?? "")) / 4),
+          0,
+        );
+      expect(summaryRequests).toHaveLength(1);
+      expect(mainRequests).toHaveLength(1);
+      const checkpoint = {
+        afterCompaction: estimateTokens(mainRequests[0] ?? []),
+        beforeCompaction: estimateTokens(summaryRequests[0] ?? []),
+      };
+      expect(checkpoint.beforeCompaction).toBeGreaterThan(3_400);
+      expect(checkpoint.afterCompaction).toBeLessThanOrEqual(3_400);
+      expect(
+        mainRequests[0]?.some((message) => message.content?.includes("Resumo determinístico")),
+      ).toBe(true);
+      expect(mainRequests[0]?.some((message) => message.content?.includes("cauda protegida"))).toBe(
+        true,
+      );
+      expect(
+        mainRequests[0]?.some((message) => message.content?.includes("histórico antigo 1")),
+      ).toBe(false);
+      const persisted = (
+        await localFetch(`${baseUrl}/v1/sessions/${state.activeSessionId}/messages`)
+      ).json() as Promise<{ messages: Array<{ isSummary?: boolean }> }>;
+      await expect(persisted).resolves.toMatchObject({
+        messages: expect.arrayContaining([expect.objectContaining({ isSummary: true })]),
+      });
+
+      database = openDatabase(directory);
+      database.client
+        .prepare("UPDATE models SET context_limit = ?, output_reserve = NULL")
+        .run(1_000);
+      database.close();
+      const finalOverflow = `forçar overflow final ${"z".repeat(10_000)}`;
+      await append(finalOverflow, "user");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: finalOverflow, role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "compaction-failure",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      await expect(waitFor("chat.failed")).resolves.toMatchObject({
+        message:
+          "Esta conversa ficou grande demais para este modelo; comece uma nova sessão ou troque para um modelo com janela maior.",
+        requestId: "compaction-failure",
+      });
+      expect(summaryRequests).toHaveLength(2);
+      expect(mainRequests).toHaveLength(1);
     } finally {
       vi.unstubAllGlobals();
       client?.close();

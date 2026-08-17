@@ -283,4 +283,45 @@ export function applyMigrations(client: Database.Database) {
     `);
     client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(7, Date.now());
   }
+
+  const modelContextBudget = client.prepare("SELECT id FROM _migrations WHERE id = 8").get();
+  if (!modelContextBudget) {
+    const columns = new Set(
+      (client.prepare("PRAGMA table_info(models)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    const additions: Array<[string, string]> = [
+      ["context_limit", "INTEGER"],
+      ["output_reserve", "INTEGER"],
+    ];
+    for (const [name, definition] of additions) {
+      if (!columns.has(name)) client.exec(`ALTER TABLE models ADD COLUMN ${name} ${definition}`);
+    }
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(8, Date.now());
+  }
+
+  const modelParallelToolCalls = client.prepare("SELECT id FROM _migrations WHERE id = 9").get();
+  if (!modelParallelToolCalls) {
+    const columns = new Set(
+      (client.prepare("PRAGMA table_info(models)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    if (!columns.has("parallel_tool_calls"))
+      client.exec("ALTER TABLE models ADD COLUMN parallel_tool_calls TEXT NOT NULL DEFAULT 'auto'");
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(9, Date.now());
+  }
+
+  const messageSummary = client.prepare("SELECT id FROM _migrations WHERE id = 10").get();
+  if (!messageSummary) {
+    const columns = new Set(
+      (client.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    if (!columns.has("is_summary"))
+      client.exec("ALTER TABLE messages ADD COLUMN is_summary INTEGER NOT NULL DEFAULT 0");
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(10, Date.now());
+  }
 }

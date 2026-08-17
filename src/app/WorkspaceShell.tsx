@@ -42,6 +42,7 @@ import {
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
 import { SafeMarkdown } from "../shared/components/SafeMarkdown";
+import { ConversationSummaryCard } from "./ConversationSummaryCard";
 import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 import {
@@ -53,6 +54,7 @@ import {
   writeBooleanPreference,
   writeNumberPreference,
 } from "./panel-preferences";
+import { SessionUsageDialog } from "./SessionUsageDialog";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
@@ -90,17 +92,30 @@ function CompactIcon({
   );
 }
 
+/**
+ * Headline figure is the context the conversation currently occupies (the most
+ * recent request), never the cumulative sum — the same measure other harnesses
+ * report, and the only one that answers "how full is this conversation?".
+ */
 function usageBadgeLabel(
   summary: import("../shared/api/sidecar").UsageSummary | null,
   isEnglish: boolean,
 ) {
+  const last = summary?.lastRequest;
+  if (last && last.totalTokens > 0) {
+    const tokens = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 1,
+      notation: "compact",
+    }).format(last.totalTokens);
+    return last.contextLimit && last.contextLimit > 0
+      ? `${tokens} · ${Math.round((last.totalTokens / last.contextLimit) * 100)}%`
+      : `${tokens} ${isEnglish ? "in context" : "no contexto"}`;
+  }
   const restrictive = summary?.windows
     .filter((window) => window.remainingPercent !== undefined)
     .sort((left, right) => (left.remainingPercent ?? 101) - (right.remainingPercent ?? 101))[0];
   if (restrictive?.remainingPercent !== undefined)
     return `${Math.round(restrictive.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`;
-  if (summary && summary.totals.totalTokens > 0)
-    return `${new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(summary.totals.totalTokens)} ${isEnglish ? "tokens" : "tokens"}`;
   return isEnglish ? "Usage unavailable" : "Uso indisponível";
 }
 
@@ -166,6 +181,7 @@ export default function WorkspaceShell({
     import("../shared/api/sidecar").UsageSummary | null
   >(null);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [showUsageDetails, setShowUsageDetails] = useState(false);
   const [toolApproval, setToolApproval] = useState<WorkspaceToolApproval | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
@@ -663,6 +679,10 @@ export default function WorkspaceShell({
             setStreamingContent(streamingContentRef.current);
             setStreamingStatus("Gerando…");
           },
+          onCompacting: () => {
+            if (activeSessionIdRef.current === sessionId)
+              setStreamingStatus(isEnglish ? "Summarizing context…" : "Resumindo contexto…");
+          },
           onUsage: () => {
             void getProviderUsage(requestProvider.id, {
               modelId: requestModel || undefined,
@@ -1159,12 +1179,21 @@ export default function WorkspaceShell({
                 </button>
                 {usageOpen && (
                   <div className="usage-popover" role="dialog">
-                    <strong>{isEnglish ? "Current usage" : "Uso atual"}</strong>
+                    <strong>{isEnglish ? "Current context" : "Contexto atual"}</strong>
                     <span>
-                      {isEnglish ? "Requests" : "Requisições"}: {usageSummary?.totals.requests ?? 0}
+                      {isEnglish ? "Tokens" : "Tokens"}:{" "}
+                      {(usageSummary?.lastRequest?.totalTokens ?? 0).toLocaleString()}
+                      {usageSummary?.lastRequest?.contextLimit
+                        ? ` / ${usageSummary.lastRequest.contextLimit.toLocaleString()}`
+                        : ""}
                     </span>
                     <span>
-                      {isEnglish ? "Tokens" : "Tokens"}: {usageSummary?.totals.totalTokens ?? 0}
+                      {isEnglish ? "Cached" : "Em cache"}:{" "}
+                      {(usageSummary?.lastRequest?.cachedInputTokens ?? 0).toLocaleString()}
+                    </span>
+                    <span>
+                      {isEnglish ? "Requests (cumulative)" : "Requisições (acumulado)"}:{" "}
+                      {usageSummary?.totals.requests ?? 0}
                     </span>
                     {usageSummary?.windows.map((window) => (
                       <span key={`${window.metric}-${window.label}`}>
@@ -1180,7 +1209,7 @@ export default function WorkspaceShell({
                       className="text-button"
                       onClick={() => {
                         setUsageOpen(false);
-                        setShowSettings(true);
+                        setShowUsageDetails(true);
                       }}
                       type="button"
                     >
@@ -1235,66 +1264,77 @@ export default function WorkspaceShell({
             </div>
           ) : (
             <ol className="message-list" ref={messageListRef}>
-              {visibleMessages.map((message) => (
-                <li className={`message message-${message.role}`} key={message.id}>
-                  {editingMessageId === message.id ? (
-                    <form
-                      className="message-edit-form"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        setEditingMessageId(null);
-                        void editMessage(message.id, editingMessageDraft);
-                      }}
-                    >
-                      <textarea
-                        aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
-                        onChange={(event) => setEditingMessageDraft(event.target.value)}
-                        value={editingMessageDraft}
-                      />
-                      <div className="message-actions">
-                        <button
-                          className="button button-secondary"
-                          onClick={() => setEditingMessageId(null)}
-                          type="button"
-                        >
-                          {isEnglish ? "Cancel" : "Cancelar"}
-                        </button>
-                        <button className="button button-primary" type="submit">
-                          {isEnglish ? "Save and regenerate" : "Salvar e regenerar"}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <>
-                      <SafeMarkdown content={message.content} locale={isEnglish ? "en" : "pt-BR"} />
-                      <div className="message-actions">
-                        {message.role === "user" && (
+              {visibleMessages.map((message) =>
+                message.isSummary ? (
+                  <ConversationSummaryCard
+                    content={message.content}
+                    isEnglish={isEnglish}
+                    key={message.id}
+                  />
+                ) : (
+                  <li className={`message message-${message.role}`} key={message.id}>
+                    {editingMessageId === message.id ? (
+                      <form
+                        className="message-edit-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          setEditingMessageId(null);
+                          void editMessage(message.id, editingMessageDraft);
+                        }}
+                      >
+                        <textarea
+                          aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
+                          onChange={(event) => setEditingMessageDraft(event.target.value)}
+                          value={editingMessageDraft}
+                        />
+                        <div className="message-actions">
                           <button
-                            className="message-action"
-                            onClick={() => {
-                              setEditingMessageDraft(message.content);
-                              setEditingMessageId(message.id);
-                            }}
+                            className="button button-secondary"
+                            onClick={() => setEditingMessageId(null)}
                             type="button"
                           >
-                            {isEnglish ? "Edit" : "Editar"}
+                            {isEnglish ? "Cancel" : "Cancelar"}
                           </button>
-                        )}
-                        {message.role === "assistant" &&
-                          message.id === visibleMessages.at(-1)?.id && (
+                          <button className="button button-primary" type="submit">
+                            {isEnglish ? "Save and regenerate" : "Salvar e regenerar"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <>
+                        <SafeMarkdown
+                          content={message.content}
+                          locale={isEnglish ? "en" : "pt-BR"}
+                        />
+                        <div className="message-actions">
+                          {message.role === "user" && (
                             <button
                               className="message-action"
-                              onClick={() => void regenerate()}
+                              onClick={() => {
+                                setEditingMessageDraft(message.content);
+                                setEditingMessageId(message.id);
+                              }}
                               type="button"
                             >
-                              {isEnglish ? "Regenerate" : "Regenerar"}
+                              {isEnglish ? "Edit" : "Editar"}
                             </button>
                           )}
-                      </div>
-                    </>
-                  )}
-                </li>
-              ))}
+                          {message.role === "assistant" &&
+                            message.id === visibleMessages.at(-1)?.id && (
+                              <button
+                                className="message-action"
+                                onClick={() => void regenerate()}
+                                type="button"
+                              >
+                                {isEnglish ? "Regenerate" : "Regenerar"}
+                              </button>
+                            )}
+                        </div>
+                      </>
+                    )}
+                  </li>
+                ),
+              )}
               {isSending && (
                 <li className="message message-assistant message-streaming">
                   {streamingContent ? (
@@ -1562,6 +1602,7 @@ export default function WorkspaceShell({
       )}
       {showSettings && (
         <ProviderManager
+          activeSessionId={state?.activeSessionId ?? null}
           activeWorkspaceId={state?.activeWorkspaceId ?? null}
           activeProviderId={activeProvider?.id ?? null}
           onClose={() => setShowSettings(false)}
@@ -1605,6 +1646,17 @@ export default function WorkspaceShell({
           profileId={state?.activeProfileId ?? null}
           providers={providers}
           workspaces={state?.workspaces ?? []}
+        />
+      )}
+      {showUsageDetails && (
+        <SessionUsageDialog
+          isEnglish={isEnglish}
+          messages={messages}
+          modelName={selectedModel || (isEnglish ? "not selected" : "não selecionado")}
+          onClose={() => setShowUsageDetails(false)}
+          providerName={activeProvider?.name ?? "—"}
+          sessionTitle={activeSession?.title ?? (isEnglish ? "New session" : "Nova sessão")}
+          summary={usageSummary}
         />
       )}
       {sessionToDelete && (

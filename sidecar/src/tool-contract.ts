@@ -333,7 +333,8 @@ export function normalizeToolArguments(
     throw new ToolValidationFailure({
       code: "unsafe_command_syntax",
       expectedExample: { args: ["status", "--short"], command: "git", cwd: "." },
-      message: "Operadores de shell, redireções e variáveis inline não são permitidos.",
+      message:
+        "Operadores de shell, redireções e variáveis inline não são permitidos. Se precisar rodar mais de um comando, chame execute_command novamente para cada um, em sequência — nunca encadeie com &&, |, ; ou similares.",
       retryable: false,
     });
   }

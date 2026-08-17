@@ -16,6 +16,7 @@ import {
   type Profile,
   type ProviderModel,
   probeProviderModel,
+  setProviderModelParallelToolCalls,
   setProviderModelProtocol,
   setProviderModelToolMode,
   setWorkspaceSoul,
@@ -29,6 +30,7 @@ import { SoulPicker } from "../../../shared/components/SoulPicker";
 import { UsageDashboard } from "./UsageDashboard";
 
 type ProviderManagerProps = {
+  activeSessionId?: string | null;
   activeWorkspaceId: string | null;
   activeProviderId?: string | null;
   onClose: () => void;
@@ -62,6 +64,7 @@ const emptyForm: ProviderForm = {
 };
 
 export function ProviderManager({
+  activeSessionId,
   activeWorkspaceId,
   activeProviderId,
   onClose,
@@ -98,6 +101,8 @@ export function ProviderManager({
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [isListingModels, setIsListingModels] = useState(false);
   const [toolMode, setToolMode] = useState<ProviderModel["toolMode"]>("auto");
+  const [parallelToolCalls, setParallelToolCalls] =
+    useState<ProviderModel["parallelToolCalls"]>("auto");
   const [protocolPreference, setProtocolPreference] =
     useState<ProviderModel["protocolPreference"]>("auto");
   const [isProbingTools, setIsProbingTools] = useState(false);
@@ -158,6 +163,10 @@ export function ProviderManager({
       setProviderModels(listed);
       setToolMode(
         listed.find((model) => model.id === (form.model || listed[0]?.id))?.toolMode ?? "auto",
+      );
+      setParallelToolCalls(
+        listed.find((model) => model.id === (form.model || listed[0]?.id))?.parallelToolCalls ??
+          "auto",
       );
       setProtocolPreference(
         listed.find((model) => model.id === (form.model || listed[0]?.id))?.protocolPreference ??
@@ -244,6 +253,27 @@ export function ProviderManager({
           : isEnglish
             ? "Could not save tool mode."
             : "Não foi possível salvar o modo de ferramentas.",
+      );
+    }
+  }
+
+  async function changeParallelToolCalls(next: ProviderModel["parallelToolCalls"]) {
+    setParallelToolCalls(next);
+    if (!editingId || !form.model || !next) return;
+    try {
+      await setProviderModelParallelToolCalls(editingId, form.model, next);
+      setStatus(
+        isEnglish
+          ? "Parallel tool calls setting saved."
+          : "Preferência de chamadas paralelas salva.",
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Could not save the parallel tool calls setting."
+            : "Não foi possível salvar a preferência de chamadas paralelas.",
       );
     }
   }
@@ -524,6 +554,7 @@ export function ProviderManager({
         </header>
         <UsageDashboard
           activeProviderId={activeProviderId}
+          activeSessionId={activeSessionId}
           isEnglish={isEnglish}
           profileId={profileId}
           providers={providers}
@@ -854,6 +885,31 @@ export function ProviderManager({
                   </option>
                   <option value="openai-chat">OpenAI Chat Completions</option>
                   <option value="openai-responses">OpenAI Responses</option>
+                </select>
+                <select
+                  aria-label={
+                    isEnglish ? "Parallel tool calls" : "Chamadas de ferramenta paralelas"
+                  }
+                  onChange={(event) =>
+                    void changeParallelToolCalls(
+                      event.target.value as ProviderModel["parallelToolCalls"],
+                    )
+                  }
+                  value={parallelToolCalls}
+                >
+                  <option value="auto">
+                    {isEnglish
+                      ? "Parallel calls: automatic (on for OpenRouter only)"
+                      : "Chamadas paralelas: automático (ligado só na OpenRouter)"}
+                  </option>
+                  <option value="enabled">
+                    {isEnglish ? "Parallel calls: force on" : "Chamadas paralelas: forçar ligado"}
+                  </option>
+                  <option value="disabled">
+                    {isEnglish
+                      ? "Parallel calls: force off"
+                      : "Chamadas paralelas: forçar desligado"}
+                  </option>
                 </select>
                 <div className="provider-model-capability" aria-live="polite">
                   {(() => {

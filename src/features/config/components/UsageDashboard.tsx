@@ -11,6 +11,7 @@ import {
 
 type UsageDashboardProps = {
   activeProviderId?: string | null;
+  activeSessionId?: string | null;
   isEnglish: boolean;
   profileId?: string | null;
   providers: ConnectedProvider[];
@@ -80,12 +81,14 @@ function formatNumber(value: number) {
 
 function UsageDashboard({
   activeProviderId,
+  activeSessionId,
   isEnglish,
   profileId,
   providers,
 }: UsageDashboardProps) {
   const [providerId, setProviderId] = useState(activeProviderId ?? providers[0]?.id ?? "");
   const [period, setPeriod] = useState<(typeof periods)[number]["key"]>("30d");
+  const [sessionOnly, setSessionOnly] = useState(false);
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -107,7 +110,8 @@ function UsageDashboard({
     const selected = periods.find((item) => item.key === period) ?? periods[2];
     const to = Date.now();
     const from = selected.ms ? to - selected.ms : undefined;
-    void getUsageSummary({ providerId, profileId: profileId ?? undefined, from, to })
+    const sessionId = sessionOnly && activeSessionId ? activeSessionId : undefined;
+    void getUsageSummary({ providerId, profileId: profileId ?? undefined, sessionId, from, to })
       .then((next) => {
         if (!cancelled) setSummary(next);
       })
@@ -120,7 +124,7 @@ function UsageDashboard({
     return () => {
       cancelled = true;
     };
-  }, [period, profileId, providerId]);
+  }, [activeSessionId, period, profileId, providerId, sessionOnly]);
 
   async function saveManualLimit() {
     const limits = manualLimits.flatMap((draft) => {
@@ -202,6 +206,7 @@ function UsageDashboard({
           <button
             aria-selected={period === item.key}
             className={period === item.key ? "is-active" : ""}
+            disabled={sessionOnly}
             key={item.key}
             onClick={() => setPeriod(item.key)}
             role="tab"
@@ -211,6 +216,18 @@ function UsageDashboard({
           </button>
         ))}
       </div>
+      {activeSessionId && (
+        <label className="usage-session-only">
+          <input
+            checked={sessionOnly}
+            onChange={(event) => setSessionOnly(event.target.checked)}
+            type="checkbox"
+          />
+          {isEnglish
+            ? "Only this session (ignores the period above)"
+            : "Somente esta sessão (ignora o período acima)"}
+        </label>
+      )}
       {loading ? (
         <div
           aria-label={isEnglish ? "Loading usage" : "Carregando uso"}
@@ -219,7 +236,46 @@ function UsageDashboard({
         />
       ) : summary ? (
         <>
+          {summary.lastRequest && (
+            <div className="usage-context-grid">
+              <p className="eyebrow">
+                {isEnglish
+                  ? "Current context (last request)"
+                  : "Contexto atual (última requisição)"}
+              </p>
+              <div>
+                <span>{isEnglish ? "Context tokens" : "Tokens de contexto"}</span>
+                <strong>{formatNumber(summary.lastRequest.totalTokens)}</strong>
+              </div>
+              <div>
+                <span>{isEnglish ? "Of which cached" : "Destes, em cache"}</span>
+                <strong>{formatNumber(summary.lastRequest.cachedInputTokens)}</strong>
+              </div>
+              {summary.lastRequest.contextLimit ? (
+                <>
+                  <div>
+                    <span>{isEnglish ? "Context limit" : "Limite de contexto"}</span>
+                    <strong>{formatNumber(summary.lastRequest.contextLimit)}</strong>
+                  </div>
+                  <div>
+                    <span>{isEnglish ? "Usage" : "Uso"}</span>
+                    <strong>
+                      {Math.round(
+                        (summary.lastRequest.totalTokens / summary.lastRequest.contextLimit) * 100,
+                      )}
+                      %
+                    </strong>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
           <div className="usage-total-grid">
+            <p className="eyebrow">
+              {isEnglish
+                ? "Cumulative across all requests (billing)"
+                : "Acumulado de todas as requisições (cobrança)"}
+            </p>
             <div>
               <span>{isEnglish ? "Requests" : "Requisições"}</span>
               <strong>{formatNumber(summary.totals.requests)}</strong>
@@ -235,6 +291,14 @@ function UsageDashboard({
             <div>
               <span>{isEnglish ? "Total tokens" : "Tokens totais"}</span>
               <strong>{formatNumber(summary.totals.totalTokens)}</strong>
+            </div>
+            <div>
+              <span>{isEnglish ? "Cached input tokens" : "Tokens de entrada em cache"}</span>
+              <strong>{formatNumber(summary.totals.cachedInputTokens)}</strong>
+            </div>
+            <div>
+              <span>{isEnglish ? "Reasoning tokens" : "Tokens de raciocínio"}</span>
+              <strong>{formatNumber(summary.totals.reasoningTokens)}</strong>
             </div>
           </div>
           <div className="usage-window-list">

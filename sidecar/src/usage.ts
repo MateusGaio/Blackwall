@@ -38,6 +38,11 @@ type ProviderUsageEvent = {
 };
 
 type UsageSummary = {
+  /**
+   * Cumulative across every request in scope. Because each request resends the
+   * whole transcript, this grows quadratically with conversation length — it is
+   * a billing figure, not a measure of how much context is occupied.
+   */
   totals: {
     requests: number;
     inputTokens: number;
@@ -45,6 +50,20 @@ type UsageSummary = {
     cachedInputTokens: number;
     reasoningTokens: number;
     totalTokens: number;
+  };
+  /**
+   * The most recent request alone — i.e. how much context the conversation
+   * currently occupies. This is the figure comparable to what other harnesses
+   * (OpenCode included) display as a session's token usage.
+   */
+  lastRequest?: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+    /** Undefined when the provider never reported the model's window. */
+    contextLimit?: number;
   };
   windows: UsageWindow[];
   daily: Array<{
@@ -282,11 +301,15 @@ export function getUsageSummary(
     .all(params) as UsageSummary["daily"];
   const latest = client
     .prepare(
-      `SELECT windows_json AS windowsJson FROM provider_usage_events
-       WHERE observed_at BETWEEN @from AND @to${profileClause}${providerClause}${modelClause}${sessionClause}
-       ORDER BY observed_at DESC LIMIT 1`,
+      `SELECT e.windows_json AS windowsJson, e.input_tokens AS inputTokens, e.output_tokens AS outputTokens,
+        e.cached_input_tokens AS cachedInputTokens, e.reasoning_tokens AS reasoningTokens,
+        e.total_tokens AS totalTokens, m.context_limit AS contextLimit
+       FROM provider_usage_events e
+       LEFT JOIN models m ON m.provider_id = e.provider_id AND m.model_id = e.model_id
+       WHERE e.observed_at BETWEEN @from AND @to${profileClause.replaceAll("profile_id", "e.profile_id")}${providerClause.replaceAll("provider_id", "e.provider_id")}${modelClause.replaceAll("model_id", "e.model_id")}${sessionClause.replaceAll("session_id", "e.session_id")}
+       ORDER BY e.observed_at DESC LIMIT 1`,
     )
-    .get(params) as { windowsJson?: string } | undefined;
+    .get(params) as ({ windowsJson?: string } & UsageSummary["lastRequest"]) | undefined;
   let windows: UsageWindow[] = [];
   try {
     const parsed = latest?.windowsJson ? JSON.parse(latest.windowsJson) : [];
@@ -324,7 +347,17 @@ export function getUsageSummary(
       });
     }
   }
-  return { daily: rows, totals, windows };
+  const lastRequest: UsageSummary["lastRequest"] = latest
+    ? {
+        cachedInputTokens: latest.cachedInputTokens ?? 0,
+        contextLimit: latest.contextLimit ?? undefined,
+        inputTokens: latest.inputTokens ?? 0,
+        outputTokens: latest.outputTokens ?? 0,
+        reasoningTokens: latest.reasoningTokens ?? 0,
+        totalTokens: latest.totalTokens ?? 0,
+      }
+    : undefined;
+  return { daily: rows, lastRequest, totals, windows };
 }
 
 export function setUsageLimits(

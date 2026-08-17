@@ -57,9 +57,44 @@ describe("persistência local", () => {
     first.close();
     const second = openDatabase(directory);
     expect(second.client.prepare("SELECT COUNT(*) AS count FROM _migrations").get()).toEqual({
-      count: 7,
+      count: 10,
     });
     second.close();
+  });
+
+  it("persiste o marcador de resumo e mantém o default das mensagens normais", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-summary-message-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const state = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Ada",
+      profileSoul: "Profile",
+      workspaceName: "Project",
+      workspaceRootPath: "",
+      workspaceSoul: "Workspace",
+      workspaceMode: "none",
+    });
+    const normal = store.appendMessage({
+      content: "mensagem normal",
+      role: "user",
+      sessionId: state.activeSessionId as string,
+    });
+    const summary = store.appendMessage({
+      content: "Resumo",
+      isSummary: true,
+      role: "system",
+      sessionId: state.activeSessionId as string,
+    });
+    expect(normal.isSummary).toBe(false);
+    expect(summary.isSummary).toBe(true);
+    database.close();
+
+    const restored = openDatabase(directory);
+    const messages = createStore(restored).listMessages(state.activeSessionId as string);
+    expect(messages.map((message) => message.isSummary)).toEqual([false, true]);
+    restored.close();
   });
 
   it("atualiza a Soul Dev legada sem alterar Souls personalizadas", async () => {

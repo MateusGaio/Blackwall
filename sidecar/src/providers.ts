@@ -35,10 +35,14 @@ export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
   type: ProviderKind;
 };
 
+export type ParallelToolCallsMode = "auto" | "enabled" | "disabled";
+
 export type ProviderModel = {
   capabilities: string[];
+  contextLimit?: number;
   id: string;
   name: string;
+  outputReserve?: number;
   protocolPreference?: ProtocolPreference;
   resolvedProtocol?: ResolvedProtocol;
   toolCheckedAt?: number;
@@ -46,6 +50,7 @@ export type ProviderModel = {
   toolSupport?: ToolSupport;
   toolSupportSource?: ToolSupportSource;
   toolMode?: ToolMode;
+  parallelToolCalls?: ParallelToolCallsMode;
 };
 
 /**
@@ -65,6 +70,7 @@ export interface ProviderAdapter {
       protocol?: ResolvedProtocol;
       toolMode?: ToolMode;
       tools?: ToolDefinition[];
+      parallelToolCalls?: ParallelToolCallsMode;
     },
   ): RequestInit & {
     endpoint: string;
@@ -82,7 +88,26 @@ function isOpenRouter(baseUrl: string): boolean {
   }
 }
 
-function messagesToResponsesInput(messages: unknown[]): unknown[] {
+/**
+ * Whether to let the model batch multiple tool calls into one response.
+ * OpenRouter tracks a per-model "Tool Call Error Rate" and defaults most
+ * models to parallel calls, so it is safe to opt in there by default. Every
+ * other endpoint (generic OpenAI-compatible, OpenCode Zen, self-hosted) has
+ * no such reliability signal, so it keeps the conservative one-call-at-a-time
+ * behavior unless a model has been explicitly marked "enabled" after manual
+ * verification. "disabled" always wins, including on OpenRouter, so a model
+ * that misbehaves can be pinned back to sequential calls.
+ */
+function resolveParallelToolCalls(
+  mode: ParallelToolCallsMode | undefined,
+  baseUrl: string,
+): boolean {
+  if (mode === "disabled") return false;
+  if (mode === "enabled") return true;
+  return isOpenRouter(baseUrl);
+}
+
+export function messagesToResponsesInput(messages: unknown[]): unknown[] {
   const output: unknown[] = [];
   for (const message of messages) {
     if (!message || typeof message !== "object") continue;
@@ -211,6 +236,7 @@ abstract class BaseProviderAdapter implements ProviderAdapter {
       protocol?: ResolvedProtocol;
       toolMode?: ToolMode;
       tools?: ToolDefinition[];
+      parallelToolCalls?: ParallelToolCallsMode;
     },
   ): RequestInit & {
     endpoint: string;
@@ -235,7 +261,12 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
       "listar os modelos",
     );
     const body = (await response.json()) as {
-      data?: Array<{ id?: string; name?: string; supported_parameters?: string[] }>;
+      data?: Array<{
+        context_length?: number;
+        id?: string;
+        name?: string;
+        supported_parameters?: string[];
+      }>;
     };
     return (body.data ?? [])
       .map((model) => {
@@ -245,6 +276,9 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
           : [];
         return {
           capabilities,
+          ...(Number.isFinite(model.context_length) && Number(model.context_length) > 0
+            ? { contextLimit: Number(model.context_length) }
+            : {}),
           id,
           name: id,
           ...(capabilities.length
@@ -268,15 +302,24 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
       protocol?: ResolvedProtocol;
       toolMode?: ToolMode;
       tools?: ToolDefinition[];
+      parallelToolCalls?: ParallelToolCallsMode;
     } = {},
   ) {
     if (options.protocol === "openai-responses")
       return this.responsesRequest(model, messages, signal, options);
-    const body: Record<string, unknown> = { messages, model, stream: true };
+    const body: Record<string, unknown> = {
+      messages,
+      model,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
     if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
       body.tool_choice = "auto";
       body.tools = toOpenAIChatTools(options.tools);
-      body.parallel_tool_calls = false;
+      body.parallel_tool_calls = resolveParallelToolCalls(
+        options.parallelToolCalls,
+        this.provider.baseUrl,
+      );
       if (isOpenRouter(this.provider.baseUrl)) body.provider = { require_parameters: true };
     }
     return {
@@ -292,7 +335,11 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
     model: string,
     messages: unknown[],
     signal: AbortSignal | undefined,
-    options: { toolMode?: ToolMode; tools?: ToolDefinition[] },
+    options: {
+      toolMode?: ToolMode;
+      tools?: ToolDefinition[];
+      parallelToolCalls?: ParallelToolCallsMode;
+    },
   ) {
     const body: Record<string, unknown> = {
       input: messagesToResponsesInput(messages),
@@ -303,7 +350,10 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
     if ((options.toolMode ?? "auto") === "auto" && options.tools?.length) {
       body.tools = toOpenAIResponsesTools(options.tools);
       body.tool_choice = "auto";
-      body.parallel_tool_calls = false;
+      body.parallel_tool_calls = resolveParallelToolCalls(
+        options.parallelToolCalls,
+        this.provider.baseUrl,
+      );
     }
     return {
       endpoint: this.endpoint("/responses"),
@@ -376,20 +426,33 @@ class OllamaProvider extends BaseProviderAdapter {
             "consultar capacidades do modelo",
           );
           if (!details.ok) return model;
-          const detailBody = (await details.json()) as { capabilities?: unknown };
+          const detailBody = (await details.json()) as {
+            capabilities?: unknown;
+            model_info?: Record<string, unknown>;
+          };
           const capabilities = Array.isArray(detailBody.capabilities)
             ? detailBody.capabilities.filter((item): item is string => typeof item === "string")
             : [];
-          return capabilities.length
-            ? {
-                ...model,
-                capabilities,
-                toolSupport: capabilities.includes("tools")
-                  ? ("native" as const)
-                  : ("unsupported" as const),
-                toolSupportSource: "metadata" as const,
-              }
-            : model;
+          const contextLimitEntry = Object.entries(detailBody.model_info ?? {}).find(
+            ([key, value]) =>
+              key.endsWith(".context_length") &&
+              typeof value === "number" &&
+              Number.isFinite(value) &&
+              value > 0,
+          );
+          return {
+            ...model,
+            ...(capabilities.length
+              ? {
+                  capabilities,
+                  toolSupport: capabilities.includes("tools")
+                    ? ("native" as const)
+                    : ("unsupported" as const),
+                  toolSupportSource: "metadata" as const,
+                }
+              : {}),
+            ...(contextLimitEntry ? { contextLimit: Number(contextLimitEntry[1]) } : {}),
+          };
         } catch {
           // Tags remain authoritative when /api/show is unavailable on a compatible endpoint.
           return model;
@@ -403,7 +466,12 @@ class OllamaProvider extends BaseProviderAdapter {
     model: string,
     messages: unknown[],
     signal?: AbortSignal,
-    options: { protocol?: ResolvedProtocol; toolMode?: ToolMode; tools?: ToolDefinition[] } = {},
+    options: {
+      protocol?: ResolvedProtocol;
+      toolMode?: ToolMode;
+      tools?: ToolDefinition[];
+      parallelToolCalls?: ParallelToolCallsMode;
+    } = {},
   ) {
     const body: Record<string, unknown> = { messages, model, stream: true };
     if ((options.toolMode ?? "auto") === "auto" && options.tools?.length)
@@ -587,7 +655,7 @@ export async function syncProviderModels(
   const database = openDatabase(dataDirectory);
   const timestamp = Date.now();
   const upsert = database.client.prepare(
-    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_support_source, tool_checked_at, tool_probe_error_code, tool_mode, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', NULL, ?, ?, NULL, NULL, 'auto', ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, tool_support = CASE WHEN excluded.tool_support = 'unknown' THEN models.tool_support ELSE excluded.tool_support END, tool_support_source = CASE WHEN excluded.tool_support_source IS NULL THEN models.tool_support_source ELSE excluded.tool_support_source END, updated_at = excluded.updated_at",
+    "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_support_source, tool_checked_at, tool_probe_error_code, tool_mode, parallel_tool_calls, context_limit, output_reserve, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', NULL, ?, ?, NULL, NULL, 'auto', 'auto', ?, ?, ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, tool_support = CASE WHEN excluded.tool_support = 'unknown' THEN models.tool_support ELSE excluded.tool_support END, tool_support_source = CASE WHEN excluded.tool_support_source IS NULL THEN models.tool_support_source ELSE excluded.tool_support_source END, context_limit = COALESCE(excluded.context_limit, models.context_limit), output_reserve = COALESCE(excluded.output_reserve, models.output_reserve), updated_at = excluded.updated_at",
   );
   const save = database.client.transaction(() => {
     database.client
@@ -602,6 +670,8 @@ export async function syncProviderModels(
         JSON.stringify(model.capabilities),
         model.toolSupport ?? "unknown",
         model.toolSupportSource ?? null,
+        model.contextLimit ?? null,
+        model.outputReserve ?? null,
         timestamp,
       );
     }
@@ -661,12 +731,19 @@ export async function listStoredProviderModels(
       ? {
           protocolPreference: stored.find((row) => row.modelId === model.id)
             ?.protocolPreference as ProtocolPreference,
+          contextLimit:
+            stored.find((row) => row.modelId === model.id)?.contextLimit ?? model.contextLimit,
+          outputReserve:
+            stored.find((row) => row.modelId === model.id)?.outputReserve ?? model.outputReserve,
           resolvedProtocol: stored.find((row) => row.modelId === model.id)?.resolvedProtocol as
             | ResolvedProtocol
             | undefined,
           toolCheckedAt: stored.find((row) => row.modelId === model.id)?.toolCheckedAt ?? undefined,
           toolMode: stored.find((row) => row.modelId === model.id)?.toolMode as
             | ToolMode
+            | undefined,
+          parallelToolCalls: stored.find((row) => row.modelId === model.id)?.parallelToolCalls as
+            | ParallelToolCallsMode
             | undefined,
           toolProbeErrorCode:
             stored.find((row) => row.modelId === model.id)?.toolProbeErrorCode ?? undefined,
@@ -696,6 +773,25 @@ export function setModelToolMode(
   database.close();
   if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
   return { providerId, modelId, toolMode };
+}
+
+export function setModelParallelToolCalls(
+  providerId: string,
+  modelId: string,
+  parallelToolCalls: ParallelToolCallsMode,
+  dataDirectory = providerDataDirectory(),
+) {
+  if (!["auto", "enabled", "disabled"].includes(parallelToolCalls))
+    throw new Error("Modo de chamadas paralelas inválido.");
+  const database = openDatabase(dataDirectory);
+  const result = database.db
+    .update(models)
+    .set({ parallelToolCalls, updatedAt: Date.now() })
+    .where(and(eq(models.providerId, providerId), eq(models.modelId, modelId)))
+    .run();
+  database.close();
+  if (!result.changes) throw new Error("O modelo ainda não foi sincronizado.");
+  return { modelId, parallelToolCalls, providerId };
 }
 
 export function setModelProtocol(
