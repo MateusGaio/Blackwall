@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyPromptCaching,
   getProvider,
   listProviderModels,
   normalizeBaseUrl,
@@ -519,6 +520,45 @@ describe("providers", () => {
       { modelId: "fallback-a", position: 1, providerId: "a" },
     ]);
     expect(route.map((candidate) => candidate.providerId)).toEqual([provider.id, "a", "b"]);
+  });
+
+  it("marca cache_control no prefixo e na cauda apenas em modelos Anthropic", () => {
+    const messages = [
+      { content: "soul", role: "system" },
+      { content: "instruções de ferramenta", role: "system" },
+      { content: "system extra que não deve ser marcado", role: "system" },
+      { content: "primeiro pedido", role: "user" },
+      { content: "", role: "assistant", tool_calls: [{ id: "call-1" }] },
+      { content: [{ text: "resultado", type: "text" }], role: "tool" },
+    ];
+
+    const cached = applyPromptCaching(messages, "claude-opus-5") as Array<{
+      content: unknown;
+      role: string;
+    }>;
+
+    const hasMarker = (content: unknown) =>
+      Array.isArray(content) &&
+      content.some((part) => (part as { cache_control?: unknown }).cache_control !== undefined);
+    expect(cached.map((message) => hasMarker(message.content))).toEqual([
+      true, // primeiro system
+      true, // segundo system
+      false, // terceiro system fica de fora do limite de 4 breakpoints
+      false,
+      false, // assistente com content vazio não vira content part
+      true, // última mensagem não-system
+    ]);
+    // No máximo 4 marcações, e nenhuma delas muda o texto original.
+    expect(cached.filter((message) => hasMarker(message.content)).length).toBeLessThanOrEqual(4);
+    expect((cached[0]?.content as Array<{ text: string }> | undefined)?.[0]?.text).toBe("soul");
+  });
+
+  it("não toca no payload quando o modelo não suporta cache explícito", () => {
+    const messages = [
+      { content: "soul", role: "system" },
+      { content: "oi", role: "user" },
+    ];
+    expect(applyPromptCaching(messages, "nemotron-3.5-lightning-free")).toBe(messages);
   });
 
   it("completa o limite de contexto pelo catálogo quando o provedor não informa", async () => {

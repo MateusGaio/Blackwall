@@ -99,6 +99,72 @@ function isOpenRouter(baseUrl: string): boolean {
  * verification. "disabled" always wins, including on OpenRouter, so a model
  * that misbehaves can be pinned back to sequential calls.
  */
+/** Anthropic bills at most four cache breakpoints per request. */
+const CACHE_BREAKPOINT_SYSTEM = 2;
+const CACHE_BREAKPOINT_TAIL = 2;
+
+/**
+ * Only Anthropic-family models honour `cache_control` over an OpenAI-compatible
+ * transport. Everyone else either caches automatically (OpenAI) or ignores the
+ * field — and some strict gateways reject unknown keys, so stay narrow.
+ */
+function supportsPromptCaching(model: string): boolean {
+  return /claude|anthropic/i.test(model);
+}
+
+type CachedMessage = Record<string, unknown> & {
+  content?: unknown;
+  role?: unknown;
+};
+
+/**
+ * Marks the stable prefix and the live tail of the transcript so the provider
+ * reuses its own work instead of reprocessing every message on every turn.
+ * This lowers cost; the token counts reported in `usage` stay the same, since
+ * the transcript is still transmitted in full.
+ *
+ * Mirrors OpenCode's applyCaching: the first two system messages plus the last
+ * two non-system ones, which also keeps the count within Anthropic's limit.
+ */
+export function applyPromptCaching(messages: unknown[], model: string): unknown[] {
+  if (!supportsPromptCaching(model)) return messages;
+  const isMessage = (value: unknown): value is CachedMessage =>
+    Boolean(value) && typeof value === "object";
+  const indexed = messages.map((message, index) => ({ index, message }));
+  const marked = new Set(
+    [
+      ...indexed
+        .filter(({ message }) => isMessage(message) && message.role === "system")
+        .slice(0, CACHE_BREAKPOINT_SYSTEM),
+      ...indexed
+        .filter(({ message }) => isMessage(message) && message.role !== "system")
+        .slice(-CACHE_BREAKPOINT_TAIL),
+    ].map(({ index }) => index),
+  );
+  if (!marked.size) return messages;
+
+  return messages.map((message, index) => {
+    if (!marked.has(index) || !isMessage(message)) return message;
+    const cacheControl = { type: "ephemeral" };
+    if (typeof message.content === "string") {
+      // Providers accept either a bare string or content parts; only the part
+      // form can carry the marker, so widen just this message.
+      return message.content
+        ? {
+            ...message,
+            content: [{ cache_control: cacheControl, text: message.content, type: "text" }],
+          }
+        : message;
+    }
+    if (!Array.isArray(message.content) || !message.content.length) return message;
+    const parts = [...message.content];
+    const last = parts.at(-1);
+    if (!last || typeof last !== "object") return message;
+    parts[parts.length - 1] = { ...last, cache_control: cacheControl };
+    return { ...message, content: parts };
+  });
+}
+
 function resolveParallelToolCalls(
   mode: ParallelToolCallsMode | undefined,
   baseUrl: string,
@@ -309,7 +375,7 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
     if (options.protocol === "openai-responses")
       return this.responsesRequest(model, messages, signal, options);
     const body: Record<string, unknown> = {
-      messages,
+      messages: applyPromptCaching(messages, model),
       model,
       stream: true,
       stream_options: { include_usage: true },
