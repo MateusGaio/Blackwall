@@ -8,7 +8,7 @@ assignees: ""
 
 ## Contexto
 
-Descreva o comportamento observado e por que ele é um problema.
+Descreva onde o comportamento ocorre e por que ele é um problema.
 
 ## Passos para reproduzir
 
@@ -28,4 +28,6 @@ Descreva o comportamento observado e por que ele é um problema.
 
 - [ ] O comportamento esperado está descrito.
 - [ ] Existe teste unitário, de integração ou E2E para a correção.
-- [ ] Quality gates aplicáveis passam.
+- [ ] Se tocar em UI: skeleton, lazy loading, entrada/saída, progresso e reduced-motion conferidos.
+- [ ] Biome, Knip e dependency-cruiser passam.
+- [ ] Nenhum segredo, prompt, resposta, caminho pessoal ou conteúdo de workspace foi incluído.
