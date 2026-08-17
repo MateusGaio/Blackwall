@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Blackwall é um harness de IA desktop, local-first, open source e gratuito para pessoas que trabalham com código. Ele reúne conversa, contexto de projeto, notas e automação num ambiente que continua sob controle do usuário.
+Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que trabalham com código. O projeto é licenciado em MIT e foi desenhado para uma publicação pública futura; durante o desenvolvimento atual, o repositório permanece privado. Ele reúne conversa, contexto de projeto, notas e automação num ambiente que continua sob controle do usuário.
 
 ## Para quem
 
@@ -17,6 +17,13 @@ Blackwall é um harness de IA desktop, local-first, open source e gratuito para 
 3. **Falha com transparência.** O roteador tenta provedores configurados em ordem e explica claramente a tentativa e o erro final.
 4. **Sem lock-in de notas.** O Vault usa arquivos `.md` e `[[wikilinks]]` compatíveis com Obsidian.
 5. **Foco no trabalho.** A interface prioriza legibilidade, velocidade e controle, com tema OLED monocromático.
+
+## Estado de distribuição e privacidade
+
+- O código remoto, Issues, Pull Requests, artefatos e workspaces de teste são privados enquanto a Fase 1 é estabilizada.
+- Nenhuma publicação pública, Release, mudança de visibilidade ou inclusão de dados reais deve ocorrer sem autorização do owner e sem a revisão de segurança/governança prevista em `AGENTS.md`.
+- Chaves ficam exclusivamente em `secrets.enc`/`secrets.key`; prompts, respostas, arquivos e resultados de ferramentas não entram em telemetria nem em material de contribuição.
+- O painel de uso registra somente o que o provedor informa e o que o Blackwall observa localmente. Ele não representa automaticamente o saldo atual de uma chave; rate limits e quotas devem ser tratados como respostas do provedor.
 
 ## MVP (Fase 1)
 
