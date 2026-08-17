@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,34 @@ const runtimeNodeName = process.platform === "win32" ? "node.exe" : "node";
 async function copyDirectory(source, destination) {
   await mkdir(destination, { recursive: true });
   await cp(source, destination, { recursive: true, force: true });
+}
+
+function nativePrebuildName() {
+  const platform =
+    process.platform === "linux"
+      ? process.report?.getReport().header?.glibcVersionRuntime
+        ? "linux"
+        : "linuxmusl"
+      : process.platform;
+  return `${platform}-${process.arch}.node`;
+}
+
+async function pruneNativePrebuilds(packageDirectory) {
+  const prebuildDirectory = join(packageDirectory, "prebuilds");
+  if (!existsSync(prebuildDirectory)) return;
+
+  const expectedPrebuild = nativePrebuildName();
+  const entries = await readdir(prebuildDirectory, { withFileTypes: true });
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.endsWith(".node") &&
+          entry.name !== expectedPrebuild,
+      )
+      .map((entry) => rm(join(prebuildDirectory, entry.name))),
+  );
 }
 
 function packagePath(packageName, baseDirectory) {
@@ -56,6 +84,7 @@ async function copyProductionDependencies() {
 
     const target = join(runtimeDirectory, "node_modules", dependency.name);
     await copyDirectory(source, target);
+    await pruneNativePrebuilds(target);
     const metadata = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
     for (const name of Object.keys(metadata.dependencies ?? {}))
       pending.push({ name, from: source, optional: false });
