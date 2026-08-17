@@ -1,0 +1,50 @@
+<!-- MIT License — Copyright (c) 2026 Mateus Gaio -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Blackwall — local-first AI harness</title>
+  <desc id="desc">Banner preto e branco com a marca tech blob, linhas de código e a palavra Blackwall.</desc>
+
+  <rect width="1200" height="360" fill="#050505"/>
+  <g fill="none" stroke="#f7f7f5" stroke-width="1" opacity=".12">
+    <path d="M36 54H1164M36 306H1164M54 36V324M1146 36V324"/>
+    <path d="M688 82h390M736 112h326M652 260h408M712 290h366" stroke-dasharray="7 11"/>
+    <path d="M1018 54v252M1080 54v252"/>
+  </g>
+
+  <g transform="translate(62 13) scale(.65)">
+    <path fill="#f7f7f5" d="M112 145C135 87 202 58 269 70c55 10 91 41 106 87 15 43-4 72 23 108 29 39 18 96-21 125-38 30-77 22-117 41-59 28-132-4-159-57-23-45-7-78-25-117-19-40 1-79 36-112Z"/>
+    <g fill="#050505">
+      <rect x="142" y="164" width="122" height="22"/>
+      <rect x="142" y="219" width="196" height="22"/>
+      <rect x="142" y="274" width="142" height="22"/>
+      <rect x="142" y="329" width="174" height="22"/>
+      <rect x="126" y="164" width="8" height="22"/>
+      <rect x="126" y="219" width="8" height="22"/>
+      <rect x="126" y="274" width="8" height="22"/>
+      <rect x="126" y="329" width="8" height="22"/>
+      <circle cx="286" cy="175" r="11"/>
+      <circle cx="360" cy="230" r="11"/>
+      <circle cx="306" cy="285" r="11"/>
+      <circle cx="338" cy="340" r="11"/>
+    </g>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" fill="#f7f7f5">
+    <text x="396" y="157" font-size="64" font-weight="700" textLength="560" lengthAdjust="spacingAndGlyphs">BLACKWALL</text>
+    <text x="400" y="198" font-size="16" textLength="515" lengthAdjust="spacingAndGlyphs">LOCAL-FIRST / AI HARNESS / PRIVATE BY DEFAULT</text>
+    <text x="400" y="250" font-size="13" opacity=".55" textLength="440" lengthAdjust="spacingAndGlyphs">PROFILES · WORKSPACES · SOULS · VAULT · ROUTER</text>
+  </g>
+
+  <g fill="#f7f7f5">
+    <circle cx="400" cy="280" r="4" opacity=".3"/>
+    <circle cx="400" cy="280" r="4">
+      <animate attributeName="cx" values="400;956;400" dur="5.2s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values=".2;1;.2" dur="5.2s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+  <path d="M400 280H956" fill="none" stroke="#f7f7f5" stroke-width="2" stroke-dasharray="4 12" opacity=".45"/>
+
+  <rect x="58" y="46" width="6" height="268" fill="#f7f7f5" opacity=".18">
+    <animate attributeName="x" values="58;1136;58" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;.2;0" dur="8s" repeatCount="indefinite"/>
+  </rect>
+</svg>

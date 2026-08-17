@@ -1,5 +1,7 @@
 <!-- MIT License — Copyright (c) 2026 Mateus Gaio -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Blackwall tech blob">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Blackwall tech blob</title>
+  <desc id="desc">Marca monocromática: um blob tecnológico branco atravessado por linhas de código pretas.</desc>
   <rect width="512" height="512" fill="#050505"/>
   <path fill="#f7f7f5" d="M112 145C135 87 202 58 269 70c55 10 91 41 106 87 15 43-4 72 23 108 29 39 18 96-21 125-38 30-77 22-117 41-59 28-132-4-159-57-23-45-7-78-25-117-19-40 1-79 36-112Z"/>
   <g fill="#050505">

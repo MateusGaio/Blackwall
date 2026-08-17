@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/blackwall-readme-hero.svg" alt="Blackwall — local-first AI harness" width="100%" />
+  <img src="docs/brand/blackwall-github-banner.svg" alt="Blackwall — local-first AI harness" width="100%" />
 </p>
 
 <h1 align="center">Blackwall</h1>
