@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { openDatabase } from "./db/database.js";
 import { models } from "./db/schema.js";
+import { loadModelCatalog, lookupModelLimits } from "./model-catalog.js";
 import { withAsyncInstrumentation } from "./observability.js";
 import { decryptSecret, encryptSecret, removeSecret } from "./secrets.js";
 import {
@@ -645,13 +646,42 @@ export async function resolveProviderModelInput(
   };
 }
 
+/**
+ * OpenAI-compatible `/models` responses usually carry only model ids, leaving
+ * the context window unknown — which would silently fall back to a small
+ * default and prune conversations far earlier than the model requires. Fill the
+ * gap from the public catalog, never overriding what the provider did report.
+ */
+async function enrichWithCatalogLimits(
+  listed: ProviderModel[],
+  provider: ProviderInput,
+  dataDirectory: string,
+  request: FetchLike,
+): Promise<ProviderModel[]> {
+  const baseUrl = provider.baseUrl?.trim();
+  if (!baseUrl || listed.every((model) => model.contextLimit !== undefined)) return listed;
+  const catalog = await loadModelCatalog(dataDirectory, request);
+  return listed.map((model) => {
+    if (model.contextLimit !== undefined) return model;
+    const limits = lookupModelLimits(catalog, baseUrl, model.id);
+    return limits?.contextLimit === undefined
+      ? model
+      : { ...model, contextLimit: limits.contextLimit };
+  });
+}
+
 export async function syncProviderModels(
   providerId: string,
   provider: ProviderInput,
   dataDirectory = providerDataDirectory(),
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
-  const listed = await listProviderModels(provider, request);
+  const listed = await enrichWithCatalogLimits(
+    await listProviderModels(provider, request),
+    provider,
+    dataDirectory,
+    request,
+  );
   const database = openDatabase(dataDirectory);
   const timestamp = Date.now();
   const upsert = database.client.prepare(

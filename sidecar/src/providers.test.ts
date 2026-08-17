@@ -520,4 +520,50 @@ describe("providers", () => {
     ]);
     expect(route.map((candidate) => candidate.providerId)).toEqual([provider.id, "a", "b"]);
   });
+
+  it("completa o limite de contexto pelo catálogo quando o provedor não informa", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-catalog-"));
+    directories.push(directory);
+    const baseUrl = "https://opencode.ai/zen/v1";
+    const provider = await saveProvider(
+      { apiKey: "sync-key", baseUrl, model: "reportado", name: "OpencodeZen" },
+      directory,
+    );
+    // A resposta /models da Zen traz só ids; o catálogo carrega os limites.
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ context_length: 8_000, id: "reportado" }, { id: "sem-limite-proprio" }],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            opencode: {
+              api: baseUrl,
+              models: {
+                reportado: { limit: { context: 999 } },
+                "sem-limite-proprio": { limit: { context: 262_144 } },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      ) as unknown as typeof fetch;
+
+    const synced = await syncProviderModels(
+      provider.id,
+      { apiKey: "sync-key", baseUrl, model: provider.model, name: provider.name },
+      directory,
+      request,
+    );
+
+    expect(synced.find((model) => model.id === "sem-limite-proprio")?.contextLimit).toBe(262_144);
+    // O valor informado pelo provedor tem precedência sobre o catálogo.
+    expect(synced.find((model) => model.id === "reportado")?.contextLimit).toBe(8_000);
+  });
 });
