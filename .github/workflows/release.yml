@@ -1,0 +1,92 @@
+# MIT License — Copyright (c) 2026 Mateus Gaio
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish draft release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag belongs to main
+        run: |
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"; then
+            echo "The release tag must point to a commit already present on main."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run repository checks
+        run: npm run check
+
+      - name: Run coverage
+        run: npm run test:coverage
+
+      - name: Build web and sidecar
+        run: npm run build
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libglib2.0-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Build desktop bundles
+        run: npm run build:desktop
+
+      - name: Smoke-test bundled runtime
+        run: npm run smoke:desktop-runtime
+
+      - name: Create checksums
+        run: |
+          find src-tauri/target/release/bundle -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackwall-${{ github.ref_name }}
+          path: |
+            src-tauri/target/release/bundle/
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t assets < <(find src-tauri/target/release/bundle -type f | sort)
+          gh release create "${{ github.ref_name }}" "${assets[@]}" SHA256SUMS \
+            --draft \
+            --verify-tag \
+            --title "Blackwall ${{ github.ref_name }}" \
+            --generate-notes
