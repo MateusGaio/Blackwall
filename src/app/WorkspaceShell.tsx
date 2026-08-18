@@ -84,9 +84,11 @@ function CompactIcon({
     | "send"
     | "settings"
     | "stop"
-    | "workspace";
+    | "workspace"
+    | "chevron";
 }) {
   const paths = {
+    chevron: <path d="m6 9 6 6 6-6" />,
     clip: (
       <path d="m21.4 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     ),
@@ -185,6 +187,7 @@ export default function WorkspaceShell({
   );
   const [isResizingVault, setIsResizingVault] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
@@ -246,6 +249,9 @@ export default function WorkspaceShell({
   );
   const selectedModel =
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
+  const modelName =
+    (models.find((model) => model.id === selectedModel)?.name ?? selectedModel) ||
+    (isEnglish ? "Select model" : "Selecionar modelo");
 
   useEffect(() => {
     if (!activeProvider) {
@@ -311,12 +317,14 @@ export default function WorkspaceShell({
         setSessionMenuPosition(null);
       }
       if (!target.closest("[data-permission-control]")) setPermissionOpen(false);
+      if (!target.closest("[data-model-control]")) setModelOpen(false);
     }
     function closeWithEscape(event: globalThis.KeyboardEvent) {
       if (event.key !== "Escape") return;
       setOpenSessionMenuId(null);
       setSessionMenuPosition(null);
       setPermissionOpen(false);
+      setModelOpen(false);
       setShowSettings(false);
     }
     document.addEventListener("click", closeFloatingMenus);
@@ -1171,23 +1179,27 @@ export default function WorkspaceShell({
             >
               <ol className="breadcrumb-list">
                 <li className="breadcrumb-item">
-                  <span
-                    className="breadcrumb-page breadcrumb-page-workspace"
-                    data-current-workspace
-                  >
+                  <span className="breadcrumb-link">
                     {workspace?.name ?? (isEnglish ? "No workspace" : "Sem workspace")}
                   </span>
                 </li>
-                <li aria-hidden="true" className="breadcrumb-separator">
-                  /
-                </li>
-                <li className="breadcrumb-item">
-                  <span className="breadcrumb-page breadcrumb-page-secondary">
-                    {activeSession?.title ?? (isEnglish ? "New conversation" : "Nova conversa")}
-                  </span>
-                </li>
+                {workspace?.rootPath && (
+                  <>
+                    <li aria-hidden="true" className="breadcrumb-separator">
+                      /
+                    </li>
+                    <li className="breadcrumb-item">
+                      <span className="breadcrumb-page breadcrumb-path" title={workspace.rootPath}>
+                        {workspace.rootPath}
+                      </span>
+                    </li>
+                  </>
+                )}
               </ol>
             </nav>
+            <h1 className="thread-title">
+              {activeSession?.title ?? (isEnglish ? "New conversation" : "Nova conversa")}
+            </h1>
           </div>
           <div className="chat-controls">
             {providers.length > 0 ? (
@@ -1211,23 +1223,6 @@ export default function WorkspaceShell({
               </label>
             ) : (
               <p className="eyebrow">{isEnglish ? "no provider" : "sem provedor"}</p>
-            )}
-            {activeProvider && (
-              <label className="model-selector">
-                <span className="sr-only">{isEnglish ? "Model" : "Modelo"}</span>
-                <select
-                  aria-label={isEnglish ? "Select model" : "Selecionar modelo"}
-                  onChange={(event) => void changeModel(event.target.value)}
-                  title={isEnglish ? "Select model" : "Selecionar modelo"}
-                  value={selectedModel}
-                >
-                  {models.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
             )}
             {activeProvider && (
               <div className="usage-indicator-wrap">
@@ -1589,6 +1584,42 @@ export default function WorkspaceShell({
               rows={1}
               value={draft}
             />
+            {activeProvider && (
+              <div className="model-control" data-model-control>
+                <button
+                  aria-expanded={modelOpen}
+                  aria-haspopup="menu"
+                  className="composer-model"
+                  onClick={() => setModelOpen((current) => !current)}
+                  title={modelName}
+                  type="button"
+                >
+                  <span className="composer-model-name">{modelName}</span>
+                  <CompactIcon kind="chevron" />
+                </button>
+                {modelOpen && (
+                  <div className="model-popover" role="menu">
+                    <p className="eyebrow">{activeProvider.name}</p>
+                    {models.map((model) => (
+                      <button
+                        aria-checked={model.id === selectedModel}
+                        className={model.id === selectedModel ? "is-selected" : ""}
+                        key={model.id}
+                        onClick={() => {
+                          void changeModel(model.id);
+                          setModelOpen(false);
+                        }}
+                        role="menuitemradio"
+                        type="button"
+                      >
+                        <span>{model.name}</span>
+                        {model.id === selectedModel && <span aria-hidden="true">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {isSending ? (
               <button
                 aria-label={isEnglish ? "Stop generating" : "Parar geração"}

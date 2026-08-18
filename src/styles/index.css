@@ -3273,10 +3273,33 @@ button:disabled {
   white-space: nowrap;
 }
 
-.breadcrumb-page-workspace {
+.breadcrumb-link {
   color: #89898e;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb-path {
+  color: #6f6f76;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
   font-weight: 400;
+  max-width: min(320px, 34vw);
+}
+
+.thread-title {
+  color: #e5e5e7;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 3px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .breadcrumb-separator {
@@ -3466,6 +3489,111 @@ button:disabled {
   outline: none;
 }
 
+.model-control {
+  position: relative;
+}
+
+.composer-model {
+  align-items: center;
+  background: #1a1a1d;
+  border: 1px solid #353539;
+  border-radius: 9px;
+  color: #cfcfd2;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  max-width: 220px;
+  min-height: 34px;
+  padding: 6px 9px;
+}
+
+.composer-model svg {
+  fill: none;
+  flex: 0 0 auto;
+  height: 12px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  width: 12px;
+}
+
+.composer-model[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.composer-model-name {
+  font-size: 0.76rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-model:hover,
+.composer-model:focus-visible {
+  background: #202024;
+  border-color: #a6a6ab;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.model-popover {
+  animation: card-enter 120ms ease-out both;
+  background: #1a1a1d;
+  border: 1px solid #39393e;
+  border-radius: 9px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 34%);
+  display: grid;
+  gap: 3px;
+  left: 0;
+  max-width: min(300px, calc(100vw - 24px));
+  min-width: 210px;
+  padding: 7px;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+}
+
+.model-popover .eyebrow {
+  color: #77777c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.66rem;
+  margin: 2px 6px 4px;
+}
+
+.model-popover button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #d3d3d6;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 0.8rem;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.model-popover button:hover,
+.model-popover button:focus-visible,
+.model-popover button.is-selected {
+  background: #202024;
+  border-color: #353539;
+  color: #f2f2f3;
+  outline: none;
+}
+
+.model-popover button span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .breadcrumb-page,
   .action-bar,
@@ -3474,7 +3602,8 @@ button:disabled {
   .new-thread-button,
   .workspace-header-trigger,
   .composer-send,
-  .composer-stop {
+  .composer-stop,
+  .composer-model {
     transition: none;
   }
 }
