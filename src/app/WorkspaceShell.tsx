@@ -954,22 +954,6 @@ export default function WorkspaceShell({
             className="sidebar-rail"
           >
             <button
-              aria-label={isEnglish ? "Open workspaces" : "Abrir workspaces"}
-              onClick={() => expandSidebar("workspace")}
-              title="Workspaces"
-              type="button"
-            >
-              <CompactIcon kind="workspace" />
-            </button>
-            <button
-              aria-label={isEnglish ? "Open recent sessions" : "Abrir sessões recentes"}
-              onClick={() => expandSidebar("recent")}
-              title={isEnglish ? "Recent" : "Recentes"}
-              type="button"
-            >
-              <CompactIcon kind="recent" />
-            </button>
-            <button
               aria-label={isEnglish ? "Open settings" : "Abrir configurações"}
               className="sidebar-rail-settings"
               onClick={() => expandSidebar("settings")}
