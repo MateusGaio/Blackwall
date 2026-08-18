@@ -393,6 +393,50 @@ describe("persistência local", () => {
     restored.close();
   });
 
+  it("não reutiliza a sessão sem workspace de outro perfil", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-profile-isolation-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const first = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Perfil antigo",
+      profileSoul: "Soul antiga",
+      workspaceName: "",
+      workspaceRootPath: "",
+      workspaceSoul: "",
+      workspaceMode: "none",
+    });
+    store.appendMessage({
+      content: "conteúdo do perfil antigo",
+      role: "user",
+      sessionId: first.activeSessionId as string,
+    });
+
+    const secondProfile = await store.createProfile({
+      locale: "pt-BR",
+      name: "Perfil novo",
+      soul: "Soul nova",
+    });
+    const second = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: secondProfile.name,
+      profileSoul: secondProfile.soul,
+      workspaceName: "",
+      workspaceRootPath: "",
+      workspaceSoul: "",
+      workspaceMode: "none",
+    });
+
+    expect(second.activeProfileId).toBe(secondProfile.id);
+    expect(second.activeSessionId).not.toBe(first.activeSessionId);
+    expect(second.messages).toEqual([]);
+    expect(second.recentSessions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: first.activeSessionId })]),
+    );
+    database.close();
+  });
+
   it("lista no máximo 30 sessões recentes do perfil com o workspace correto", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-recent-sessions-"));
     const workspaceRoot = join(directory, "workspace");

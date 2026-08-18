@@ -54,14 +54,17 @@ import {
   writeBooleanPreference,
   writeNumberPreference,
 } from "./panel-preferences";
-import { SessionUsageDialog } from "./SessionUsageDialog";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
   return { default: module.VaultPanel };
 });
+const UsageDashboard = lazy(async () => {
+  const module = await import("../features/config/components/UsageDashboard");
+  return { default: module.UsageDashboard };
+});
 
-type SidebarFocusTarget = "recent" | "settings" | "workspace";
+type SidebarFocusTarget = "recent" | "settings" | "usage" | "workspace";
 type VaultTab = "files" | "graph";
 
 const minimumVaultWidth = 300;
@@ -71,7 +74,7 @@ const defaultVaultWidth = 360;
 function CompactIcon({
   kind,
 }: {
-  kind: "files" | "graph" | "recent" | "settings" | "workspace" | "panel";
+  kind: "files" | "graph" | "recent" | "settings" | "usage" | "workspace" | "panel";
 }) {
   const paths = {
     files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
@@ -82,6 +85,7 @@ function CompactIcon({
     settings: (
       <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
     ),
+    usage: <path d="M5 19V9m7 10V5m7 14v-7M3 19h18" />,
     workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
     panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
   } as const;
@@ -138,6 +142,7 @@ export default function WorkspaceShell({
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUsageDashboard, setShowUsageDashboard] = useState(false);
   const [showVault, setShowVault] = useState(Boolean(appState?.activeWorkspaceId));
   const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null);
   const [sessionMenuPosition, setSessionMenuPosition] = useState<{
@@ -181,7 +186,6 @@ export default function WorkspaceShell({
     import("../shared/api/sidecar").UsageSummary | null
   >(null);
   const [usageOpen, setUsageOpen] = useState(false);
-  const [showUsageDetails, setShowUsageDetails] = useState(false);
   const [toolApproval, setToolApproval] = useState<WorkspaceToolApproval | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
@@ -267,7 +271,7 @@ export default function WorkspaceShell({
   }, [vaultWidth]);
 
   useEffect(() => {
-    void listProviders()
+    void listProviders(appState?.activeProfileId ?? undefined)
       .then((available) => {
         setProviders(available);
         setActiveProvider((current) =>
@@ -277,7 +281,7 @@ export default function WorkspaceShell({
         );
       })
       .catch(() => undefined);
-  }, []);
+  }, [appState?.activeProfileId]);
 
   useEffect(() => {
     function closeFloatingMenus(event: globalThis.MouseEvent) {
@@ -295,6 +299,7 @@ export default function WorkspaceShell({
       setSessionMenuPosition(null);
       setPermissionOpen(false);
       setShowSettings(false);
+      setShowUsageDashboard(false);
     }
     document.addEventListener("click", closeFloatingMenus);
     document.addEventListener("keydown", closeWithEscape);
@@ -347,7 +352,7 @@ export default function WorkspaceShell({
       name: activeProvider.model,
     } satisfies ProviderModel;
     setModels([selectedProviderModel]);
-    void listStoredProviderModels(activeProvider.id)
+    void listStoredProviderModels(activeProvider.id, state?.activeProfileId ?? undefined)
       .then((available) => {
         if (cancelled) return;
         const hasSelectedModel = available.some((model) => model.id === selectedProviderModel.id);
@@ -363,7 +368,7 @@ export default function WorkspaceShell({
     return () => {
       cancelled = true;
     };
-  }, [activeProvider]);
+  }, [activeProvider, state?.activeProfileId]);
 
   useEffect(() => {
     function onShortcut(event: globalThis.KeyboardEvent) {
@@ -955,6 +960,14 @@ export default function WorkspaceShell({
             >
               <CompactIcon kind="settings" />
             </button>
+            <button
+              aria-label={isEnglish ? "Open usage dashboard" : "Abrir dashboard de uso"}
+              onClick={() => setShowUsageDashboard(true)}
+              title={isEnglish ? "Usage" : "Uso"}
+              type="button"
+            >
+              <CompactIcon kind="usage" />
+            </button>
           </nav>
         )}
         <div className="sidebar-section">
@@ -1069,6 +1082,13 @@ export default function WorkspaceShell({
           </nav>
         </div>
         <div className="sidebar-settings">
+          <button
+            className="sidebar-config"
+            onClick={() => setShowUsageDashboard(true)}
+            type="button"
+          >
+            {isEnglish ? "Usage" : "Uso"}
+          </button>
           <button
             className="sidebar-config"
             onClick={() => setShowSettings(true)}
@@ -1209,11 +1229,11 @@ export default function WorkspaceShell({
                       className="text-button"
                       onClick={() => {
                         setUsageOpen(false);
-                        setShowUsageDetails(true);
+                        setShowUsageDashboard(true);
                       }}
                       type="button"
                     >
-                      {isEnglish ? "View full usage" : "Ver uso completo"}
+                      {isEnglish ? "Open usage dashboard" : "Abrir dashboard de uso"}
                     </button>
                   </div>
                 )}
@@ -1602,9 +1622,7 @@ export default function WorkspaceShell({
       )}
       {showSettings && (
         <ProviderManager
-          activeSessionId={state?.activeSessionId ?? null}
           activeWorkspaceId={state?.activeWorkspaceId ?? null}
-          activeProviderId={activeProvider?.id ?? null}
           onClose={() => setShowSettings(false)}
           onDeleteProfile={onDeleteProfile}
           onProvidersChange={(next) => {
@@ -1648,16 +1666,43 @@ export default function WorkspaceShell({
           workspaces={state?.workspaces ?? []}
         />
       )}
-      {showUsageDetails && (
-        <SessionUsageDialog
-          isEnglish={isEnglish}
-          messages={messages}
-          modelName={selectedModel || (isEnglish ? "not selected" : "não selecionado")}
-          onClose={() => setShowUsageDetails(false)}
-          providerName={activeProvider?.name ?? "—"}
-          sessionTitle={activeSession?.title ?? (isEnglish ? "New session" : "Nova sessão")}
-          summary={usageSummary}
-        />
+      {showUsageDashboard && (
+        <div className="settings-backdrop" role="presentation">
+          <button
+            aria-label={isEnglish ? "Close usage dashboard" : "Fechar dashboard de uso"}
+            className="settings-backdrop-dismiss"
+            onClick={() => setShowUsageDashboard(false)}
+            type="button"
+          />
+          <section
+            aria-label={isEnglish ? "Usage dashboard" : "Dashboard de uso"}
+            className="settings-panel usage-dashboard-panel"
+          >
+            <header className="settings-panel-header">
+              <div>
+                <p className="eyebrow">Dashboard</p>
+                <h2>{isEnglish ? "Provider usage and limits" : "Uso e limites dos provedores"}</h2>
+              </div>
+              <button
+                aria-label={isEnglish ? "Close usage dashboard" : "Fechar dashboard de uso"}
+                className="icon-button"
+                onClick={() => setShowUsageDashboard(false)}
+                type="button"
+              >
+                ×
+              </button>
+            </header>
+            <Suspense fallback={<div aria-busy="true" className="usage-skeleton" />}>
+              <UsageDashboard
+                activeProviderId={activeProvider?.id ?? null}
+                activeSessionId={state?.activeSessionId ?? null}
+                isEnglish={isEnglish}
+                profileId={state?.activeProfileId ?? null}
+                providers={providers}
+              />
+            </Suspense>
+          </section>
+        </div>
       )}
       {sessionToDelete && (
         <ConfirmDialog

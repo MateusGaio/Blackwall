@@ -3,10 +3,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { openDatabase } from "./db/database.js";
+import { createStore } from "./db/store.js";
 import {
   applyPromptCaching,
   getProvider,
   listProviderModels,
+  listProviders,
   normalizeBaseUrl,
   OpenAICompatibleProvider,
   type ProviderConnectionError,
@@ -29,6 +32,38 @@ afterEach(async () => {
 });
 
 describe("providers", () => {
+  it("mantém os provedores separados por perfil", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-profiles-"));
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const first = await store.createProfile({ locale: "pt-BR", name: "Ada", soul: "Primeira" });
+    const second = await store.createProfile({ locale: "pt-BR", name: "Grace", soul: "Segunda" });
+    database.close();
+
+    const firstProvider = await saveProvider(
+      {
+        baseUrl: "https://first.example.com/v1",
+        model: "first-model",
+        name: "First provider",
+        profileId: first.id,
+      },
+      directory,
+    );
+    const secondProvider = await saveProvider(
+      {
+        baseUrl: "https://second.example.com/v1",
+        model: "second-model",
+        name: "Second provider",
+        profileId: second.id,
+      },
+      directory,
+    );
+
+    await expect(listProviders(directory, first.id)).resolves.toEqual([firstProvider]);
+    await expect(listProviders(directory, second.id)).resolves.toEqual([secondProvider]);
+  });
+
   it("armazena a chave somente no envelope criptografado", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-"));
     directories.push(directory);

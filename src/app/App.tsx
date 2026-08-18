@@ -12,13 +12,16 @@ import {
   type Profile,
   selectProfile,
   signOutProfile,
+  updateProvider,
 } from "../shared/api/sidecar";
 import { SoulPicker } from "../shared/components/SoulPicker";
 import {
   clampOnboardingStep,
   detectInitialLocale,
+  nextOnboardingStepIndex,
   type OnboardingStep,
   onboardingSteps,
+  previousOnboardingStepIndex,
 } from "./onboarding";
 import { DEFAULT_SOUL_PROMPT } from "./souls";
 
@@ -501,7 +504,7 @@ export function App() {
         setWorkspaceRootPath(workspace?.rootPath ?? "");
         setWorkspaceSoul(workspace?.soul ?? "");
         setStartWithoutWorkspace(!workspace);
-        const providers = await listProviders();
+        const providers = await listProviders(profile.id);
         const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
         setProvider(
           providers.find((item) => item.id === activeSession?.selectedProviderId) ??
@@ -540,7 +543,7 @@ export function App() {
       void completeOnboarding();
       return;
     }
-    navigate(stepIndex + 1, animate);
+    navigate(nextOnboardingStepIndex(stepIndex, startWithoutWorkspace), animate);
   }
 
   function providerConnected(connectedProvider: ConnectedProvider) {
@@ -576,7 +579,7 @@ export function App() {
       const profile = state.profiles.find((item) => item.id === profileId);
       if (!profile) throw new Error("O perfil selecionado não existe.");
       const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
-      const providers = await listProviders();
+      const providers = await listProviders(profile.id);
       const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
       setAppState(state);
       setAvailableProfiles(state.profiles);
@@ -652,8 +655,19 @@ export function App() {
         workspaceMode,
         workspaceSoul,
       });
+      const persistedProvider =
+        provider && state.activeProfileId
+          ? await updateProvider(provider.id, {
+              baseUrl: provider.baseUrl,
+              model: provider.model,
+              name: provider.name,
+              profileId: state.activeProfileId,
+              type: provider.type,
+            })
+          : provider;
       setAppState(state);
       setAvailableProfiles(state.profiles);
+      setProvider(persistedProvider);
       setShowProfileChooser(false);
       setIsComplete(true);
     } catch (reason) {
@@ -667,6 +681,7 @@ export function App() {
     folderSelection,
     locale,
     profileName,
+    provider,
     soul,
     startWithoutWorkspace,
     workspaceRootPath,
@@ -693,7 +708,7 @@ export function App() {
         void completeOnboarding();
         return;
       }
-      setStepIndex(clampOnboardingStep(stepIndex + 1));
+      setStepIndex(nextOnboardingStepIndex(stepIndex, startWithoutWorkspace));
     }
 
     window.addEventListener("keydown", advanceWithEnter);
@@ -740,7 +755,9 @@ export function App() {
       isExiting={isExiting}
       locale={locale}
       onAdvance={advance}
-      onBack={(animate) => navigate(stepIndex - 1, animate)}
+      onBack={(animate) =>
+        navigate(previousOnboardingStepIndex(stepIndex, startWithoutWorkspace), animate)
+      }
       onLocaleChange={setLocale}
       onProfileNameChange={setProfileName}
       onSoulChange={setSoul}

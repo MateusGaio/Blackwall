@@ -156,6 +156,8 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     };
     database.db.insert(profiles).values(profile).run();
     saveSetting(database, settingKeys.activeProfileId, profile.id);
+    saveSetting(database, settingKeys.activeWorkspaceId, "");
+    saveSetting(database, settingKeys.activeSessionId, "");
     return profile;
   }
 
@@ -299,11 +301,15 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     return session;
   }
 
-  function listSessions(workspaceId: string | null) {
+  function listSessions(workspaceId: string | null, profileId?: string | null) {
+    const conditions = [
+      workspaceId ? eq(sessions.workspaceId, workspaceId) : isNull(sessions.workspaceId),
+      ...(profileId ? [eq(sessions.profileId, profileId)] : []),
+    ];
     return database.db
       .select()
       .from(sessions)
-      .where(workspaceId ? eq(sessions.workspaceId, workspaceId) : isNull(sessions.workspaceId))
+      .where(and(...conditions))
       .orderBy(desc(sessions.updatedAt), desc(sessions.createdAt))
       .all();
   }
@@ -403,7 +409,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     if (!session) throw new Error("A sessão selecionada não existe.");
     database.db.delete(sessions).where(eq(sessions.id, sessionId)).run();
     if (setting(database, settingKeys.activeSessionId) === sessionId) {
-      const replacement = listSessions(session.workspaceId)[0];
+      const replacement = listSessions(session.workspaceId, session.profileId)[0];
       if (replacement) saveSetting(database, settingKeys.activeSessionId, replacement.id);
       else saveSetting(database, settingKeys.activeSessionId, "");
     }
@@ -514,13 +520,26 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
 
   function getState(): AppState {
     const activeProfileId = setting(database, settingKeys.activeProfileId);
-    const activeWorkspaceId = setting(database, settingKeys.activeWorkspaceId);
-    const activeSessionId = setting(database, settingKeys.activeSessionId);
+    const profileId = activeProfileId ?? "";
+    const requestedWorkspaceId = activeProfileId
+      ? setting(database, settingKeys.activeWorkspaceId)
+      : null;
+    const activeWorkspaceId = requestedWorkspaceId
+      ? (database.db
+          .select({ id: workspaces.id })
+          .from(workspaces)
+          .where(and(eq(workspaces.id, requestedWorkspaceId), eq(workspaces.profileId, profileId)))
+          .get()?.id ?? null)
+      : null;
     const profileRows = database.db.select().from(profiles).orderBy(desc(profiles.updatedAt)).all();
-    const workspaceRows = activeProfileId
-      ? listWorkspaces(activeProfileId)
-      : database.db.select().from(workspaces).orderBy(desc(workspaces.lastOpenedAt)).all();
-    const sessionRows = listSessions(activeWorkspaceId);
+    const workspaceRows = activeProfileId ? listWorkspaces(activeProfileId) : [];
+    const sessionRows = listSessions(activeWorkspaceId, profileId || null);
+    const requestedSessionId = activeProfileId
+      ? setting(database, settingKeys.activeSessionId)
+      : null;
+    const activeSessionId = sessionRows.some((session) => session.id === requestedSessionId)
+      ? requestedSessionId
+      : null;
     return {
       activeProfileId,
       activeSessionId,
@@ -585,7 +604,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     saveSetting(database, settingKeys.activeProfileId, selectedProfile.id);
     saveSetting(database, settingKeys.activeWorkspaceId, workspace?.id ?? "");
     const currentSession =
-      listSessions(workspace?.id ?? null)[0] ??
+      listSessions(workspace?.id ?? null, selectedProfile.id)[0] ??
       createSession({ workspaceId: workspace?.id ?? null });
     saveSetting(database, settingKeys.activeSessionId, currentSession.id);
     return getState();
@@ -697,7 +716,9 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
   function selectWorkspace(id: string) {
     const workspace = database.db.select().from(workspaces).where(eq(workspaces.id, id)).get();
     if (!workspace) throw new Error("O workspace selecionado não existe.");
-    const session = listSessions(id)[0] ?? createSession({ workspaceId: id });
+    const session =
+      listSessions(id, workspace.profileId)[0] ??
+      createSession({ profileId: workspace.profileId, workspaceId: id });
     saveSetting(database, settingKeys.activeProfileId, workspace.profileId);
     saveSetting(database, settingKeys.activeWorkspaceId, id);
     saveSetting(database, settingKeys.activeSessionId, session.id);

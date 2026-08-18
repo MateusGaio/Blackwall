@@ -396,7 +396,15 @@ export function createSidecar(
       }
       if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/sessions$/.test(pathname)) {
         const workspaceId = pathname.split("/")[3];
-        writeJson(response, 200, { sessions: store.listSessions(workspaceId) });
+        const workspace = database.db
+          .select({ profileId: workspaces.profileId })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .get();
+        if (!workspace) throw new Error("O workspace selecionado não existe.");
+        writeJson(response, 200, {
+          sessions: store.listSessions(workspaceId, workspace.profileId),
+        });
         return;
       }
       if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/sessions\/recent$/.test(pathname)) {
@@ -468,7 +476,12 @@ export function createSidecar(
         return;
       }
       if (request.method === "GET" && pathname === "/v1/providers") {
-        writeJson(response, 200, { providers: await listProviders(storageDirectory) });
+        const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
+          "profileId",
+        );
+        writeJson(response, 200, {
+          providers: await listProviders(storageDirectory, profileId ?? undefined),
+        });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/models") {
@@ -483,14 +496,25 @@ export function createSidecar(
         return;
       }
       if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
+        const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
+          "profileId",
+        );
         writeJson(response, 200, {
-          models: await listStoredProviderModels(pathname.split("/")[3], storageDirectory),
+          models: await listStoredProviderModels(
+            pathname.split("/")[3],
+            storageDirectory,
+            undefined,
+            profileId ?? undefined,
+          ),
         });
         return;
       }
       if (request.method === "POST" && /^\/v1\/providers\/[^/]+\/models\/sync$/.test(pathname)) {
         const providerId = pathname.split("/")[3];
-        const provider = await getProvider(providerId, storageDirectory);
+        const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
+          "profileId",
+        );
+        const provider = await getProvider(providerId, storageDirectory, profileId ?? undefined);
         writeJson(response, 200, {
           models: await syncProviderModels(
             providerId,
@@ -625,7 +649,7 @@ export function createSidecar(
       if (request.method === "PATCH" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
         const input = (await requestBody(request)) as ProviderInput;
         const id = pathname.split("/")[3];
-        const existing = await getProvider(id, storageDirectory);
+        const existing = await getProvider(id, storageDirectory, input.profileId);
         await validateProvider({
           ...input,
           apiKey: input.apiKey ?? (await providerApiKey(id, storageDirectory)),
@@ -641,8 +665,15 @@ export function createSidecar(
         return;
       }
       if (request.method === "DELETE" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
+        const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
+          "profileId",
+        );
         writeJson(response, 200, {
-          provider: await removeProvider(pathname.split("/")[3], storageDirectory),
+          provider: await removeProvider(
+            pathname.split("/")[3],
+            storageDirectory,
+            profileId ?? undefined,
+          ),
         });
         return;
       }

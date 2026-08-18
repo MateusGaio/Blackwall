@@ -144,6 +144,7 @@ type BootstrapInput = {
 type ProviderInput = Omit<ConnectedProvider, "id" | "type"> & {
   apiKey?: string;
   id?: string;
+  profileId?: string;
   type?: ConnectedProvider["type"];
 };
 export type ChatMessage = {
@@ -237,8 +238,9 @@ export async function updateProvider(
   return response.provider;
 }
 
-export async function deleteProvider(id: string): Promise<void> {
-  await request(`/v1/providers/${id}`, { method: "DELETE" });
+export async function deleteProvider(id: string, profileId?: string): Promise<void> {
+  const query = profileId ? `?profileId=${encodeURIComponent(profileId)}` : "";
+  await request(`/v1/providers/${id}${query}`, { method: "DELETE" });
 }
 
 export type ProviderModel = {
@@ -266,9 +268,13 @@ export async function discoverProviderModels(
   return response.models;
 }
 
-export async function listStoredProviderModels(providerId: string): Promise<ProviderModel[]> {
+export async function listStoredProviderModels(
+  providerId: string,
+  profileId?: string,
+): Promise<ProviderModel[]> {
+  const query = profileId ? `?profileId=${encodeURIComponent(profileId)}` : "";
   const response = await request<{ models: ProviderModel[] }>(
-    `/v1/providers/${providerId}/models`,
+    `/v1/providers/${providerId}/models${query}`,
     { method: "GET" },
   );
   return response.models;
@@ -391,8 +397,9 @@ export async function deleteProfile(profileId: string): Promise<AppState> {
   return request(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
 }
 
-export async function listProviders(): Promise<ConnectedProvider[]> {
-  const response = await request<{ providers: ConnectedProvider[] }>("/v1/providers", {
+export async function listProviders(profileId?: string): Promise<ConnectedProvider[]> {
+  const query = profileId ? `?profileId=${encodeURIComponent(profileId)}` : "";
+  const response = await request<{ providers: ConnectedProvider[] }>(`/v1/providers${query}`, {
     method: "GET",
   });
   return response.providers;

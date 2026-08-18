@@ -20,6 +20,22 @@ export function clampOnboardingStep(step: number): number {
   return Math.min(Math.max(step, 0), onboardingSteps.length - 1);
 }
 
+export function nextOnboardingStepIndex(step: number, withoutWorkspace: boolean): number {
+  let next = clampOnboardingStep(step + 1);
+  while (withoutWorkspace && onboardingSteps[next]?.id === "workspace-soul") {
+    next = clampOnboardingStep(next + 1);
+  }
+  return next;
+}
+
+export function previousOnboardingStepIndex(step: number, withoutWorkspace: boolean): number {
+  let previous = clampOnboardingStep(step - 1);
+  while (withoutWorkspace && onboardingSteps[previous]?.id === "workspace-soul") {
+    previous = clampOnboardingStep(previous - 1);
+  }
+  return previous;
+}
+
 export function detectInitialLocale(language?: string): "pt-BR" | "en" {
   return language?.toLowerCase().startsWith("pt") ? "pt-BR" : "en";
 }

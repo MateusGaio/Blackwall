@@ -27,12 +27,14 @@ export type ProviderInput = {
   model: string;
   name: string;
   id?: string;
+  profileId?: string;
   type?: ProviderKind;
 };
 
 export type ProviderKind = "openai-compatible" | "ollama";
 export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
   id: string;
+  profileId?: string;
   type: ProviderKind;
 };
 
@@ -603,20 +605,67 @@ async function writeDocument(dataDirectory: string, document: ProviderDocument) 
   });
 }
 
+async function migrateLegacyProviderOwners(
+  dataDirectory: string,
+  document: ProviderDocument,
+): Promise<ProviderDocument> {
+  const legacy = document.providers.filter((provider) => !provider.profileId);
+  if (legacy.length === 0) return document;
+
+  const database = openDatabase(dataDirectory);
+  try {
+    const profiles = database.client.prepare("SELECT id FROM profiles").all() as Array<{
+      id: string;
+    }>;
+    let changed = false;
+    const providers = document.providers.map((provider) => {
+      if (provider.profileId) return provider;
+      const references = database.client
+        .prepare(
+          "SELECT DISTINCT profile_id AS profileId FROM sessions WHERE selected_provider_id = ? AND profile_id IS NOT NULL",
+        )
+        .all(provider.id) as Array<{ profileId: string }>;
+      const profileId =
+        references.length === 1
+          ? references[0]?.profileId
+          : references.length === 0 && profiles.length === 1
+            ? profiles[0]?.id
+            : undefined;
+      if (!profileId) return provider;
+      changed = true;
+      return { ...provider, profileId };
+    });
+    const next = { providers };
+    if (changed) await writeDocument(dataDirectory, next);
+    return next;
+  } finally {
+    database.close();
+  }
+}
+
 export async function saveProvider(
   input: ProviderInput,
   dataDirectory = providerDataDirectory(),
 ): Promise<Provider> {
   await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
-  const document = await readDocument(dataDirectory);
+  const document = await migrateLegacyProviderOwners(
+    dataDirectory,
+    await readDocument(dataDirectory),
+  );
   const existing = input.id
     ? document.providers.find((candidate) => candidate.id === input.id)
     : null;
+  if (existing?.profileId && input.profileId && existing.profileId !== input.profileId) {
+    throw new Error("O provedor selecionado pertence a outro perfil.");
+  }
   const provider: Provider = {
     baseUrl: normalizeBaseUrl(input.baseUrl),
     id: input.id ?? randomUUID(),
     model: input.model.trim(),
     name: input.name.trim(),
+    ...((input.profileId ?? existing?.profileId)
+      ? { profileId: input.profileId ?? existing?.profileId }
+      : {}),
     type: input.type ?? existing?.type ?? "openai-compatible",
   };
   document.providers = existing
@@ -644,10 +693,19 @@ export async function saveProvider(
   return provider;
 }
 
-export async function removeProvider(id: string, dataDirectory = providerDataDirectory()) {
-  const document = await readDocument(dataDirectory);
+export async function removeProvider(
+  id: string,
+  dataDirectory = providerDataDirectory(),
+  profileId?: string,
+) {
+  const document = await migrateLegacyProviderOwners(
+    dataDirectory,
+    await readDocument(dataDirectory),
+  );
   const provider = document.providers.find((candidate) => candidate.id === id);
   if (!provider) throw new Error("O provedor selecionado não existe.");
+  if (profileId && provider.profileId !== profileId)
+    throw new Error("O provedor selecionado pertence a outro perfil.");
   document.providers = document.providers.filter((candidate) => candidate.id !== id);
   await writeDocument(dataDirectory, document);
   await removeSecret(dataDirectory, id);
@@ -660,15 +718,26 @@ export async function removeProvider(id: string, dataDirectory = providerDataDir
 export async function getProvider(
   id: string,
   dataDirectory = providerDataDirectory(),
+  profileId?: string,
 ): Promise<Provider> {
-  const document = await readDocument(dataDirectory);
+  const document = await migrateLegacyProviderOwners(
+    dataDirectory,
+    await readDocument(dataDirectory),
+  );
   const provider = document.providers.find((candidate) => candidate.id === id);
-  if (!provider) throw new Error("O provedor selecionado não existe mais neste dispositivo.");
+  if (!provider || (profileId && provider.profileId && provider.profileId !== profileId))
+    throw new Error("O provedor selecionado não existe mais neste dispositivo.");
   return provider;
 }
 
-export async function listProviders(dataDirectory = providerDataDirectory()): Promise<Provider[]> {
-  return (await readDocument(dataDirectory)).providers;
+export async function listProviders(
+  dataDirectory = providerDataDirectory(),
+  profileId?: string,
+): Promise<Provider[]> {
+  const providers = (
+    await migrateLegacyProviderOwners(dataDirectory, await readDocument(dataDirectory))
+  ).providers;
+  return profileId ? providers.filter((provider) => provider.profileId === profileId) : providers;
 }
 
 export async function providerApiKey(
@@ -701,7 +770,7 @@ export async function resolveProviderModelInput(
   dataDirectory = providerDataDirectory(),
 ): Promise<ProviderInput> {
   if (!input.id) return input;
-  const existing = await getProvider(input.id, dataDirectory);
+  const existing = await getProvider(input.id, dataDirectory, input.profileId);
   return {
     ...input,
     apiKey: input.apiKey?.trim() || (await providerApiKey(input.id, dataDirectory)),
@@ -806,8 +875,9 @@ export async function listStoredProviderModels(
   id: string,
   dataDirectory = providerDataDirectory(),
   request: FetchLike = fetch,
+  profileId?: string,
 ): Promise<ProviderModel[]> {
-  const provider = await getProvider(id, dataDirectory);
+  const provider = await getProvider(id, dataDirectory, profileId);
   const listed = await listProviderModels(
     {
       apiKey: await providerApiKey(id, dataDirectory),

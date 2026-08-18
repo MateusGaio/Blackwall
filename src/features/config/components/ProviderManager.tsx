@@ -27,12 +27,9 @@ import {
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 import { SoulPicker } from "../../../shared/components/SoulPicker";
-import { UsageDashboard } from "./UsageDashboard";
 
 type ProviderManagerProps = {
-  activeSessionId?: string | null;
   activeWorkspaceId: string | null;
-  activeProviderId?: string | null;
   onClose: () => void;
   onDeleteProfile: (profileId: string) => Promise<void>;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
@@ -64,9 +61,7 @@ const emptyForm: ProviderForm = {
 };
 
 export function ProviderManager({
-  activeSessionId,
   activeWorkspaceId,
-  activeProviderId,
   onClose,
   onDeleteProfile,
   onProvidersChange,
@@ -158,6 +153,7 @@ export function ProviderManager({
         baseUrl: form.baseUrl,
         id: editingId ?? undefined,
         name: form.name,
+        profileId: profileId ?? undefined,
         type: form.type,
       });
       setProviderModels(listed);
@@ -373,6 +369,7 @@ export function ProviderManager({
         baseUrl: form.baseUrl,
         model: form.model,
         name: form.name,
+        profileId: profileId ?? undefined,
         type: form.type,
       };
       const saved = editingId
@@ -421,7 +418,7 @@ export function ProviderManager({
 
   async function remove(provider: ConnectedProvider) {
     try {
-      await deleteProvider(provider.id);
+      await deleteProvider(provider.id, profileId ?? undefined);
       const next = providers.filter((item) => item.id !== provider.id);
       onProvidersChange(next);
       reset();
@@ -552,13 +549,6 @@ export function ProviderManager({
             ×
           </button>
         </header>
-        <UsageDashboard
-          activeProviderId={activeProviderId}
-          activeSessionId={activeSessionId}
-          isEnglish={isEnglish}
-          profileId={profileId}
-          providers={providers}
-        />
         <form className="settings-section profile-settings" onSubmit={saveProfile}>
           <div className="settings-section-heading">
             <div>
