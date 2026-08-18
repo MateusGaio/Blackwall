@@ -726,8 +726,16 @@ button:disabled {
   grid-template-columns: 0 minmax(0, 1fr);
 }
 
+.workspace-shell.sidebar-collapsed:not(.has-vault) .workspace-main {
+  padding: 0;
+}
+
 .workspace-shell.sidebar-collapsed.has-vault {
   grid-template-columns: 0 minmax(0, 1fr) var(--vault-width, 360px);
+}
+
+.workspace-shell.sidebar-collapsed.has-vault .workspace-main {
+  padding: 0;
 }
 
 .workspace-shell.has-vault.vault-collapsed {
