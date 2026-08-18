@@ -3548,12 +3548,28 @@ button:disabled {
   display: grid;
   gap: 3px;
   left: 0;
+  max-height: min(320px, 40vh);
   max-width: min(300px, calc(100vw - 24px));
   min-width: 210px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 7px;
   position: absolute;
   bottom: calc(100% + 8px);
   z-index: 5;
+}
+
+.model-popover::-webkit-scrollbar {
+  width: 8px;
+}
+
+.model-popover::-webkit-scrollbar-thumb {
+  background: #353539;
+  border-radius: 4px;
+}
+
+.model-popover::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .model-popover .eyebrow {
