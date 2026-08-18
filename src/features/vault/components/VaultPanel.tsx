@@ -596,9 +596,6 @@ export function VaultPanel({
           >
             {graph.files.map((file) => (
               <li key={file.path}>
-                <span className="vault-file-icon" aria-hidden="true">
-                  #
-                </span>
                 <button
                   aria-label={file.title}
                   className="vault-file-button"

@@ -2183,12 +2183,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.vault-file-icon {
-  color: #89898e;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
-}
-
 .vault-empty {
   color: #89898e;
   font-size: 0.78rem;
