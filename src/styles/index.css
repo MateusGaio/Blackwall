@@ -2023,6 +2023,10 @@ button:disabled {
   position: relative;
 }
 
+.workspace-shell:not(.vault-collapsed) .vault-slot {
+  border-left: 1px solid #252527;
+}
+
 .vault-slot.is-resizing {
   cursor: col-resize;
   user-select: none;
