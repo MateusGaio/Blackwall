@@ -600,12 +600,12 @@ export function VaultPanel({
                   #
                 </span>
                 <button
+                  aria-label={file.title}
                   className="vault-file-button"
                   onClick={() => openNote(file.path)}
                   type="button"
                 >
                   <strong>{file.title}</strong>
-                  <small>{file.path}</small>
                 </button>
               </li>
             ))}

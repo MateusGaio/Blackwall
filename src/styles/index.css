@@ -2134,37 +2134,35 @@ button:disabled {
 .vault-file-list {
   display: grid;
   flex: 1;
-  gap: 3px;
+  gap: 0;
   list-style: none;
   margin: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 0;
+  padding: 4px 0 8px;
 }
 
 .vault-file-list li {
-  align-items: flex-start;
+  align-items: center;
+  border-bottom: 1px solid #2a2a2e;
   display: flex;
-  gap: 9px;
-  padding: 9px 7px;
+  gap: 10px;
+  padding: 12px 10px;
 }
 
 .vault-file-list li:hover {
   background: #161618;
 }
 
-.vault-file-list li > span:last-child {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
+.vault-file-list li:last-child {
+  border-bottom: 0;
 }
 
 .vault-file-button {
   background: transparent;
   border: 0;
   color: inherit;
-  display: grid;
-  gap: 3px;
+  display: flex;
   min-width: 0;
   padding: 0;
   text-align: left;
@@ -2178,17 +2176,8 @@ button:disabled {
 }
 
 .vault-file-list strong {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.vault-file-list small {
-  color: #77777c;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.64rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2197,7 +2186,7 @@ button:disabled {
 .vault-file-icon {
   color: #89898e;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
 }
 
 .vault-empty {
