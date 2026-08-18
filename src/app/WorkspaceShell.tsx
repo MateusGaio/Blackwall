@@ -770,10 +770,33 @@ export default function WorkspaceShell({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
-    const sessionId = state?.activeSessionId;
-    if (!content || !activeProvider || !sessionId || isSending) return;
+    let sessionId = state?.activeSessionId ?? null;
+    if (!content || !activeProvider || isSending) return;
+    if (!sessionId) {
+      try {
+        const session = await createSession(
+          workspace?.id ?? null,
+          undefined,
+          state?.activeProfileId ?? undefined,
+        );
+        sessionId = session.id;
+        activeSessionIdRef.current = session.id;
+        const nextState = await getAppState();
+        setState(nextState);
+        setMessages(nextState.messages);
+      } catch (reason) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : isEnglish
+              ? "Could not start a new conversation."
+              : "Não foi possível iniciar uma nova conversa.",
+        );
+        return;
+      }
+    }
     const nextMessages: ChatMessage[] = [
-      ...messages,
+      ...(state?.activeSessionId === sessionId ? messages : []),
       { content, id: crypto.randomUUID(), role: "user" },
     ];
     setMessages(nextMessages);
@@ -1225,16 +1248,6 @@ export default function WorkspaceShell({
                           : `${Math.round(window.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`}
                       </span>
                     ))}
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        setUsageOpen(false);
-                        setShowUsageDashboard(true);
-                      }}
-                      type="button"
-                    >
-                      {isEnglish ? "Open usage dashboard" : "Abrir dashboard de uso"}
-                    </button>
                   </div>
                 )}
               </div>
@@ -1506,7 +1519,7 @@ export default function WorkspaceShell({
             <textarea
               aria-label={isEnglish ? "Message" : "Mensagem"}
               data-testid="chat-composer"
-              disabled={!activeProvider || !activeSession || isSending}
+              disabled={!activeProvider || isSending}
               onChange={(event) => {
                 setDraft(event.target.value);
                 resizeComposer(event.target);
@@ -1524,7 +1537,7 @@ export default function WorkspaceShell({
             ) : (
               <button
                 className="button button-primary"
-                disabled={!draft.trim() || !activeProvider || !activeSession}
+                disabled={!draft.trim() || !activeProvider}
                 type="submit"
               >
                 {isEnglish ? "Send" : "Enviar"}

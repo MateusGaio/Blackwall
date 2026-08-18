@@ -633,11 +633,11 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
         ? database.db.select().from(workspaces).where(eq(workspaces.id, session.workspaceId)).get()
         : null
       : listWorkspaces(profileId)[0];
-    const activeSession =
-      session ?? createSession({ profileId, workspaceId: workspace?.id ?? null });
     saveSetting(database, settingKeys.activeProfileId, profileId);
     saveSetting(database, settingKeys.activeWorkspaceId, workspace?.id ?? "");
-    saveSetting(database, settingKeys.activeSessionId, activeSession.id);
+    // Selecting a profile opens a clean welcome state. Historical sessions
+    // remain available under Recent and are only opened by explicit choice.
+    saveSetting(database, settingKeys.activeSessionId, "");
     if (workspace) {
       database.db
         .update(workspaces)

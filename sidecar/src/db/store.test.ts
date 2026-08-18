@@ -238,7 +238,11 @@ describe("persistência local", () => {
     store.createSession({ profileId: second.id });
     const selected = store.selectProfile(first.id);
     expect(selected.activeProfileId).toBe(first.id);
-    expect(selected.activeSessionId).toBe(firstSession.id);
+    expect(selected.activeSessionId).toBeNull();
+    expect(selected.messages).toEqual([]);
+    expect(selected.recentSessions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: firstSession.id })]),
+    );
     expect(selected.profiles).toHaveLength(2);
     const signedOut = store.signOutProfile();
     expect(signedOut.activeProfileId).toBeNull();
