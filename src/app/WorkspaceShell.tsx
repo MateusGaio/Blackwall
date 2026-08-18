@@ -71,19 +71,41 @@ const defaultVaultWidth = 360;
 function CompactIcon({
   kind,
 }: {
-  kind: "files" | "graph" | "recent" | "settings" | "workspace" | "panel";
+  kind:
+    | "clip"
+    | "copy"
+    | "edit"
+    | "files"
+    | "graph"
+    | "new-thread"
+    | "panel"
+    | "recent"
+    | "refresh"
+    | "send"
+    | "settings"
+    | "stop"
+    | "workspace";
 }) {
   const paths = {
+    clip: (
+      <path d="m21.4 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    ),
+    copy: <path d="M9 9h11v11H9V9ZM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
+    edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" />,
     files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
     graph: (
       <path d="m7 6 5 3 5-3M7 18l5-3 5 3M12 9v6M5 5h4v4H5V5Zm10 0h4v4h-4V5ZM5 15h4v4H5v-4Zm10 0h4v4h-4v-4Z" />
     ),
+    "new-thread": <path d="M12 5v14M5 12h14" />,
+    panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
     recent: <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.5 2" />,
+    refresh: <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v5h-5" />,
+    send: <path d="M12 19V5M5 12l7-7 7 7" />,
     settings: (
       <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
     ),
+    stop: <rect height="10" rx="1" width="10" x="7" y="7" />,
     workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
-    panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
   } as const;
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -192,6 +214,7 @@ export default function WorkspaceShell({
   const [renameDraft, setRenameDraft] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingMessageDraft, setEditingMessageDraft] = useState("");
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -825,6 +848,24 @@ export default function WorkspaceShell({
     }
   }
 
+  async function copyMessage(message: ChatMessage) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => {
+        setCopiedMessageId((current) => (current === message.id ? null : current));
+      }, 1600);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : isEnglish
+            ? "Unable to copy the message."
+            : "Não foi possível copiar a mensagem.",
+      );
+    }
+  }
+
   function stopGeneration() {
     activeStream.current?.stop();
   }
@@ -898,32 +939,6 @@ export default function WorkspaceShell({
             ) : null}
             <strong>{name}</strong>
           </div>
-          <button
-            aria-label={
-              sidebarCollapsed
-                ? isEnglish
-                  ? "Show sidebar"
-                  : "Mostrar sidebar"
-                : isEnglish
-                  ? "Hide sidebar"
-                  : "Esconder sidebar"
-            }
-            aria-pressed={sidebarCollapsed}
-            className="sidebar-toggle"
-            onClick={() => setSidebarCollapsed((current) => !current)}
-            title={
-              sidebarCollapsed
-                ? isEnglish
-                  ? "Show sidebar"
-                  : "Mostrar sidebar"
-                : isEnglish
-                  ? "Hide sidebar"
-                  : "Esconder sidebar"
-            }
-            type="button"
-          >
-            <CompactIcon kind="panel" />
-          </button>
         </div>
         {sidebarCollapsed && (
           <nav
@@ -956,6 +971,20 @@ export default function WorkspaceShell({
               <CompactIcon kind="settings" />
             </button>
           </nav>
+        )}
+        {!sidebarCollapsed && (
+          <div className="sidebar-actions">
+            <button
+              aria-busy={isCreatingSession}
+              className="new-thread-button"
+              disabled={isCreatingSession || !state?.activeProfileId}
+              onClick={() => void newSession()}
+              type="button"
+            >
+              <CompactIcon kind="new-thread" />
+              <span>{isEnglish ? "New thread" : "Nova thread"}</span>
+            </button>
+          </div>
         )}
         <div className="sidebar-section">
           <div className="sidebar-section-heading">
@@ -1010,19 +1039,10 @@ export default function WorkspaceShell({
         </div>
         <div className="sidebar-section sidebar-sessions">
           <div className="sidebar-section-heading">
-            <p className="eyebrow">{isEnglish ? "Recent" : "Recentes"}</p>
-            <button
-              aria-label={isEnglish ? "New session" : "Nova sessão"}
-              className="icon-button"
-              disabled={isCreatingSession || !state?.activeProfileId}
-              onClick={() => void newSession()}
-              type="button"
-            >
-              {isCreatingSession ? "…" : "+"}
-            </button>
+            <p className="eyebrow">{isEnglish ? "Threads" : "Conversas"}</p>
           </div>
           <nav
-            aria-label={isEnglish ? "Recent sessions" : "Sessões recentes"}
+            aria-label={isEnglish ? "Thread list" : "Lista de conversas"}
             ref={recentSessionsRef}
             tabIndex={-1}
           >
@@ -1118,13 +1138,56 @@ export default function WorkspaceShell({
 
       <section className="workspace-main">
         <header className="workspace-header">
-          <div>
-            <p className="eyebrow">
-              {workspace?.name ?? (isEnglish ? "No workspace" : "Sem workspace")}
-            </p>
-            <p className="workspace-session-title">
-              {activeSession?.title ?? (isEnglish ? "New conversation" : "Nova conversa")}
-            </p>
+          <div className="workspace-header-primary">
+            <button
+              aria-expanded={!sidebarCollapsed}
+              aria-label={
+                sidebarCollapsed
+                  ? isEnglish
+                    ? "Show sidebar"
+                    : "Mostrar sidebar"
+                  : isEnglish
+                    ? "Hide sidebar"
+                    : "Esconder sidebar"
+              }
+              className="workspace-header-trigger"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              title={
+                sidebarCollapsed
+                  ? isEnglish
+                    ? "Show sidebar"
+                    : "Mostrar sidebar"
+                  : isEnglish
+                    ? "Hide sidebar"
+                    : "Esconder sidebar"
+              }
+              type="button"
+            >
+              <CompactIcon kind="panel" />
+            </button>
+            <nav
+              aria-label={isEnglish ? "Breadcrumb" : "Trilha de navegação"}
+              className="breadcrumb"
+            >
+              <ol className="breadcrumb-list">
+                <li className="breadcrumb-item">
+                  <span
+                    className="breadcrumb-page breadcrumb-page-workspace"
+                    data-current-workspace
+                  >
+                    {workspace?.name ?? (isEnglish ? "No workspace" : "Sem workspace")}
+                  </span>
+                </li>
+                <li aria-hidden="true" className="breadcrumb-separator">
+                  /
+                </li>
+                <li className="breadcrumb-item">
+                  <span className="breadcrumb-page breadcrumb-page-secondary">
+                    {activeSession?.title ?? (isEnglish ? "New conversation" : "Nova conversa")}
+                  </span>
+                </li>
+              </ol>
+            </nav>
           </div>
           <div className="chat-controls">
             {providers.length > 0 ? (
@@ -1306,28 +1369,57 @@ export default function WorkspaceShell({
                           content={message.content}
                           locale={isEnglish ? "en" : "pt-BR"}
                         />
-                        <div className="message-actions">
+                        <div className="action-bar" data-action-bar>
                           {message.role === "user" && (
                             <button
-                              className="message-action"
+                              aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
+                              className="action-bar-button"
                               onClick={() => {
                                 setEditingMessageDraft(message.content);
                                 setEditingMessageId(message.id);
                               }}
+                              title={isEnglish ? "Edit" : "Editar"}
                               type="button"
                             >
-                              {isEnglish ? "Edit" : "Editar"}
+                              <CompactIcon kind="edit" />
                             </button>
                           )}
                           {message.role === "assistant" &&
                             message.id === visibleMessages.at(-1)?.id && (
-                              <button
-                                className="message-action"
-                                onClick={() => void regenerate()}
-                                type="button"
-                              >
-                                {isEnglish ? "Regenerate" : "Regenerar"}
-                              </button>
+                              <>
+                                <button
+                                  aria-label={isEnglish ? "Copy message" : "Copiar mensagem"}
+                                  className="action-bar-button"
+                                  onClick={() => void copyMessage(message)}
+                                  title={
+                                    copiedMessageId === message.id
+                                      ? isEnglish
+                                        ? "Copied"
+                                        : "Copiado"
+                                      : isEnglish
+                                        ? "Copy"
+                                        : "Copiar"
+                                  }
+                                  type="button"
+                                >
+                                  {copiedMessageId === message.id ? (
+                                    <span aria-hidden="true">✓</span>
+                                  ) : (
+                                    <CompactIcon kind="copy" />
+                                  )}
+                                </button>
+                                <button
+                                  aria-label={
+                                    isEnglish ? "Regenerate response" : "Regenerar resposta"
+                                  }
+                                  className="action-bar-button"
+                                  onClick={() => void regenerate()}
+                                  title={isEnglish ? "Regenerate" : "Regenerar"}
+                                  type="button"
+                                >
+                                  <CompactIcon kind="refresh" />
+                                </button>
+                              </>
                             )}
                         </div>
                       </>
@@ -1421,7 +1513,7 @@ export default function WorkspaceShell({
               onClick={() => fileInput.current?.click()}
               type="button"
             >
-              +
+              <CompactIcon kind="clip" />
             </button>
             {workspace && (
               <div className="permission-control" data-permission-control>
@@ -1492,22 +1584,30 @@ export default function WorkspaceShell({
                 resizeComposer(event.target);
               }}
               onKeyDown={handleComposerKeyDown}
-              placeholder={isEnglish ? "Send a message…" : "Envie uma mensagem…"}
+              placeholder={isEnglish ? "Write a message…" : "Escreva uma mensagem…"}
               ref={composerRef}
               rows={1}
               value={draft}
             />
             {isSending ? (
-              <button className="button button-secondary" onClick={stopGeneration} type="button">
-                {isEnglish ? "Stop" : "Parar"}
+              <button
+                aria-label={isEnglish ? "Stop generating" : "Parar geração"}
+                className="composer-stop"
+                onClick={stopGeneration}
+                title={isEnglish ? "Stop" : "Parar"}
+                type="button"
+              >
+                <CompactIcon kind="stop" />
               </button>
             ) : (
               <button
-                className="button button-primary"
+                aria-label={isEnglish ? "Send message" : "Enviar mensagem"}
+                className="composer-send"
                 disabled={!draft.trim() || !activeProvider || !activeSession}
+                title={isEnglish ? "Send message" : "Enviar mensagem"}
                 type="submit"
               >
-                {isEnglish ? "Send" : "Enviar"}
+                <CompactIcon kind="send" />
               </button>
             )}
           </form>
