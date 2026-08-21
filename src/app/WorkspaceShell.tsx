@@ -1,11 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import {
   type CSSProperties,
-  type FormEvent,
-  type KeyboardEvent,
-  lazy,
   type PointerEvent as ReactPointerEvent,
-  Suspense,
   useEffect,
   useRef,
   useState,
@@ -18,32 +14,21 @@ import {
   type ConnectedProvider,
   createSession,
   deleteSession,
-  editSessionMessage,
   getAppState,
   getProviderUsage,
   listAttachments,
   listProviders,
   listStoredProviderModels,
   type ProviderModel,
-  persistMessage,
-  regenerateSession,
   removeAttachment,
   renameSession,
-  searchAttachments,
   selectSession,
   selectWorkspace,
   setSessionModel,
   setWorkspacePermissionMode,
-  streamMessage,
   uploadAttachment,
-  type WorkspaceToolApproval,
-  type WorkspaceToolDecision,
-  type WorkspaceToolName,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
-import { SafeMarkdown } from "../shared/components/SafeMarkdown";
-import { ConversationSummaryCard } from "./ConversationSummaryCard";
-import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 import {
   readBooleanPreference,
@@ -55,93 +40,15 @@ import {
   writeNumberPreference,
 } from "./panel-preferences";
 import { SessionUsageDialog } from "./SessionUsageDialog";
+import { ChatHeader } from "./shell/ChatHeader";
+import { Composer } from "./shell/Composer";
+import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
+import { MessageList } from "./shell/MessageList";
+import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
+import { useStreamingChat } from "./shell/useStreamingChat";
+import { maximumVaultWidth, minimumVaultWidth, VaultSlot, type VaultTab } from "./shell/VaultSlot";
 
-const VaultPanel = lazy(async () => {
-  const module = await import("../features/vault/components/VaultPanel");
-  return { default: module.VaultPanel };
-});
-
-type SidebarFocusTarget = "recent" | "settings" | "workspace";
-type VaultTab = "files" | "graph";
-
-const minimumVaultWidth = 300;
-const maximumVaultWidth = 680;
 const defaultVaultWidth = 360;
-
-function CompactIcon({
-  kind,
-}: {
-  kind:
-    | "clip"
-    | "copy"
-    | "edit"
-    | "files"
-    | "graph"
-    | "new-thread"
-    | "panel"
-    | "recent"
-    | "refresh"
-    | "send"
-    | "settings"
-    | "stop"
-    | "workspace"
-    | "chevron";
-}) {
-  const paths = {
-    chevron: <path d="m6 9 6 6 6-6" />,
-    clip: (
-      <path d="m21.4 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    ),
-    copy: <path d="M9 9h11v11H9V9ZM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
-    edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" />,
-    files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
-    graph: (
-      <path d="m7 6 5 3 5-3M7 18l5-3 5 3M12 9v6M5 5h4v4H5V5Zm10 0h4v4h-4V5ZM5 15h4v4H5v-4Zm10 0h4v4h-4v-4Z" />
-    ),
-    "new-thread": <path d="M12 5v14M5 12h14" />,
-    panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
-    recent: <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.5 2" />,
-    refresh: <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v5h-5" />,
-    send: <path d="M12 19V5M5 12l7-7 7 7" />,
-    settings: (
-      <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
-    ),
-    stop: <rect height="10" rx="1" width="10" x="7" y="7" />,
-    workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
-  } as const;
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      {paths[kind]}
-    </svg>
-  );
-}
-
-/**
- * Headline figure is the context the conversation currently occupies (the most
- * recent request), never the cumulative sum — the same measure other harnesses
- * report, and the only one that answers "how full is this conversation?".
- */
-function usageBadgeLabel(
-  summary: import("../shared/api/sidecar").UsageSummary | null,
-  isEnglish: boolean,
-) {
-  const last = summary?.lastRequest;
-  if (last && last.totalTokens > 0) {
-    const tokens = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 1,
-      notation: "compact",
-    }).format(last.totalTokens);
-    return last.contextLimit && last.contextLimit > 0
-      ? `${tokens} · ${Math.round((last.totalTokens / last.contextLimit) * 100)}%`
-      : `${tokens} ${isEnglish ? "in context" : "no contexto"}`;
-  }
-  const restrictive = summary?.windows
-    .filter((window) => window.remainingPercent !== undefined)
-    .sort((left, right) => (left.remainingPercent ?? 101) - (right.remainingPercent ?? 101))[0];
-  if (restrictive?.remainingPercent !== undefined)
-    return `${Math.round(restrictive.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`;
-  return isEnglish ? "Usage unavailable" : "Uso indisponível";
-}
 
 type WorkspaceShellProps = {
   appState: AppState | null;
@@ -193,11 +100,8 @@ export default function WorkspaceShell({
   const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
-  const [isSending, setIsSending] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [models, setModels] = useState<ProviderModel[]>([]);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [streamingStatus, setStreamingStatus] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
@@ -207,7 +111,6 @@ export default function WorkspaceShell({
   >(null);
   const [usageOpen, setUsageOpen] = useState(false);
   const [showUsageDetails, setShowUsageDetails] = useState(false);
-  const [toolApproval, setToolApproval] = useState<WorkspaceToolApproval | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
   );
@@ -219,12 +122,7 @@ export default function WorkspaceShell({
   const [editingMessageDraft, setEditingMessageDraft] = useState("");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
-  const fileInput = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const activeStream = useRef<{ stop: () => void } | null>(null);
-  const pendingToolDecision = useRef<((decision: WorkspaceToolDecision) => void) | null>(null);
-  const streamingContentRef = useRef("");
-  const runningToolRef = useRef<WorkspaceToolName | null>(null);
   const messageListRef = useRef<HTMLOListElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -252,6 +150,38 @@ export default function WorkspaceShell({
   const modelName =
     (models.find((model) => model.id === selectedModel)?.name ?? selectedModel) ||
     (isEnglish ? "Select model" : "Selecionar modelo");
+
+  const {
+    editMessage,
+    isSending,
+    regenerate,
+    resolveToolDecision,
+    stopGeneration,
+    streamingContent,
+    streamingStatus,
+    submit,
+    toolApproval,
+  } = useStreamingChat({
+    activeProvider,
+    activeSessionIdRef,
+    composerRef,
+    draft,
+    isEnglish,
+    messages,
+    selectedModel,
+    setActiveSessionId: (sessionId) => {
+      activeSessionIdRef.current = sessionId;
+    },
+    setDraft,
+    setError,
+    setMessages,
+    setResourceNotice,
+    setState,
+    setUsageSummary,
+    setVaultRefreshKey,
+    state,
+    workspaceId: workspace?.id,
+  });
 
   useEffect(() => {
     if (!activeProvider) {
@@ -679,183 +609,6 @@ export default function WorkspaceShell({
     }
   }
 
-  function resolveToolDecision(decision: WorkspaceToolDecision) {
-    const resolveDecision = pendingToolDecision.current;
-    pendingToolDecision.current = null;
-    setToolApproval(null);
-    resolveDecision?.(decision);
-  }
-
-  async function generateResponse(promptMessages: ChatMessage[], sessionId: string) {
-    if (!activeProvider || isSending) return;
-    setError("");
-    setIsSending(true);
-    setStreamingContent("");
-    streamingContentRef.current = "";
-    setStreamingStatus("Consultando…");
-    const requestProvider = activeProvider;
-    const requestModel = selectedModel;
-    const requestWorkspaceId = workspace?.id ?? "default";
-    const requestProfileId = state?.activeProfileId;
-    try {
-      const stream = await streamMessage(
-        requestProvider.id,
-        promptMessages,
-        requestModel,
-        requestWorkspaceId,
-        {
-          onDelta: (delta) => {
-            if (activeSessionIdRef.current !== sessionId) return;
-            streamingContentRef.current += delta;
-            setStreamingContent(streamingContentRef.current);
-            setStreamingStatus("Gerando…");
-          },
-          onCompacting: () => {
-            if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(isEnglish ? "Summarizing context…" : "Resumindo contexto…");
-          },
-          onUsage: () => {
-            void getProviderUsage(requestProvider.id, {
-              modelId: requestModel || undefined,
-              profileId: requestProfileId,
-              sessionId,
-            })
-              .then(setUsageSummary)
-              .catch(() => undefined);
-          },
-          onRetry: (message) => {
-            if (activeSessionIdRef.current === sessionId) setStreamingStatus(message);
-          },
-          onApproval: (approval, resolveDecision) => {
-            if (activeSessionIdRef.current !== sessionId) {
-              resolveDecision("deny");
-              return;
-            }
-            pendingToolDecision.current = resolveDecision;
-            setToolApproval(approval);
-            setStreamingStatus(isEnglish ? "Waiting for permission…" : "Aguardando autorização…");
-          },
-          onToolStarted: (tool) => {
-            runningToolRef.current = tool;
-            if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(`${isEnglish ? "Running" : "Executando"} ${tool}…`);
-          },
-          onToolCompleted: () => {
-            if (runningToolRef.current === "create_or_update_file")
-              setVaultRefreshKey((key) => key + 1);
-            runningToolRef.current = null;
-            if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(isEnglish ? "Continuing…" : "Continuando…");
-          },
-        },
-        requestProfileId ?? undefined,
-        sessionId,
-      );
-      activeStream.current = stream;
-      const result = await stream.done;
-      const assistantContent = result.content.trim();
-      if (assistantContent && !result.persisted) {
-        await persistMessage(sessionId, {
-          content: assistantContent,
-          model: result.provider?.model ?? requestModel,
-          providerId: result.provider?.id ?? requestProvider.id,
-          role: "assistant",
-          status: result.stopped ? "stopped" : "complete",
-        });
-      }
-      const refreshed = await getAppState();
-      setState(refreshed);
-      if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
-      if (result.failed && result.error) setError(result.error);
-    } catch (reason) {
-      const partial = streamingContentRef.current.trim();
-      if (partial) {
-        await persistMessage(sessionId, {
-          content: partial,
-          model: requestModel,
-          providerId: requestProvider.id,
-          role: "assistant",
-          status: "failed",
-        }).catch(() => undefined);
-        const refreshed = await getAppState().catch(() => null);
-        if (refreshed) {
-          setState(refreshed);
-          if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
-        }
-      }
-      setError(reason instanceof Error ? reason.message : "Não foi possível enviar a mensagem.");
-    } finally {
-      activeStream.current = null;
-      setStreamingContent("");
-      streamingContentRef.current = "";
-      setStreamingStatus("");
-      setIsSending(false);
-    }
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const content = draft.trim();
-    const sessionId = state?.activeSessionId;
-    if (!content || !activeProvider || !sessionId || isSending) return;
-    const nextMessages: ChatMessage[] = [
-      ...messages,
-      { content, id: crypto.randomUUID(), role: "user" },
-    ];
-    setMessages(nextMessages);
-    activeSessionIdRef.current = sessionId;
-    setDraft("");
-    composerRef.current?.style.removeProperty("height");
-    setResourceNotice("");
-    await persistMessage(sessionId, { content, role: "user", status: "complete" });
-    // Atualiza a lista de Recentes assim que a conversa recebe atividade,
-    // antes mesmo de a resposta do modelo terminar de chegar.
-    setState(await getAppState());
-    const relevantAttachments = workspace
-      ? await searchAttachments(workspace.id, content.slice(0, 160)).catch(() => [])
-      : [];
-    const contextMessage: ChatMessage | null = relevantAttachments.length
-      ? {
-          content: `Trechos relevantes dos anexos locais:\n${relevantAttachments
-            .map((item) => `[${item.filename}]\n${item.content}`)
-            .join("\n\n")}`,
-          id: crypto.randomUUID(),
-          role: "system",
-        }
-      : null;
-    await generateResponse(
-      contextMessage ? [...nextMessages, contextMessage] : nextMessages,
-      sessionId,
-    );
-  }
-
-  async function editMessage(messageId: string, content: string) {
-    const sessionId = state?.activeSessionId;
-    if (!sessionId || isSending) return;
-    try {
-      const next = await editSessionMessage(sessionId, messageId, content);
-      setMessages(next as ChatMessage[]);
-      const refreshed = await getAppState();
-      setState(refreshed);
-      setMessages(refreshed.messages);
-      await generateResponse(refreshed.messages as ChatMessage[], sessionId);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível editar a mensagem.");
-    }
-  }
-
-  async function regenerate() {
-    const sessionId = state?.activeSessionId;
-    if (!sessionId || isSending) return;
-    try {
-      const next = await regenerateSession(sessionId);
-      setMessages(next as ChatMessage[]);
-      await generateResponse(next as ChatMessage[], sessionId);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível regenerar a resposta.");
-    }
-  }
-
   async function copyMessage(message: ChatMessage) {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -872,10 +625,6 @@ export default function WorkspaceShell({
             : "Não foi possível copiar a mensagem.",
       );
     }
-  }
-
-  function stopGeneration() {
-    activeStream.current?.stop();
   }
 
   async function attachFile(file: File) {
@@ -902,26 +651,6 @@ export default function WorkspaceShell({
     }
   }
 
-  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (
-      !isSubmitShortcut({
-        isComposing: event.nativeEvent.isComposing,
-        key: event.key,
-        shiftKey: event.shiftKey,
-      })
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  }
-
-  function resizeComposer(target: HTMLTextAreaElement) {
-    target.style.height = "auto";
-    target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
-  }
-
   const visibleMessages = messages.filter(
     (message) =>
       message.role !== "tool" &&
@@ -933,358 +662,77 @@ export default function WorkspaceShell({
       className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
       style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
     >
-      <aside
-        className="workspace-sidebar"
-        aria-label={isEnglish ? "Workspace navigation" : "Navegação do workspace"}
-      >
-        <div className="sidebar-heading">
-          <span aria-label="Blackwall" className="sidebar-brand-mark" role="img">
-            BW
-          </span>
-          <div className="sidebar-profile-summary">
-            {activeProfile?.avatarData ? (
-              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
-            ) : null}
-            <strong>{name}</strong>
-          </div>
-        </div>
-        {sidebarCollapsed && (
-          <nav
-            aria-label={isEnglish ? "Sidebar shortcuts" : "Atalhos da sidebar"}
-            className="sidebar-rail"
-          >
-            <button
-              aria-label={isEnglish ? "Open settings" : "Abrir configurações"}
-              className="sidebar-rail-settings"
-              onClick={() => expandSidebar("settings")}
-              title={isEnglish ? "Settings" : "Configurações"}
-              type="button"
-            >
-              <CompactIcon kind="settings" />
-            </button>
-          </nav>
-        )}
-        {!sidebarCollapsed && (
-          <div className="sidebar-actions">
-            <button
-              aria-busy={isCreatingSession}
-              className="new-thread-button"
-              disabled={isCreatingSession || !state?.activeProfileId}
-              onClick={() => void newSession()}
-              type="button"
-            >
-              <CompactIcon kind="new-thread" />
-              <span>{isEnglish ? "New thread" : "Nova thread"}</span>
-            </button>
-          </div>
-        )}
-        <div className="sidebar-section">
-          <div className="sidebar-section-heading">
-            <p className="eyebrow">Workspaces</p>
-            <button
-              aria-label={isEnglish ? "Create workspace" : "Criar workspace"}
-              className="icon-button"
-              onClick={() => void newWorkspace()}
-              type="button"
-            >
-              +
-            </button>
-          </div>
-          {workspace && (
-            <label className="workspace-picker">
-              <span className="workspace-picker-label">
-                {isEnglish ? "Current workspace" : "Workspace atual"}
-              </span>
-              <span className="workspace-picker-control">
-                <select
-                  aria-label={isEnglish ? "Current workspace" : "Workspace atual"}
-                  onChange={(event) => void openWorkspace(event.target.value)}
-                  ref={workspacePickerRef}
-                  value={workspace.id}
-                >
-                  {state?.workspaces.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-                <span aria-hidden="true" className="workspace-picker-chevron">
-                  ⌄
-                </span>
-              </span>
-              <span>{workspace.rootPath}</span>
-            </label>
-          )}
-          {!workspace && (
-            <div className="workspace-empty">
-              <strong>{isEnglish ? "No workspace" : "Sem workspace"}</strong>
-              <span>
-                {isEnglish
-                  ? "Conversation without file context."
-                  : "Conversa sem contexto de arquivos."}
-              </span>
-              <button className="sidebar-config" onClick={() => void newWorkspace()} type="button">
-                {isEnglish ? "Add workspace" : "Adicionar workspace"}
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="sidebar-section sidebar-sessions">
-          <div className="sidebar-section-heading">
-            <p className="eyebrow">{isEnglish ? "Threads" : "Conversas"}</p>
-          </div>
-          <nav
-            aria-label={isEnglish ? "Thread list" : "Lista de conversas"}
-            ref={recentSessionsRef}
-            tabIndex={-1}
-          >
-            {recentSessions.map((session) => (
-              <div className="session-row" data-session-menu key={session.id}>
-                <button
-                  className={`session-item ${session.id === activeSession?.id ? "is-active" : ""}`}
-                  onClick={() => void openSession(session.id)}
-                  type="button"
-                >
-                  <span aria-hidden="true" className="session-icon" />
-                  <span className="session-copy">
-                    <strong>{session.title}</strong>
-                    <small>
-                      {session.workspaceName ?? (isEnglish ? "No workspace" : "Sem workspace")}
-                    </small>
-                  </span>
-                </button>
-                <button
-                  aria-expanded={openSessionMenuId === session.id}
-                  aria-haspopup="menu"
-                  aria-label={`${isEnglish ? "Actions for" : "Ações de"} ${session.title}`}
-                  className="session-more"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const nextId = openSessionMenuId === session.id ? null : session.id;
-                    setOpenSessionMenuId(nextId);
-                    setSessionMenuPosition(
-                      nextId
-                        ? {
-                            left: Math.max(8, rect.right - 142),
-                            top: Math.min(window.innerHeight - 92, rect.bottom + 4),
-                          }
-                        : null,
-                    );
-                  }}
-                  type="button"
-                >
-                  …
-                </button>
-              </div>
-            ))}
-          </nav>
-        </div>
-        <div className="sidebar-settings">
-          <button
-            className="sidebar-config"
-            onClick={() => setShowSettings(true)}
-            ref={settingsButtonRef}
-            type="button"
-          >
-            {isEnglish ? "Settings" : "Configurações"}
-          </button>
-        </div>
-        {openSessionMenuId && sessionMenuPosition && (
-          <div
-            className="session-menu session-menu-floating"
-            role="menu"
-            style={{ left: sessionMenuPosition.left, top: sessionMenuPosition.top }}
-          >
-            <button
-              onClick={() => {
-                const session = recentSessions.find((item) => item.id === openSessionMenuId);
-                if (!session) return;
-                setOpenSessionMenuId(null);
-                setSessionMenuPosition(null);
-                setRenameDraft(session.title);
-                setSessionToRename({ id: session.id, title: session.title });
-              }}
-              role="menuitem"
-              type="button"
-            >
-              {isEnglish ? "Rename" : "Renomear"}
-            </button>
-            <button
-              className="session-menu-danger"
-              onClick={() => {
-                const session = recentSessions.find((item) => item.id === openSessionMenuId);
-                if (!session) return;
-                setOpenSessionMenuId(null);
-                setSessionMenuPosition(null);
-                setSessionToDelete({ id: session.id, title: session.title });
-              }}
-              role="menuitem"
-              type="button"
-            >
-              {isEnglish ? "Delete" : "Excluir"}
-            </button>
-          </div>
-        )}
-      </aside>
+      <SessionsSidebar
+        activeProfile={activeProfile}
+        activeSessionId={activeSession?.id}
+        collapsed={sidebarCollapsed}
+        expandSidebar={expandSidebar}
+        hasActiveProfile={Boolean(state?.activeProfileId)}
+        isCreatingSession={isCreatingSession}
+        isEnglish={isEnglish}
+        name={name}
+        newSession={() => void newSession()}
+        newWorkspace={() => void newWorkspace()}
+        onDeleteRequest={(session) => setSessionToDelete({ id: session.id, title: session.title })}
+        onRenameRequest={(session) => {
+          setRenameDraft(session.title);
+          setSessionToRename({ id: session.id, title: session.title });
+        }}
+        onRequestCloseMenu={() => {
+          setOpenSessionMenuId(null);
+          setSessionMenuPosition(null);
+        }}
+        onToggleSessionMenu={(sessionId, position) => {
+          setOpenSessionMenuId(sessionId);
+          setSessionMenuPosition(position);
+        }}
+        openSession={(sessionId) => void openSession(sessionId)}
+        openSessionMenuId={openSessionMenuId}
+        openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
+        recentSessions={recentSessions}
+        recentSessionsRef={recentSessionsRef}
+        sessionMenuPosition={sessionMenuPosition}
+        settingsButtonRef={settingsButtonRef}
+        setShowSettings={setShowSettings}
+        workspace={workspace}
+        workspacePickerRef={workspacePickerRef}
+        workspaces={state?.workspaces ?? []}
+      />
 
       <section className="workspace-main">
-        <header className="workspace-header">
-          <div className="workspace-header-primary">
-            <button
-              aria-expanded={!sidebarCollapsed}
-              aria-label={
-                sidebarCollapsed
-                  ? isEnglish
-                    ? "Show sidebar"
-                    : "Mostrar sidebar"
-                  : isEnglish
-                    ? "Hide sidebar"
-                    : "Esconder sidebar"
-              }
-              className="workspace-header-trigger"
-              onClick={() => setSidebarCollapsed((current) => !current)}
-              title={
-                sidebarCollapsed
-                  ? isEnglish
-                    ? "Show sidebar"
-                    : "Mostrar sidebar"
-                  : isEnglish
-                    ? "Hide sidebar"
-                    : "Esconder sidebar"
-              }
-              type="button"
-            >
-              <CompactIcon kind="panel" />
-            </button>
-            <nav
-              aria-label={isEnglish ? "Breadcrumb" : "Trilha de navegação"}
-              className="breadcrumb"
-            >
-              <ol className="breadcrumb-list">
-                <li className="breadcrumb-item">
-                  <span className="breadcrumb-link">
-                    {workspace?.name ?? (isEnglish ? "No workspace" : "Sem workspace")}
-                  </span>
-                </li>
-                {workspace?.rootPath && (
-                  <>
-                    <li aria-hidden="true" className="breadcrumb-separator">
-                      /
-                    </li>
-                    <li className="breadcrumb-item">
-                      <span className="breadcrumb-page breadcrumb-path" title={workspace.rootPath}>
-                        {workspace.rootPath}
-                      </span>
-                    </li>
-                  </>
-                )}
-              </ol>
-            </nav>
-            <h1 className="thread-title">
-              {activeSession?.title ?? (isEnglish ? "New conversation" : "Nova conversa")}
-            </h1>
-          </div>
-          <div className="chat-controls">
-            {providers.length > 0 ? (
-              <label className="provider-selector">
-                <span className="sr-only">{isEnglish ? "Provider" : "Provedor"}</span>
-                <select
-                  aria-label={isEnglish ? "Select provider" : "Selecionar provedor"}
-                  onChange={(event) => {
-                    const nextProvider = providers.find((item) => item.id === event.target.value);
-                    if (nextProvider) void selectProvider(nextProvider);
-                  }}
-                  title={isEnglish ? "Select provider" : "Selecionar provedor"}
-                  value={activeProvider?.id ?? ""}
-                >
-                  {providers.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <p className="eyebrow">{isEnglish ? "no provider" : "sem provedor"}</p>
-            )}
-            {activeProvider && (
-              <div className="usage-indicator-wrap">
-                <button
-                  aria-expanded={usageOpen}
-                  className="usage-indicator"
-                  onClick={() => setUsageOpen((current) => !current)}
-                  title={isEnglish ? "Provider usage" : "Uso do provedor"}
-                  type="button"
-                >
-                  {usageBadgeLabel(usageSummary, isEnglish)}
-                </button>
-                {usageOpen && (
-                  <div className="usage-popover" role="dialog">
-                    <strong>{isEnglish ? "Current context" : "Contexto atual"}</strong>
-                    <span>
-                      {isEnglish ? "Tokens" : "Tokens"}:{" "}
-                      {(usageSummary?.lastRequest?.totalTokens ?? 0).toLocaleString()}
-                      {usageSummary?.lastRequest?.contextLimit
-                        ? ` / ${usageSummary.lastRequest.contextLimit.toLocaleString()}`
-                        : ""}
-                    </span>
-                    <span>
-                      {isEnglish ? "Cached" : "Em cache"}:{" "}
-                      {(usageSummary?.lastRequest?.cachedInputTokens ?? 0).toLocaleString()}
-                    </span>
-                    <span>
-                      {isEnglish ? "Requests (cumulative)" : "Requisições (acumulado)"}:{" "}
-                      {usageSummary?.totals.requests ?? 0}
-                    </span>
-                    {usageSummary?.windows.map((window) => (
-                      <span key={`${window.metric}-${window.label}`}>
-                        {window.label}:{" "}
-                        {window.remainingPercent === undefined
-                          ? isEnglish
-                            ? "limit unavailable"
-                            : "limite indisponível"
-                          : `${Math.round(window.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`}
-                      </span>
-                    ))}
-                    <button
-                      className="text-button"
-                      onClick={() => {
-                        setUsageOpen(false);
-                        setShowUsageDetails(true);
-                      }}
-                      type="button"
-                    >
-                      {isEnglish ? "View full usage" : "Ver uso completo"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            <button
-              aria-pressed={Boolean(workspace && showVault)}
-              className={`header-toggle ${showVault && workspace ? "is-active" : ""}`}
-              onClick={() => {
-                if (!workspace) {
-                  setResourceNotice(
-                    isEnglish
-                      ? "Select a folder to configure your workspace and use the Vault and graph."
-                      : "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
-                  );
-                  return;
-                }
-                setResourceNotice("");
-                setShowVault((current) => {
-                  if (!current) setVaultCollapsed(false);
-                  return !current;
-                });
-              }}
-              type="button"
-            >
-              Vault
-            </button>
-          </div>
-        </header>
+        <ChatHeader
+          activeProvider={activeProvider}
+          isEnglish={isEnglish}
+          onOpenUsageDetails={() => {
+            setUsageOpen(false);
+            setShowUsageDetails(true);
+          }}
+          onSelectProvider={(next) => void selectProvider(next)}
+          onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+          onVaultClick={() => {
+            if (!workspace) {
+              setResourceNotice(
+                isEnglish
+                  ? "Select a folder to configure your workspace and use the Vault and graph."
+                  : "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
+              );
+              return;
+            }
+            setResourceNotice("");
+            setShowVault((current) => {
+              if (!current) setVaultCollapsed(false);
+              return !current;
+            });
+          }}
+          providers={providers}
+          sessionTitle={activeSession?.title}
+          setUsageOpen={setUsageOpen}
+          sidebarCollapsed={sidebarCollapsed}
+          usageOpen={usageOpen}
+          usageSummary={usageSummary}
+          vaultActive={Boolean(workspace && showVault)}
+          workspace={workspace}
+        />
         <section
           className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
           aria-label={isEnglish ? "Conversation" : "Conversa"}
@@ -1305,118 +753,29 @@ export default function WorkspaceShell({
               </p>
             </div>
           ) : (
-            <ol className="message-list" ref={messageListRef}>
-              {visibleMessages.map((message) =>
-                message.isSummary ? (
-                  <ConversationSummaryCard
-                    content={message.content}
-                    isEnglish={isEnglish}
-                    key={message.id}
-                  />
-                ) : (
-                  <li className={`message message-${message.role}`} key={message.id}>
-                    {editingMessageId === message.id ? (
-                      <form
-                        className="message-edit-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          setEditingMessageId(null);
-                          void editMessage(message.id, editingMessageDraft);
-                        }}
-                      >
-                        <textarea
-                          aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
-                          onChange={(event) => setEditingMessageDraft(event.target.value)}
-                          value={editingMessageDraft}
-                        />
-                        <div className="message-actions">
-                          <button
-                            className="button button-secondary"
-                            onClick={() => setEditingMessageId(null)}
-                            type="button"
-                          >
-                            {isEnglish ? "Cancel" : "Cancelar"}
-                          </button>
-                          <button className="button button-primary" type="submit">
-                            {isEnglish ? "Save and regenerate" : "Salvar e regenerar"}
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <>
-                        <SafeMarkdown
-                          content={message.content}
-                          locale={isEnglish ? "en" : "pt-BR"}
-                        />
-                        <div className="action-bar" data-action-bar>
-                          {message.role === "user" && (
-                            <button
-                              aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
-                              className="action-bar-button"
-                              onClick={() => {
-                                setEditingMessageDraft(message.content);
-                                setEditingMessageId(message.id);
-                              }}
-                              title={isEnglish ? "Edit" : "Editar"}
-                              type="button"
-                            >
-                              <CompactIcon kind="edit" />
-                            </button>
-                          )}
-                          {message.role === "assistant" &&
-                            message.id === visibleMessages.at(-1)?.id && (
-                              <>
-                                <button
-                                  aria-label={isEnglish ? "Copy message" : "Copiar mensagem"}
-                                  className="action-bar-button"
-                                  onClick={() => void copyMessage(message)}
-                                  title={
-                                    copiedMessageId === message.id
-                                      ? isEnglish
-                                        ? "Copied"
-                                        : "Copiado"
-                                      : isEnglish
-                                        ? "Copy"
-                                        : "Copiar"
-                                  }
-                                  type="button"
-                                >
-                                  {copiedMessageId === message.id ? (
-                                    <span aria-hidden="true">✓</span>
-                                  ) : (
-                                    <CompactIcon kind="copy" />
-                                  )}
-                                </button>
-                                <button
-                                  aria-label={
-                                    isEnglish ? "Regenerate response" : "Regenerar resposta"
-                                  }
-                                  className="action-bar-button"
-                                  onClick={() => void regenerate()}
-                                  title={isEnglish ? "Regenerate" : "Regenerar"}
-                                  type="button"
-                                >
-                                  <CompactIcon kind="refresh" />
-                                </button>
-                              </>
-                            )}
-                        </div>
-                      </>
-                    )}
-                  </li>
-                ),
-              )}
-              {isSending && (
-                <li className="message message-assistant message-streaming">
-                  {streamingContent ? (
-                    <SafeMarkdown content={streamingContent} locale={isEnglish ? "en" : "pt-BR"} />
-                  ) : (
-                    streamingStatus
-                  )}
-                  <span aria-hidden="true" className="streaming-cursor" />
-                </li>
-              )}
-            </ol>
+            <MessageList
+              copiedMessageId={copiedMessageId}
+              copyMessage={(message) => void copyMessage(message)}
+              editingMessageDraft={editingMessageDraft}
+              editingMessageId={editingMessageId}
+              isEnglish={isEnglish}
+              isSending={isSending}
+              listRef={messageListRef}
+              onEditCancel={() => setEditingMessageId(null)}
+              onEditChange={setEditingMessageDraft}
+              onEditSubmit={(messageId, draft) => {
+                setEditingMessageId(null);
+                void editMessage(messageId, draft);
+              }}
+              onEditingStart={(message) => {
+                setEditingMessageDraft(message.content);
+                setEditingMessageId(message.id);
+              }}
+              regenerate={() => void regenerate()}
+              streamingContent={streamingContent}
+              streamingStatus={streamingStatus}
+              visibleMessages={visibleMessages}
+            />
           )}
           {attachments.length > 0 && (
             <ul
@@ -1473,159 +832,29 @@ export default function WorkspaceShell({
               </div>
             </section>
           )}
-          <form className="composer" onSubmit={submit}>
-            <input
-              accept=".c,.cpp,.css,.csv,.go,.h,.html,.java,.js,.json,.jsx,.md,.pdf,.py,.rs,.sh,.sql,.toml,.ts,.tsx,.txt,.yaml,.yml"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void attachFile(file);
-              }}
-              ref={fileInput}
-              type="file"
-            />
-            <button
-              aria-label={isEnglish ? "Attach file" : "Anexar arquivo"}
-              className="composer-attach"
-              disabled={!activeSession || !workspace || isSending}
-              onClick={() => fileInput.current?.click()}
-              type="button"
-            >
-              <CompactIcon kind="clip" />
-            </button>
-            {workspace && (
-              <div className="permission-control" data-permission-control>
-                <button
-                  aria-expanded={permissionOpen}
-                  aria-haspopup="menu"
-                  aria-label={isEnglish ? "Permission mode" : "Modo de permissões"}
-                  className="composer-permission"
-                  onClick={() => setPermissionOpen((current) => !current)}
-                  title={`Permissões: ${
-                    workspace.permissionMode === "ask"
-                      ? isEnglish
-                        ? "Ask every time"
-                        : "Perguntar sempre"
-                      : workspace.permissionMode === "automatic"
-                        ? isEnglish
-                          ? "Automatic"
-                          : "Automático"
-                        : isEnglish
-                          ? "Read-only"
-                          : "Somente leitura"
-                  }`}
-                  type="button"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M12 3 5 6v5c0 4.3 2.8 8.2 7 10 4.2-1.8 7-5.7 7-10V6l-7-3Z" />
-                    <path d="m9 12 2 2 4-4" />
-                  </svg>
-                </button>
-                {permissionOpen && (
-                  <div className="permission-popover" role="menu">
-                    <p>{isEnglish ? "Permissions" : "Permissões"}</p>
-                    {(
-                      [
-                        ["ask", isEnglish ? "Ask every time" : "Perguntar sempre"],
-                        ["automatic", isEnglish ? "Automatic" : "Automático"],
-                        ["read-only", isEnglish ? "Read-only" : "Somente leitura"],
-                      ] as const
-                    ).map(([mode, label]) => (
-                      <button
-                        className={workspace.permissionMode === mode ? "is-selected" : ""}
-                        key={mode}
-                        onClick={() => {
-                          void changePermissionMode(mode);
-                          setPermissionOpen(false);
-                        }}
-                        role="menuitemradio"
-                        aria-checked={workspace.permissionMode === mode}
-                        type="button"
-                      >
-                        <span>{label}</span>
-                        {workspace.permissionMode === mode && <span aria-hidden="true">✓</span>}
-                      </button>
-                    ))}
-                    {permissionError && (
-                      <small className="permission-error">{permissionError}</small>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            <textarea
-              aria-label={isEnglish ? "Message" : "Mensagem"}
-              data-testid="chat-composer"
-              disabled={!activeProvider || !activeSession || isSending}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                resizeComposer(event.target);
-              }}
-              onKeyDown={handleComposerKeyDown}
-              placeholder={isEnglish ? "Write a message…" : "Escreva uma mensagem…"}
-              ref={composerRef}
-              rows={1}
-              value={draft}
-            />
-            {activeProvider && (
-              <div className="model-control" data-model-control>
-                <button
-                  aria-expanded={modelOpen}
-                  aria-haspopup="menu"
-                  className="composer-model"
-                  onClick={() => setModelOpen((current) => !current)}
-                  title={modelName}
-                  type="button"
-                >
-                  <span className="composer-model-name">{modelName}</span>
-                  <CompactIcon kind="chevron" />
-                </button>
-                {modelOpen && (
-                  <div className="model-popover" role="menu">
-                    <p className="eyebrow">{activeProvider.name}</p>
-                    {models.map((model) => (
-                      <button
-                        aria-checked={model.id === selectedModel}
-                        className={model.id === selectedModel ? "is-selected" : ""}
-                        key={model.id}
-                        onClick={() => {
-                          void changeModel(model.id);
-                          setModelOpen(false);
-                        }}
-                        role="menuitemradio"
-                        type="button"
-                      >
-                        <span>{model.name}</span>
-                        {model.id === selectedModel && <span aria-hidden="true">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {isSending ? (
-              <button
-                aria-label={isEnglish ? "Stop generating" : "Parar geração"}
-                className="composer-stop"
-                onClick={stopGeneration}
-                title={isEnglish ? "Stop" : "Parar"}
-                type="button"
-              >
-                <CompactIcon kind="stop" />
-              </button>
-            ) : (
-              <button
-                aria-label={isEnglish ? "Send message" : "Enviar mensagem"}
-                className="composer-send"
-                disabled={!draft.trim() || !activeProvider || !activeSession}
-                title={isEnglish ? "Send message" : "Enviar mensagem"}
-                type="submit"
-              >
-                <CompactIcon kind="send" />
-              </button>
-            )}
-          </form>
+          <Composer
+            activeProvider={activeProvider}
+            activeSessionId={activeSession?.id}
+            changeModel={(model) => void changeModel(model)}
+            changePermissionMode={(mode) => void changePermissionMode(mode)}
+            composerRef={composerRef}
+            draft={draft}
+            isEnglish={isEnglish}
+            isSending={isSending}
+            modelName={modelName}
+            models={models}
+            modelOpen={modelOpen}
+            onAttachFile={(file) => void attachFile(file)}
+            onSubmit={(event) => void submit(event)}
+            permissionError={permissionError}
+            permissionOpen={permissionOpen}
+            selectedModel={selectedModel}
+            setDraft={setDraft}
+            setModelOpen={setModelOpen}
+            setPermissionOpen={setPermissionOpen}
+            stopGeneration={stopGeneration}
+            workspace={workspace}
+          />
           {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
           {resourceNotice && (
             <div className="resource-gate" role="alert">
@@ -1645,75 +874,29 @@ export default function WorkspaceShell({
         </section>
       </section>
       {showVault && workspace && (
-        <div className={`vault-slot ${isResizingVault ? "is-resizing" : ""}`}>
-          {!vaultCollapsed && (
-            <hr
-              aria-label={isEnglish ? "Resize Vault panel" : "Redimensionar painel do Vault"}
-              aria-orientation="vertical"
-              aria-valuemax={maximumVaultWidth}
-              aria-valuemin={minimumVaultWidth}
-              aria-valuenow={vaultWidth}
-              className="vault-resize-handle"
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft") {
-                  event.preventDefault();
-                  setVaultWidth((current) => boundedVaultWidth(current + 24));
-                }
-                if (event.key === "ArrowRight") {
-                  event.preventDefault();
-                  setVaultWidth((current) => boundedVaultWidth(current - 24));
-                }
-              }}
-              onPointerCancel={finishVaultResize}
-              onPointerDown={startVaultResize}
-              onPointerMove={resizeVault}
-              onPointerUp={finishVaultResize}
-              tabIndex={0}
-            />
-          )}
-          {vaultCollapsed ? (
-            <aside
-              aria-label={isEnglish ? "Collapsed Vault" : "Vault recolhido"}
-              className="vault-rail"
-            >
-              <button
-                aria-label={isEnglish ? "Open Vault files" : "Abrir arquivos do Vault"}
-                onClick={() => {
-                  setVaultTab("files");
-                  setVaultCollapsed(false);
-                }}
-                title={isEnglish ? "Files" : "Arquivos"}
-                type="button"
-              >
-                <CompactIcon kind="files" />
-              </button>
-              <button
-                aria-label={isEnglish ? "Open Vault graph" : "Abrir grafo do Vault"}
-                onClick={() => {
-                  setVaultTab("graph");
-                  setVaultCollapsed(false);
-                }}
-                title={isEnglish ? "Graph" : "Grafo"}
-                type="button"
-              >
-                <CompactIcon kind="graph" />
-              </button>
-            </aside>
-          ) : (
-            <Suspense
-              fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}
-            >
-              <VaultPanel
-                locale={isEnglish ? "en" : "pt-BR"}
-                onCollapse={() => setVaultCollapsed(true)}
-                onTabChange={setVaultTab}
-                refreshKey={vaultRefreshKey}
-                tab={vaultTab}
-                workspaceId={workspace.id}
-              />
-            </Suspense>
-          )}
-        </div>
+        <VaultSlot
+          isEnglish={isEnglish}
+          isResizingVault={isResizingVault}
+          onCollapse={() => setVaultCollapsed(true)}
+          onFinishResize={finishVaultResize}
+          onNudgeWidth={(delta) => setVaultWidth((current) => boundedVaultWidth(current + delta))}
+          onOpenFiles={() => {
+            setVaultTab("files");
+            setVaultCollapsed(false);
+          }}
+          onOpenGraph={() => {
+            setVaultTab("graph");
+            setVaultCollapsed(false);
+          }}
+          onResize={resizeVault}
+          onStartResize={startVaultResize}
+          onTabChange={setVaultTab}
+          refreshKey={vaultRefreshKey}
+          tab={vaultTab}
+          vaultCollapsed={vaultCollapsed}
+          vaultWidth={vaultWidth}
+          workspaceId={workspace.id}
+        />
       )}
       {showSettings && (
         <ProviderManager
@@ -1810,95 +993,24 @@ export default function WorkspaceShell({
           title={`${isEnglish ? "Remove" : "Remover"} ${attachmentToRemove.filename}?`}
         />
       )}
-      {sessionToRename && (
-        <div className="confirm-backdrop" role="presentation">
-          <section
-            aria-labelledby="rename-session-title"
-            aria-modal="true"
-            className="confirm-dialog"
-            role="dialog"
-          >
-            <p className="eyebrow">{isEnglish ? "Session" : "Sessão"}</p>
-            <h2 id="rename-session-title">
-              {isEnglish ? "Rename conversation" : "Renomear conversa"}
-            </h2>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void rename(sessionToRename.id, sessionToRename.title);
-              }}
-            >
-              <label className="settings-field">
-                <span>{isEnglish ? "New name" : "Novo nome"}</span>
-                <input
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  value={renameDraft}
-                />
-              </label>
-              <footer className="confirm-dialog-actions">
-                <button
-                  className="button button-secondary"
-                  onClick={() => setSessionToRename(null)}
-                  type="button"
-                >
-                  {isEnglish ? "Cancel" : "Cancelar"}
-                </button>
-                <button
-                  className="button button-primary"
-                  disabled={!renameDraft.trim()}
-                  type="submit"
-                >
-                  {isEnglish ? "Save" : "Salvar"}
-                </button>
-              </footer>
-            </form>
-          </section>
-        </div>
-      )}
+      <RenameSessionDialog
+        isEnglish={isEnglish}
+        onCancel={() => setSessionToRename(null)}
+        onRenameDraftChange={setRenameDraft}
+        onSubmit={(sessionId) => void rename(sessionId, sessionToRename?.title ?? "")}
+        renameDraft={renameDraft}
+        sessionToRename={sessionToRename}
+      />
       {paletteOpen && (
-        <div className="command-backdrop" role="presentation">
-          <section
-            aria-label={isEnglish ? "Command palette" : "Paleta de comandos"}
-            className="command-palette"
-          >
-            <input
-              aria-label={isEnglish ? "Search commands" : "Pesquisar comandos"}
-              onChange={(event) => setPaletteQuery(event.target.value)}
-              placeholder={
-                isEnglish ? "Search sessions and actions…" : "Pesquisar sessões e ações…"
-              }
-              value={paletteQuery}
-            />
-            <div className="command-list">
-              <button
-                onClick={() => {
-                  setPaletteOpen(false);
-                  setShowSettings(true);
-                }}
-                type="button"
-              >
-                {isEnglish ? "Open settings" : "Abrir configurações"}
-              </button>
-              {recentSessions
-                .filter((session) =>
-                  session.title.toLocaleLowerCase().includes(paletteQuery.toLocaleLowerCase()),
-                )
-                .map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => {
-                      setPaletteOpen(false);
-                      void openSession(session.id);
-                    }}
-                    type="button"
-                  >
-                    {isEnglish ? "Open session: " : "Abrir sessão: "}
-                    {session.title}
-                  </button>
-                ))}
-            </div>
-          </section>
-        </div>
+        <CommandPalette
+          isEnglish={isEnglish}
+          onClose={() => setPaletteOpen(false)}
+          onOpenSession={(sessionId) => void openSession(sessionId)}
+          onOpenSettings={() => setShowSettings(true)}
+          paletteQuery={paletteQuery}
+          recentSessions={recentSessions}
+          setPaletteQuery={setPaletteQuery}
+        />
       )}
     </main>
   );
