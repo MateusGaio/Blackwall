@@ -1,9 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import {
   type CSSProperties,
-  lazy,
   type PointerEvent as ReactPointerEvent,
-  Suspense,
   useEffect,
   useRef,
   useState,
@@ -43,8 +41,8 @@ import {
 } from "./panel-preferences";
 import { SessionUsageDialog } from "./SessionUsageDialog";
 import { ChatHeader } from "./shell/ChatHeader";
-import { CompactIcon } from "./shell/CompactIcon";
 import { Composer } from "./shell/Composer";
+import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
 import { MessageList } from "./shell/MessageList";
 import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
 import { useStreamingChat } from "./shell/useStreamingChat";
@@ -995,95 +993,24 @@ export default function WorkspaceShell({
           title={`${isEnglish ? "Remove" : "Remover"} ${attachmentToRemove.filename}?`}
         />
       )}
-      {sessionToRename && (
-        <div className="confirm-backdrop" role="presentation">
-          <section
-            aria-labelledby="rename-session-title"
-            aria-modal="true"
-            className="confirm-dialog"
-            role="dialog"
-          >
-            <p className="eyebrow">{isEnglish ? "Session" : "Sessão"}</p>
-            <h2 id="rename-session-title">
-              {isEnglish ? "Rename conversation" : "Renomear conversa"}
-            </h2>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void rename(sessionToRename.id, sessionToRename.title);
-              }}
-            >
-              <label className="settings-field">
-                <span>{isEnglish ? "New name" : "Novo nome"}</span>
-                <input
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  value={renameDraft}
-                />
-              </label>
-              <footer className="confirm-dialog-actions">
-                <button
-                  className="button button-secondary"
-                  onClick={() => setSessionToRename(null)}
-                  type="button"
-                >
-                  {isEnglish ? "Cancel" : "Cancelar"}
-                </button>
-                <button
-                  className="button button-primary"
-                  disabled={!renameDraft.trim()}
-                  type="submit"
-                >
-                  {isEnglish ? "Save" : "Salvar"}
-                </button>
-              </footer>
-            </form>
-          </section>
-        </div>
-      )}
+      <RenameSessionDialog
+        isEnglish={isEnglish}
+        onCancel={() => setSessionToRename(null)}
+        onRenameDraftChange={setRenameDraft}
+        onSubmit={(sessionId) => void rename(sessionId, sessionToRename?.title ?? "")}
+        renameDraft={renameDraft}
+        sessionToRename={sessionToRename}
+      />
       {paletteOpen && (
-        <div className="command-backdrop" role="presentation">
-          <section
-            aria-label={isEnglish ? "Command palette" : "Paleta de comandos"}
-            className="command-palette"
-          >
-            <input
-              aria-label={isEnglish ? "Search commands" : "Pesquisar comandos"}
-              onChange={(event) => setPaletteQuery(event.target.value)}
-              placeholder={
-                isEnglish ? "Search sessions and actions…" : "Pesquisar sessões e ações…"
-              }
-              value={paletteQuery}
-            />
-            <div className="command-list">
-              <button
-                onClick={() => {
-                  setPaletteOpen(false);
-                  setShowSettings(true);
-                }}
-                type="button"
-              >
-                {isEnglish ? "Open settings" : "Abrir configurações"}
-              </button>
-              {recentSessions
-                .filter((session) =>
-                  session.title.toLocaleLowerCase().includes(paletteQuery.toLocaleLowerCase()),
-                )
-                .map((session) => (
-                  <button
-                    key={session.id}
-                    onClick={() => {
-                      setPaletteOpen(false);
-                      void openSession(session.id);
-                    }}
-                    type="button"
-                  >
-                    {isEnglish ? "Open session: " : "Abrir sessão: "}
-                    {session.title}
-                  </button>
-                ))}
-            </div>
-          </section>
-        </div>
+        <CommandPalette
+          isEnglish={isEnglish}
+          onClose={() => setPaletteOpen(false)}
+          onOpenSession={(sessionId) => void openSession(sessionId)}
+          onOpenSettings={() => setShowSettings(true)}
+          paletteQuery={paletteQuery}
+          recentSessions={recentSessions}
+          setPaletteQuery={setPaletteQuery}
+        />
       )}
     </main>
   );
