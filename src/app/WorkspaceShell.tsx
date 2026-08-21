@@ -158,7 +158,6 @@ export default function WorkspaceShell({
   const [editingMessageDraft, setEditingMessageDraft] = useState("");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
-  const fileInput = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const messageListRef = useRef<HTMLOListElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
