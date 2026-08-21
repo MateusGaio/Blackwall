@@ -1,7 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import {
   type CSSProperties,
-  type KeyboardEvent,
   lazy,
   type PointerEvent as ReactPointerEvent,
   Suspense,
@@ -32,7 +31,6 @@ import {
   uploadAttachment,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
-import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 import {
   readBooleanPreference,
@@ -45,6 +43,7 @@ import {
 } from "./panel-preferences";
 import { SessionUsageDialog } from "./SessionUsageDialog";
 import { CompactIcon } from "./shell/CompactIcon";
+import { Composer } from "./shell/Composer";
 import { MessageList } from "./shell/MessageList";
 import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
 import { useStreamingChat } from "./shell/useStreamingChat";
@@ -689,26 +688,6 @@ export default function WorkspaceShell({
     }
   }
 
-  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (
-      !isSubmitShortcut({
-        isComposing: event.nativeEvent.isComposing,
-        key: event.key,
-        shiftKey: event.shiftKey,
-      })
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  }
-
-  function resizeComposer(target: HTMLTextAreaElement) {
-    target.style.height = "auto";
-    target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
-  }
-
   const visibleMessages = messages.filter(
     (message) =>
       message.role !== "tool" &&
@@ -1013,159 +992,29 @@ export default function WorkspaceShell({
               </div>
             </section>
           )}
-          <form className="composer" onSubmit={submit}>
-            <input
-              accept=".c,.cpp,.css,.csv,.go,.h,.html,.java,.js,.json,.jsx,.md,.pdf,.py,.rs,.sh,.sql,.toml,.ts,.tsx,.txt,.yaml,.yml"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void attachFile(file);
-              }}
-              ref={fileInput}
-              type="file"
-            />
-            <button
-              aria-label={isEnglish ? "Attach file" : "Anexar arquivo"}
-              className="composer-attach"
-              disabled={!activeSession || !workspace || isSending}
-              onClick={() => fileInput.current?.click()}
-              type="button"
-            >
-              <CompactIcon kind="clip" />
-            </button>
-            {workspace && (
-              <div className="permission-control" data-permission-control>
-                <button
-                  aria-expanded={permissionOpen}
-                  aria-haspopup="menu"
-                  aria-label={isEnglish ? "Permission mode" : "Modo de permissões"}
-                  className="composer-permission"
-                  onClick={() => setPermissionOpen((current) => !current)}
-                  title={`Permissões: ${
-                    workspace.permissionMode === "ask"
-                      ? isEnglish
-                        ? "Ask every time"
-                        : "Perguntar sempre"
-                      : workspace.permissionMode === "automatic"
-                        ? isEnglish
-                          ? "Automatic"
-                          : "Automático"
-                        : isEnglish
-                          ? "Read-only"
-                          : "Somente leitura"
-                  }`}
-                  type="button"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M12 3 5 6v5c0 4.3 2.8 8.2 7 10 4.2-1.8 7-5.7 7-10V6l-7-3Z" />
-                    <path d="m9 12 2 2 4-4" />
-                  </svg>
-                </button>
-                {permissionOpen && (
-                  <div className="permission-popover" role="menu">
-                    <p>{isEnglish ? "Permissions" : "Permissões"}</p>
-                    {(
-                      [
-                        ["ask", isEnglish ? "Ask every time" : "Perguntar sempre"],
-                        ["automatic", isEnglish ? "Automatic" : "Automático"],
-                        ["read-only", isEnglish ? "Read-only" : "Somente leitura"],
-                      ] as const
-                    ).map(([mode, label]) => (
-                      <button
-                        className={workspace.permissionMode === mode ? "is-selected" : ""}
-                        key={mode}
-                        onClick={() => {
-                          void changePermissionMode(mode);
-                          setPermissionOpen(false);
-                        }}
-                        role="menuitemradio"
-                        aria-checked={workspace.permissionMode === mode}
-                        type="button"
-                      >
-                        <span>{label}</span>
-                        {workspace.permissionMode === mode && <span aria-hidden="true">✓</span>}
-                      </button>
-                    ))}
-                    {permissionError && (
-                      <small className="permission-error">{permissionError}</small>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            <textarea
-              aria-label={isEnglish ? "Message" : "Mensagem"}
-              data-testid="chat-composer"
-              disabled={!activeProvider || !activeSession || isSending}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                resizeComposer(event.target);
-              }}
-              onKeyDown={handleComposerKeyDown}
-              placeholder={isEnglish ? "Write a message…" : "Escreva uma mensagem…"}
-              ref={composerRef}
-              rows={1}
-              value={draft}
-            />
-            {activeProvider && (
-              <div className="model-control" data-model-control>
-                <button
-                  aria-expanded={modelOpen}
-                  aria-haspopup="menu"
-                  className="composer-model"
-                  onClick={() => setModelOpen((current) => !current)}
-                  title={modelName}
-                  type="button"
-                >
-                  <span className="composer-model-name">{modelName}</span>
-                  <CompactIcon kind="chevron" />
-                </button>
-                {modelOpen && (
-                  <div className="model-popover" role="menu">
-                    <p className="eyebrow">{activeProvider.name}</p>
-                    {models.map((model) => (
-                      <button
-                        aria-checked={model.id === selectedModel}
-                        className={model.id === selectedModel ? "is-selected" : ""}
-                        key={model.id}
-                        onClick={() => {
-                          void changeModel(model.id);
-                          setModelOpen(false);
-                        }}
-                        role="menuitemradio"
-                        type="button"
-                      >
-                        <span>{model.name}</span>
-                        {model.id === selectedModel && <span aria-hidden="true">✓</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {isSending ? (
-              <button
-                aria-label={isEnglish ? "Stop generating" : "Parar geração"}
-                className="composer-stop"
-                onClick={stopGeneration}
-                title={isEnglish ? "Stop" : "Parar"}
-                type="button"
-              >
-                <CompactIcon kind="stop" />
-              </button>
-            ) : (
-              <button
-                aria-label={isEnglish ? "Send message" : "Enviar mensagem"}
-                className="composer-send"
-                disabled={!draft.trim() || !activeProvider || !activeSession}
-                title={isEnglish ? "Send message" : "Enviar mensagem"}
-                type="submit"
-              >
-                <CompactIcon kind="send" />
-              </button>
-            )}
-          </form>
+          <Composer
+            activeProvider={activeProvider}
+            activeSessionId={activeSession?.id}
+            changeModel={(model) => void changeModel(model)}
+            changePermissionMode={(mode) => void changePermissionMode(mode)}
+            composerRef={composerRef}
+            draft={draft}
+            isEnglish={isEnglish}
+            isSending={isSending}
+            modelName={modelName}
+            models={models}
+            modelOpen={modelOpen}
+            onAttachFile={(file) => void attachFile(file)}
+            onSubmit={(event) => void submit(event)}
+            permissionError={permissionError}
+            permissionOpen={permissionOpen}
+            selectedModel={selectedModel}
+            setDraft={setDraft}
+            setModelOpen={setModelOpen}
+            setPermissionOpen={setPermissionOpen}
+            stopGeneration={stopGeneration}
+            workspace={workspace}
+          />
           {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
           {resourceNotice && (
             <div className="resource-gate" role="alert">
