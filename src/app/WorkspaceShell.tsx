@@ -48,16 +48,8 @@ import { Composer } from "./shell/Composer";
 import { MessageList } from "./shell/MessageList";
 import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
 import { useStreamingChat } from "./shell/useStreamingChat";
+import { maximumVaultWidth, minimumVaultWidth, VaultSlot, type VaultTab } from "./shell/VaultSlot";
 
-const VaultPanel = lazy(async () => {
-  const module = await import("../features/vault/components/VaultPanel");
-  return { default: module.VaultPanel };
-});
-
-type VaultTab = "files" | "graph";
-
-const minimumVaultWidth = 300;
-const maximumVaultWidth = 680;
 const defaultVaultWidth = 360;
 
 type WorkspaceShellProps = {
@@ -884,75 +876,29 @@ export default function WorkspaceShell({
         </section>
       </section>
       {showVault && workspace && (
-        <div className={`vault-slot ${isResizingVault ? "is-resizing" : ""}`}>
-          {!vaultCollapsed && (
-            <hr
-              aria-label={isEnglish ? "Resize Vault panel" : "Redimensionar painel do Vault"}
-              aria-orientation="vertical"
-              aria-valuemax={maximumVaultWidth}
-              aria-valuemin={minimumVaultWidth}
-              aria-valuenow={vaultWidth}
-              className="vault-resize-handle"
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft") {
-                  event.preventDefault();
-                  setVaultWidth((current) => boundedVaultWidth(current + 24));
-                }
-                if (event.key === "ArrowRight") {
-                  event.preventDefault();
-                  setVaultWidth((current) => boundedVaultWidth(current - 24));
-                }
-              }}
-              onPointerCancel={finishVaultResize}
-              onPointerDown={startVaultResize}
-              onPointerMove={resizeVault}
-              onPointerUp={finishVaultResize}
-              tabIndex={0}
-            />
-          )}
-          {vaultCollapsed ? (
-            <aside
-              aria-label={isEnglish ? "Collapsed Vault" : "Vault recolhido"}
-              className="vault-rail"
-            >
-              <button
-                aria-label={isEnglish ? "Open Vault files" : "Abrir arquivos do Vault"}
-                onClick={() => {
-                  setVaultTab("files");
-                  setVaultCollapsed(false);
-                }}
-                title={isEnglish ? "Files" : "Arquivos"}
-                type="button"
-              >
-                <CompactIcon kind="files" />
-              </button>
-              <button
-                aria-label={isEnglish ? "Open Vault graph" : "Abrir grafo do Vault"}
-                onClick={() => {
-                  setVaultTab("graph");
-                  setVaultCollapsed(false);
-                }}
-                title={isEnglish ? "Graph" : "Grafo"}
-                type="button"
-              >
-                <CompactIcon kind="graph" />
-              </button>
-            </aside>
-          ) : (
-            <Suspense
-              fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}
-            >
-              <VaultPanel
-                locale={isEnglish ? "en" : "pt-BR"}
-                onCollapse={() => setVaultCollapsed(true)}
-                onTabChange={setVaultTab}
-                refreshKey={vaultRefreshKey}
-                tab={vaultTab}
-                workspaceId={workspace.id}
-              />
-            </Suspense>
-          )}
-        </div>
+        <VaultSlot
+          isEnglish={isEnglish}
+          isResizingVault={isResizingVault}
+          onCollapse={() => setVaultCollapsed(true)}
+          onFinishResize={finishVaultResize}
+          onNudgeWidth={(delta) => setVaultWidth((current) => boundedVaultWidth(current + delta))}
+          onOpenFiles={() => {
+            setVaultTab("files");
+            setVaultCollapsed(false);
+          }}
+          onOpenGraph={() => {
+            setVaultTab("graph");
+            setVaultCollapsed(false);
+          }}
+          onResize={resizeVault}
+          onStartResize={startVaultResize}
+          onTabChange={setVaultTab}
+          refreshKey={vaultRefreshKey}
+          tab={vaultTab}
+          vaultCollapsed={vaultCollapsed}
+          vaultWidth={vaultWidth}
+          workspaceId={workspace.id}
+        />
       )}
       {showSettings && (
         <ProviderManager
