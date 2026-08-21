@@ -1,7 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import {
   type CSSProperties,
-  type FormEvent,
   type KeyboardEvent,
   lazy,
   type PointerEvent as ReactPointerEvent,
@@ -18,27 +17,19 @@ import {
   type ConnectedProvider,
   createSession,
   deleteSession,
-  editSessionMessage,
   getAppState,
   getProviderUsage,
   listAttachments,
   listProviders,
   listStoredProviderModels,
   type ProviderModel,
-  persistMessage,
-  regenerateSession,
   removeAttachment,
   renameSession,
-  searchAttachments,
   selectSession,
   selectWorkspace,
   setSessionModel,
   setWorkspacePermissionMode,
-  streamMessage,
   uploadAttachment,
-  type WorkspaceToolApproval,
-  type WorkspaceToolDecision,
-  type WorkspaceToolName,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
 import { SafeMarkdown } from "../shared/components/SafeMarkdown";
@@ -55,6 +46,7 @@ import {
   writeNumberPreference,
 } from "./panel-preferences";
 import { SessionUsageDialog } from "./SessionUsageDialog";
+import { useStreamingChat } from "./shell/useStreamingChat";
 
 const VaultPanel = lazy(async () => {
   const module = await import("../features/vault/components/VaultPanel");
@@ -193,11 +185,8 @@ export default function WorkspaceShell({
   const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
-  const [isSending, setIsSending] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [models, setModels] = useState<ProviderModel[]>([]);
-  const [streamingContent, setStreamingContent] = useState("");
-  const [streamingStatus, setStreamingStatus] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
@@ -207,7 +196,6 @@ export default function WorkspaceShell({
   >(null);
   const [usageOpen, setUsageOpen] = useState(false);
   const [showUsageDetails, setShowUsageDetails] = useState(false);
-  const [toolApproval, setToolApproval] = useState<WorkspaceToolApproval | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
   );
@@ -221,10 +209,6 @@ export default function WorkspaceShell({
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const activeStream = useRef<{ stop: () => void } | null>(null);
-  const pendingToolDecision = useRef<((decision: WorkspaceToolDecision) => void) | null>(null);
-  const streamingContentRef = useRef("");
-  const runningToolRef = useRef<WorkspaceToolName | null>(null);
   const messageListRef = useRef<HTMLOListElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -252,6 +236,38 @@ export default function WorkspaceShell({
   const modelName =
     (models.find((model) => model.id === selectedModel)?.name ?? selectedModel) ||
     (isEnglish ? "Select model" : "Selecionar modelo");
+
+  const {
+    editMessage,
+    isSending,
+    regenerate,
+    resolveToolDecision,
+    stopGeneration,
+    streamingContent,
+    streamingStatus,
+    submit,
+    toolApproval,
+  } = useStreamingChat({
+    activeProvider,
+    activeSessionIdRef,
+    composerRef,
+    draft,
+    isEnglish,
+    messages,
+    selectedModel,
+    setActiveSessionId: (sessionId) => {
+      activeSessionIdRef.current = sessionId;
+    },
+    setDraft,
+    setError,
+    setMessages,
+    setResourceNotice,
+    setState,
+    setUsageSummary,
+    setVaultRefreshKey,
+    state,
+    workspaceId: workspace?.id,
+  });
 
   useEffect(() => {
     if (!activeProvider) {
@@ -679,183 +695,6 @@ export default function WorkspaceShell({
     }
   }
 
-  function resolveToolDecision(decision: WorkspaceToolDecision) {
-    const resolveDecision = pendingToolDecision.current;
-    pendingToolDecision.current = null;
-    setToolApproval(null);
-    resolveDecision?.(decision);
-  }
-
-  async function generateResponse(promptMessages: ChatMessage[], sessionId: string) {
-    if (!activeProvider || isSending) return;
-    setError("");
-    setIsSending(true);
-    setStreamingContent("");
-    streamingContentRef.current = "";
-    setStreamingStatus("Consultando…");
-    const requestProvider = activeProvider;
-    const requestModel = selectedModel;
-    const requestWorkspaceId = workspace?.id ?? "default";
-    const requestProfileId = state?.activeProfileId;
-    try {
-      const stream = await streamMessage(
-        requestProvider.id,
-        promptMessages,
-        requestModel,
-        requestWorkspaceId,
-        {
-          onDelta: (delta) => {
-            if (activeSessionIdRef.current !== sessionId) return;
-            streamingContentRef.current += delta;
-            setStreamingContent(streamingContentRef.current);
-            setStreamingStatus("Gerando…");
-          },
-          onCompacting: () => {
-            if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(isEnglish ? "Summarizing context…" : "Resumindo contexto…");
-          },
-          onUsage: () => {
-            void getProviderUsage(requestProvider.id, {
-              modelId: requestModel || undefined,
-              profileId: requestProfileId,
-              sessionId,
-            })
-              .then(setUsageSummary)
-              .catch(() => undefined);
-          },
-          onRetry: (message) => {
-            if (activeSessionIdRef.current === sessionId) setStreamingStatus(message);
-          },
-          onApproval: (approval, resolveDecision) => {
-            if (activeSessionIdRef.current !== sessionId) {
-              resolveDecision("deny");
-              return;
-            }
-            pendingToolDecision.current = resolveDecision;
-            setToolApproval(approval);
-            setStreamingStatus(isEnglish ? "Waiting for permission…" : "Aguardando autorização…");
-          },
-          onToolStarted: (tool) => {
-            runningToolRef.current = tool;
-            if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(`${isEnglish ? "Running" : "Executando"} ${tool}…`);
-          },
-          onToolCompleted: () => {
-            if (runningToolRef.current === "create_or_update_file")
-              setVaultRefreshKey((key) => key + 1);
-            runningToolRef.current = null;
-            if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(isEnglish ? "Continuing…" : "Continuando…");
-          },
-        },
-        requestProfileId ?? undefined,
-        sessionId,
-      );
-      activeStream.current = stream;
-      const result = await stream.done;
-      const assistantContent = result.content.trim();
-      if (assistantContent && !result.persisted) {
-        await persistMessage(sessionId, {
-          content: assistantContent,
-          model: result.provider?.model ?? requestModel,
-          providerId: result.provider?.id ?? requestProvider.id,
-          role: "assistant",
-          status: result.stopped ? "stopped" : "complete",
-        });
-      }
-      const refreshed = await getAppState();
-      setState(refreshed);
-      if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
-      if (result.failed && result.error) setError(result.error);
-    } catch (reason) {
-      const partial = streamingContentRef.current.trim();
-      if (partial) {
-        await persistMessage(sessionId, {
-          content: partial,
-          model: requestModel,
-          providerId: requestProvider.id,
-          role: "assistant",
-          status: "failed",
-        }).catch(() => undefined);
-        const refreshed = await getAppState().catch(() => null);
-        if (refreshed) {
-          setState(refreshed);
-          if (activeSessionIdRef.current === sessionId) setMessages(refreshed.messages);
-        }
-      }
-      setError(reason instanceof Error ? reason.message : "Não foi possível enviar a mensagem.");
-    } finally {
-      activeStream.current = null;
-      setStreamingContent("");
-      streamingContentRef.current = "";
-      setStreamingStatus("");
-      setIsSending(false);
-    }
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const content = draft.trim();
-    const sessionId = state?.activeSessionId;
-    if (!content || !activeProvider || !sessionId || isSending) return;
-    const nextMessages: ChatMessage[] = [
-      ...messages,
-      { content, id: crypto.randomUUID(), role: "user" },
-    ];
-    setMessages(nextMessages);
-    activeSessionIdRef.current = sessionId;
-    setDraft("");
-    composerRef.current?.style.removeProperty("height");
-    setResourceNotice("");
-    await persistMessage(sessionId, { content, role: "user", status: "complete" });
-    // Atualiza a lista de Recentes assim que a conversa recebe atividade,
-    // antes mesmo de a resposta do modelo terminar de chegar.
-    setState(await getAppState());
-    const relevantAttachments = workspace
-      ? await searchAttachments(workspace.id, content.slice(0, 160)).catch(() => [])
-      : [];
-    const contextMessage: ChatMessage | null = relevantAttachments.length
-      ? {
-          content: `Trechos relevantes dos anexos locais:\n${relevantAttachments
-            .map((item) => `[${item.filename}]\n${item.content}`)
-            .join("\n\n")}`,
-          id: crypto.randomUUID(),
-          role: "system",
-        }
-      : null;
-    await generateResponse(
-      contextMessage ? [...nextMessages, contextMessage] : nextMessages,
-      sessionId,
-    );
-  }
-
-  async function editMessage(messageId: string, content: string) {
-    const sessionId = state?.activeSessionId;
-    if (!sessionId || isSending) return;
-    try {
-      const next = await editSessionMessage(sessionId, messageId, content);
-      setMessages(next as ChatMessage[]);
-      const refreshed = await getAppState();
-      setState(refreshed);
-      setMessages(refreshed.messages);
-      await generateResponse(refreshed.messages as ChatMessage[], sessionId);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível editar a mensagem.");
-    }
-  }
-
-  async function regenerate() {
-    const sessionId = state?.activeSessionId;
-    if (!sessionId || isSending) return;
-    try {
-      const next = await regenerateSession(sessionId);
-      setMessages(next as ChatMessage[]);
-      await generateResponse(next as ChatMessage[], sessionId);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível regenerar a resposta.");
-    }
-  }
-
   async function copyMessage(message: ChatMessage) {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -872,10 +711,6 @@ export default function WorkspaceShell({
             : "Não foi possível copiar a mensagem.",
       );
     }
-  }
-
-  function stopGeneration() {
-    activeStream.current?.stop();
   }
 
   async function attachFile(file: File) {
