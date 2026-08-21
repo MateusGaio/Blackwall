@@ -32,8 +32,6 @@ import {
   uploadAttachment,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
-import { SafeMarkdown } from "../shared/components/SafeMarkdown";
-import { ConversationSummaryCard } from "./ConversationSummaryCard";
 import { isSubmitShortcut } from "./composer";
 import { greetingForTime } from "./greetings";
 import {
@@ -47,6 +45,7 @@ import {
 } from "./panel-preferences";
 import { SessionUsageDialog } from "./SessionUsageDialog";
 import { CompactIcon } from "./shell/CompactIcon";
+import { MessageList } from "./shell/MessageList";
 import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
 import { useStreamingChat } from "./shell/useStreamingChat";
 
@@ -935,118 +934,29 @@ export default function WorkspaceShell({
               </p>
             </div>
           ) : (
-            <ol className="message-list" ref={messageListRef}>
-              {visibleMessages.map((message) =>
-                message.isSummary ? (
-                  <ConversationSummaryCard
-                    content={message.content}
-                    isEnglish={isEnglish}
-                    key={message.id}
-                  />
-                ) : (
-                  <li className={`message message-${message.role}`} key={message.id}>
-                    {editingMessageId === message.id ? (
-                      <form
-                        className="message-edit-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          setEditingMessageId(null);
-                          void editMessage(message.id, editingMessageDraft);
-                        }}
-                      >
-                        <textarea
-                          aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
-                          onChange={(event) => setEditingMessageDraft(event.target.value)}
-                          value={editingMessageDraft}
-                        />
-                        <div className="message-actions">
-                          <button
-                            className="button button-secondary"
-                            onClick={() => setEditingMessageId(null)}
-                            type="button"
-                          >
-                            {isEnglish ? "Cancel" : "Cancelar"}
-                          </button>
-                          <button className="button button-primary" type="submit">
-                            {isEnglish ? "Save and regenerate" : "Salvar e regenerar"}
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <>
-                        <SafeMarkdown
-                          content={message.content}
-                          locale={isEnglish ? "en" : "pt-BR"}
-                        />
-                        <div className="action-bar" data-action-bar>
-                          {message.role === "user" && (
-                            <button
-                              aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
-                              className="action-bar-button"
-                              onClick={() => {
-                                setEditingMessageDraft(message.content);
-                                setEditingMessageId(message.id);
-                              }}
-                              title={isEnglish ? "Edit" : "Editar"}
-                              type="button"
-                            >
-                              <CompactIcon kind="edit" />
-                            </button>
-                          )}
-                          {message.role === "assistant" &&
-                            message.id === visibleMessages.at(-1)?.id && (
-                              <>
-                                <button
-                                  aria-label={isEnglish ? "Copy message" : "Copiar mensagem"}
-                                  className="action-bar-button"
-                                  onClick={() => void copyMessage(message)}
-                                  title={
-                                    copiedMessageId === message.id
-                                      ? isEnglish
-                                        ? "Copied"
-                                        : "Copiado"
-                                      : isEnglish
-                                        ? "Copy"
-                                        : "Copiar"
-                                  }
-                                  type="button"
-                                >
-                                  {copiedMessageId === message.id ? (
-                                    <span aria-hidden="true">✓</span>
-                                  ) : (
-                                    <CompactIcon kind="copy" />
-                                  )}
-                                </button>
-                                <button
-                                  aria-label={
-                                    isEnglish ? "Regenerate response" : "Regenerar resposta"
-                                  }
-                                  className="action-bar-button"
-                                  onClick={() => void regenerate()}
-                                  title={isEnglish ? "Regenerate" : "Regenerar"}
-                                  type="button"
-                                >
-                                  <CompactIcon kind="refresh" />
-                                </button>
-                              </>
-                            )}
-                        </div>
-                      </>
-                    )}
-                  </li>
-                ),
-              )}
-              {isSending && (
-                <li className="message message-assistant message-streaming">
-                  {streamingContent ? (
-                    <SafeMarkdown content={streamingContent} locale={isEnglish ? "en" : "pt-BR"} />
-                  ) : (
-                    streamingStatus
-                  )}
-                  <span aria-hidden="true" className="streaming-cursor" />
-                </li>
-              )}
-            </ol>
+            <MessageList
+              copiedMessageId={copiedMessageId}
+              copyMessage={(message) => void copyMessage(message)}
+              editingMessageDraft={editingMessageDraft}
+              editingMessageId={editingMessageId}
+              isEnglish={isEnglish}
+              isSending={isSending}
+              listRef={messageListRef}
+              onEditCancel={() => setEditingMessageId(null)}
+              onEditChange={setEditingMessageDraft}
+              onEditSubmit={(messageId, draft) => {
+                setEditingMessageId(null);
+                void editMessage(messageId, draft);
+              }}
+              onEditingStart={(message) => {
+                setEditingMessageDraft(message.content);
+                setEditingMessageId(message.id);
+              }}
+              regenerate={() => void regenerate()}
+              streamingContent={streamingContent}
+              streamingStatus={streamingStatus}
+              visibleMessages={visibleMessages}
+            />
           )}
           {attachments.length > 0 && (
             <ul
