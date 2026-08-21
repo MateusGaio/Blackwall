@@ -46,6 +46,8 @@ import {
   writeNumberPreference,
 } from "./panel-preferences";
 import { SessionUsageDialog } from "./SessionUsageDialog";
+import { CompactIcon } from "./shell/CompactIcon";
+import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
 import { useStreamingChat } from "./shell/useStreamingChat";
 
 const VaultPanel = lazy(async () => {
@@ -53,60 +55,11 @@ const VaultPanel = lazy(async () => {
   return { default: module.VaultPanel };
 });
 
-type SidebarFocusTarget = "recent" | "settings" | "workspace";
 type VaultTab = "files" | "graph";
 
 const minimumVaultWidth = 300;
 const maximumVaultWidth = 680;
 const defaultVaultWidth = 360;
-
-function CompactIcon({
-  kind,
-}: {
-  kind:
-    | "clip"
-    | "copy"
-    | "edit"
-    | "files"
-    | "graph"
-    | "new-thread"
-    | "panel"
-    | "recent"
-    | "refresh"
-    | "send"
-    | "settings"
-    | "stop"
-    | "workspace"
-    | "chevron";
-}) {
-  const paths = {
-    chevron: <path d="m6 9 6 6 6-6" />,
-    clip: (
-      <path d="m21.4 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-    ),
-    copy: <path d="M9 9h11v11H9V9ZM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
-    edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" />,
-    files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
-    graph: (
-      <path d="m7 6 5 3 5-3M7 18l5-3 5 3M12 9v6M5 5h4v4H5V5Zm10 0h4v4h-4V5ZM5 15h4v4H5v-4Zm10 0h4v4h-4v-4Z" />
-    ),
-    "new-thread": <path d="M12 5v14M5 12h14" />,
-    panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
-    recent: <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.5 2" />,
-    refresh: <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v5h-5" />,
-    send: <path d="M12 19V5M5 12l7-7 7 7" />,
-    settings: (
-      <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
-    ),
-    stop: <rect height="10" rx="1" width="10" x="7" y="7" />,
-    workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
-  } as const;
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
-      {paths[kind]}
-    </svg>
-  );
-}
 
 /**
  * Headline figure is the context the conversation currently occupies (the most
@@ -768,200 +721,42 @@ export default function WorkspaceShell({
       className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
       style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
     >
-      <aside
-        className="workspace-sidebar"
-        aria-label={isEnglish ? "Workspace navigation" : "Navegação do workspace"}
-      >
-        <div className="sidebar-heading">
-          <span aria-label="Blackwall" className="sidebar-brand-mark" role="img">
-            BW
-          </span>
-          <div className="sidebar-profile-summary">
-            {activeProfile?.avatarData ? (
-              <img alt="" className="brand-mark profile-avatar" src={activeProfile.avatarData} />
-            ) : null}
-            <strong>{name}</strong>
-          </div>
-        </div>
-        {sidebarCollapsed && (
-          <nav
-            aria-label={isEnglish ? "Sidebar shortcuts" : "Atalhos da sidebar"}
-            className="sidebar-rail"
-          >
-            <button
-              aria-label={isEnglish ? "Open settings" : "Abrir configurações"}
-              className="sidebar-rail-settings"
-              onClick={() => expandSidebar("settings")}
-              title={isEnglish ? "Settings" : "Configurações"}
-              type="button"
-            >
-              <CompactIcon kind="settings" />
-            </button>
-          </nav>
-        )}
-        {!sidebarCollapsed && (
-          <div className="sidebar-actions">
-            <button
-              aria-busy={isCreatingSession}
-              className="new-thread-button"
-              disabled={isCreatingSession || !state?.activeProfileId}
-              onClick={() => void newSession()}
-              type="button"
-            >
-              <CompactIcon kind="new-thread" />
-              <span>{isEnglish ? "New thread" : "Nova thread"}</span>
-            </button>
-          </div>
-        )}
-        <div className="sidebar-section">
-          <div className="sidebar-section-heading">
-            <p className="eyebrow">Workspaces</p>
-            <button
-              aria-label={isEnglish ? "Create workspace" : "Criar workspace"}
-              className="icon-button"
-              onClick={() => void newWorkspace()}
-              type="button"
-            >
-              +
-            </button>
-          </div>
-          {workspace && (
-            <label className="workspace-picker">
-              <span className="workspace-picker-label">
-                {isEnglish ? "Current workspace" : "Workspace atual"}
-              </span>
-              <span className="workspace-picker-control">
-                <select
-                  aria-label={isEnglish ? "Current workspace" : "Workspace atual"}
-                  onChange={(event) => void openWorkspace(event.target.value)}
-                  ref={workspacePickerRef}
-                  value={workspace.id}
-                >
-                  {state?.workspaces.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-                <span aria-hidden="true" className="workspace-picker-chevron">
-                  ⌄
-                </span>
-              </span>
-              <span>{workspace.rootPath}</span>
-            </label>
-          )}
-          {!workspace && (
-            <div className="workspace-empty">
-              <strong>{isEnglish ? "No workspace" : "Sem workspace"}</strong>
-              <span>
-                {isEnglish
-                  ? "Conversation without file context."
-                  : "Conversa sem contexto de arquivos."}
-              </span>
-              <button className="sidebar-config" onClick={() => void newWorkspace()} type="button">
-                {isEnglish ? "Add workspace" : "Adicionar workspace"}
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="sidebar-section sidebar-sessions">
-          <div className="sidebar-section-heading">
-            <p className="eyebrow">{isEnglish ? "Threads" : "Conversas"}</p>
-          </div>
-          <nav
-            aria-label={isEnglish ? "Thread list" : "Lista de conversas"}
-            ref={recentSessionsRef}
-            tabIndex={-1}
-          >
-            {recentSessions.map((session) => (
-              <div className="session-row" data-session-menu key={session.id}>
-                <button
-                  className={`session-item ${session.id === activeSession?.id ? "is-active" : ""}`}
-                  onClick={() => void openSession(session.id)}
-                  type="button"
-                >
-                  <span aria-hidden="true" className="session-icon" />
-                  <span className="session-copy">
-                    <strong>{session.title}</strong>
-                    <small>
-                      {session.workspaceName ?? (isEnglish ? "No workspace" : "Sem workspace")}
-                    </small>
-                  </span>
-                </button>
-                <button
-                  aria-expanded={openSessionMenuId === session.id}
-                  aria-haspopup="menu"
-                  aria-label={`${isEnglish ? "Actions for" : "Ações de"} ${session.title}`}
-                  className="session-more"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const nextId = openSessionMenuId === session.id ? null : session.id;
-                    setOpenSessionMenuId(nextId);
-                    setSessionMenuPosition(
-                      nextId
-                        ? {
-                            left: Math.max(8, rect.right - 142),
-                            top: Math.min(window.innerHeight - 92, rect.bottom + 4),
-                          }
-                        : null,
-                    );
-                  }}
-                  type="button"
-                >
-                  …
-                </button>
-              </div>
-            ))}
-          </nav>
-        </div>
-        <div className="sidebar-settings">
-          <button
-            className="sidebar-config"
-            onClick={() => setShowSettings(true)}
-            ref={settingsButtonRef}
-            type="button"
-          >
-            {isEnglish ? "Settings" : "Configurações"}
-          </button>
-        </div>
-        {openSessionMenuId && sessionMenuPosition && (
-          <div
-            className="session-menu session-menu-floating"
-            role="menu"
-            style={{ left: sessionMenuPosition.left, top: sessionMenuPosition.top }}
-          >
-            <button
-              onClick={() => {
-                const session = recentSessions.find((item) => item.id === openSessionMenuId);
-                if (!session) return;
-                setOpenSessionMenuId(null);
-                setSessionMenuPosition(null);
-                setRenameDraft(session.title);
-                setSessionToRename({ id: session.id, title: session.title });
-              }}
-              role="menuitem"
-              type="button"
-            >
-              {isEnglish ? "Rename" : "Renomear"}
-            </button>
-            <button
-              className="session-menu-danger"
-              onClick={() => {
-                const session = recentSessions.find((item) => item.id === openSessionMenuId);
-                if (!session) return;
-                setOpenSessionMenuId(null);
-                setSessionMenuPosition(null);
-                setSessionToDelete({ id: session.id, title: session.title });
-              }}
-              role="menuitem"
-              type="button"
-            >
-              {isEnglish ? "Delete" : "Excluir"}
-            </button>
-          </div>
-        )}
-      </aside>
+      <SessionsSidebar
+        activeProfile={activeProfile}
+        activeSessionId={activeSession?.id}
+        collapsed={sidebarCollapsed}
+        expandSidebar={expandSidebar}
+        hasActiveProfile={Boolean(state?.activeProfileId)}
+        isCreatingSession={isCreatingSession}
+        isEnglish={isEnglish}
+        name={name}
+        newSession={() => void newSession()}
+        newWorkspace={() => void newWorkspace()}
+        onDeleteRequest={(session) => setSessionToDelete({ id: session.id, title: session.title })}
+        onRenameRequest={(session) => {
+          setRenameDraft(session.title);
+          setSessionToRename({ id: session.id, title: session.title });
+        }}
+        onRequestCloseMenu={() => {
+          setOpenSessionMenuId(null);
+          setSessionMenuPosition(null);
+        }}
+        onToggleSessionMenu={(sessionId, position) => {
+          setOpenSessionMenuId(sessionId);
+          setSessionMenuPosition(position);
+        }}
+        openSession={(sessionId) => void openSession(sessionId)}
+        openSessionMenuId={openSessionMenuId}
+        openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
+        recentSessions={recentSessions}
+        recentSessionsRef={recentSessionsRef}
+        sessionMenuPosition={sessionMenuPosition}
+        settingsButtonRef={settingsButtonRef}
+        setShowSettings={setShowSettings}
+        workspace={workspace}
+        workspacePickerRef={workspacePickerRef}
+        workspaces={state?.workspaces ?? []}
+      />
 
       <section className="workspace-main">
         <header className="workspace-header">
