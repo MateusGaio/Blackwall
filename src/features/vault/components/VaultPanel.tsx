@@ -596,16 +596,13 @@ export function VaultPanel({
           >
             {graph.files.map((file) => (
               <li key={file.path}>
-                <span className="vault-file-icon" aria-hidden="true">
-                  #
-                </span>
                 <button
+                  aria-label={file.title}
                   className="vault-file-button"
                   onClick={() => openNote(file.path)}
                   type="button"
                 >
                   <strong>{file.title}</strong>
-                  <small>{file.path}</small>
                 </button>
               </li>
             ))}
