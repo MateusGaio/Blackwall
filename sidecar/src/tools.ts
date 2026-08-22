@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
-import { dataDirectory, openDatabase } from "./db/database.js";
+import { dataDirectory, openSharedDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
 
 const maxReadBytes = 128_000;
@@ -114,7 +114,7 @@ function isInside(root: string, candidate: string) {
 }
 
 async function workspaceFor(workspaceId: string, storageDirectory: string): Promise<Workspace> {
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   try {
     const workspace = database.db
       .select()
@@ -162,7 +162,7 @@ async function requestApproval(
   approval: ApprovalRequest,
 ): Promise<ApprovalDecision> {
   const requestId = approval.requestId;
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   database.db
     .insert(approvals)
     .values({
@@ -196,7 +196,7 @@ export async function resolveApproval(
   if (decision !== "allow_once" && decision !== "allow_session" && decision !== "deny") {
     throw new Error("Decisão de autorização inválida.");
   }
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   const approval = database.db
     .select()
     .from(approvals)
@@ -234,7 +234,7 @@ export async function resolveApproval(
  * as such in SQLite so a later reconnect cannot resume an old action.
  */
 export function cancelPendingApprovals(requestId: string, storageDirectory = dataDirectory()) {
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   database.client
     .prepare(
       "UPDATE approvals SET resolved_at = ?, status = 'denied' WHERE status = 'pending' AND (request_id = ? OR request_id LIKE ?)",

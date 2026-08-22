@@ -2,7 +2,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
 import { applyMigrations } from "./migrations.js";
@@ -34,6 +34,29 @@ export function openDatabase(directory = dataDirectory()): DatabaseHandle {
     close: () => client.close(),
     path,
   };
+}
+
+// Conexões longeva por data directory: caminhos quentes (tools, providers,
+// attachments) disparavam open + pragmas + migrações por operação, dezenas de
+// vezes dentro de um único turno agêntico.
+const sharedHandles = new Map<string, DatabaseHandle>();
+
+export function openSharedDatabase(directory = dataDirectory()): DatabaseHandle {
+  const key = resolve(directory);
+  let handle = sharedHandles.get(key);
+  if (!handle) {
+    const opened = openDatabase(directory);
+    handle = {
+      client: opened.client,
+      db: opened.db,
+      path: opened.path,
+      // No-op de propósito: o ciclo de vida da conexão compartilhada não
+      // pertence ao chamador; close() aqui fecharia o banco para todos.
+      close: () => undefined,
+    };
+    sharedHandles.set(key, handle);
+  }
+  return handle;
 }
 
 const legacyDevSoulMarker =

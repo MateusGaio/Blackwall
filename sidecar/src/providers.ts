@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
-import { openDatabase } from "./db/database.js";
+import { openSharedDatabase } from "./db/database.js";
 import { models } from "./db/schema.js";
 import { loadModelCatalog, lookupModelLimits } from "./model-catalog.js";
 import { withAsyncInstrumentation } from "./observability.js";
@@ -626,7 +626,7 @@ export async function saveProvider(
     await encryptSecret(dataDirectory, provider.id, input.apiKey.trim());
   }
   await writeDocument(dataDirectory, document);
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   database.client
     .prepare(
       "INSERT OR REPLACE INTO providers (id, type, name, base_url, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'connected', COALESCE((SELECT created_at FROM providers WHERE id = ?), ?), ?)",
@@ -651,7 +651,7 @@ export async function removeProvider(id: string, dataDirectory = providerDataDir
   document.providers = document.providers.filter((candidate) => candidate.id !== id);
   await writeDocument(dataDirectory, document);
   await removeSecret(dataDirectory, id);
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   database.client.prepare("DELETE FROM providers WHERE id = ?").run(id);
   database.close();
   return { id };
@@ -748,7 +748,7 @@ export async function syncProviderModels(
     dataDirectory,
     request,
   );
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   const timestamp = Date.now();
   const upsert = database.client.prepare(
     "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_support_source, tool_checked_at, tool_probe_error_code, tool_mode, parallel_tool_calls, context_limit, output_reserve, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', NULL, ?, ?, NULL, NULL, 'auto', 'auto', ?, ?, ?) ON CONFLICT(provider_id, model_id) DO UPDATE SET display_name = excluded.display_name, capabilities = excluded.capabilities, available = 1, tool_support = CASE WHEN excluded.tool_support = 'unknown' THEN models.tool_support ELSE excluded.tool_support END, tool_support_source = CASE WHEN excluded.tool_support_source IS NULL THEN models.tool_support_source ELSE excluded.tool_support_source END, context_limit = COALESCE(excluded.context_limit, models.context_limit), output_reserve = COALESCE(excluded.output_reserve, models.output_reserve), updated_at = excluded.updated_at",
@@ -818,38 +818,29 @@ export async function listStoredProviderModels(
     },
     request,
   );
-  const database = openDatabase(dataDirectory);
-  const stored = database.db.select().from(models).where(eq(models.providerId, id)).all();
-  database.close();
-  return listed.map((model) => ({
-    ...model,
-    ...(stored.find((row) => row.modelId === model.id)
-      ? {
-          protocolPreference: stored.find((row) => row.modelId === model.id)
-            ?.protocolPreference as ProtocolPreference,
-          contextLimit:
-            stored.find((row) => row.modelId === model.id)?.contextLimit ?? model.contextLimit,
-          outputReserve:
-            stored.find((row) => row.modelId === model.id)?.outputReserve ?? model.outputReserve,
-          resolvedProtocol: stored.find((row) => row.modelId === model.id)?.resolvedProtocol as
-            | ResolvedProtocol
-            | undefined,
-          toolCheckedAt: stored.find((row) => row.modelId === model.id)?.toolCheckedAt ?? undefined,
-          toolMode: stored.find((row) => row.modelId === model.id)?.toolMode as
-            | ToolMode
-            | undefined,
-          parallelToolCalls: stored.find((row) => row.modelId === model.id)?.parallelToolCalls as
-            | ParallelToolCallsMode
-            | undefined,
-          toolProbeErrorCode:
-            stored.find((row) => row.modelId === model.id)?.toolProbeErrorCode ?? undefined,
-          toolSupport: stored.find((row) => row.modelId === model.id)?.toolSupport as ToolSupport,
-          toolSupportSource: stored.find((row) => row.modelId === model.id)?.toolSupportSource as
-            | ToolSupportSource
-            | undefined,
-        }
-      : {}),
-  }));
+  const database = openSharedDatabase(dataDirectory);
+  const storedRows = database.db.select().from(models).where(eq(models.providerId, id)).all();
+  const storedById = new Map(storedRows.map((row) => [row.modelId, row]));
+  return listed.map((model) => {
+    const row = storedById.get(model.id);
+    return {
+      ...model,
+      ...(row
+        ? {
+            protocolPreference: row.protocolPreference as ProtocolPreference,
+            contextLimit: row.contextLimit ?? model.contextLimit,
+            outputReserve: row.outputReserve ?? model.outputReserve,
+            resolvedProtocol: row.resolvedProtocol as ResolvedProtocol | undefined,
+            toolCheckedAt: row.toolCheckedAt ?? undefined,
+            toolMode: row.toolMode as ToolMode | undefined,
+            parallelToolCalls: row.parallelToolCalls as ParallelToolCallsMode | undefined,
+            toolProbeErrorCode: row.toolProbeErrorCode ?? undefined,
+            toolSupport: row.toolSupport as ToolSupport,
+            toolSupportSource: row.toolSupportSource as ToolSupportSource | undefined,
+          }
+        : {}),
+    };
+  });
 }
 
 export function setModelToolMode(
@@ -860,7 +851,7 @@ export function setModelToolMode(
 ) {
   if (toolMode !== "auto" && toolMode !== "compatibility" && toolMode !== "disabled")
     throw new Error("Modo de ferramentas inválido.");
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   const result = database.db
     .update(models)
     .set({ toolMode, updatedAt: Date.now() })
@@ -879,7 +870,7 @@ export function setModelParallelToolCalls(
 ) {
   if (!["auto", "enabled", "disabled"].includes(parallelToolCalls))
     throw new Error("Modo de chamadas paralelas inválido.");
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   const result = database.db
     .update(models)
     .set({ parallelToolCalls, updatedAt: Date.now() })
@@ -898,7 +889,7 @@ export function setModelProtocol(
 ) {
   if (!["auto", "openai-chat", "openai-responses"].includes(protocolPreference))
     throw new Error("Preferência de protocolo inválida.");
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   const result = database.db
     .update(models)
     .set({ protocolPreference, toolSupportSource: "manual", updatedAt: Date.now() })
@@ -920,7 +911,7 @@ export function setModelCapability(
   },
   dataDirectory = providerDataDirectory(),
 ) {
-  const database = openDatabase(dataDirectory);
+  const database = openSharedDatabase(dataDirectory);
   const result = database.db
     .update(models)
     .set({
