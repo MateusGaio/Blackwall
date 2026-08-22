@@ -1,3 +1,6 @@
+> **[Arquivado em 2026-08-22]** Documento de execução já concluído — mantido como registro histórico.
+> Estado atual do projeto: veja `ROADMAP.md` na raiz.
+
 # Plano de Limpeza de Casa — Blackwall
 
 > Documento operacional para resolver todas as pendências estruturais identificadas na análise de 2026-08-21.

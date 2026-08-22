@@ -181,7 +181,7 @@ Novo arquivo `context-budget.test.ts`: sessão sintética com 20 trocas incluind
 
 ## Fase 3 — Resumo automático real (revisada em 2026-08-16 com base no código-fonte atual do OpenCode)
 
-**Status: pendente — substitui a versão especulativa anterior desta fase.** Mateus pediu (16/08) para copiar de verdade o fluxo do OpenCode em vez de reinventar uma poda própria; a versão abaixo foi verificada linha a linha contra o repositório real (`github.com/anomalyco/opencode`, branch `dev` — o org antigo `sst/opencode` redireciona pra lá) em vez de ser uma extrapolação da pesquisa original. Fontes: `packages/opencode/src/session/compaction.ts`, `session/overflow.ts`, `session/processor.ts`, `session/retry.ts`, `provider/transform.ts`.
+**Status: ✅ implementada e verificada (confirmado no código em 2026-08-22).** `compactTranscript` roda em `executeChat` com guarda `alreadyCompactedThisTurn`, o resumo persiste como mensagem `isSummary: true`, a UI renderiza card próprio (`ConversationSummaryCard`), eventos `chat.compacting` chegam ao cliente e os testes determinísticos cobrem o caminho feliz e o de overflow irrecuperável (`index.test.ts`). Mateus pediu (16/08) para copiar de verdade o fluxo do OpenCode em vez de reinventar uma poda própria; a versão abaixo foi verificada linha a linha contra o repositório real (`github.com/anomalyco/opencode`, branch `dev` — o org antigo `sst/opencode` redireciona pra lá) em vez de ser uma extrapolação da pesquisa original. Fontes: `packages/opencode/src/session/compaction.ts`, `session/overflow.ts`, `session/processor.ts`, `session/retry.ts`, `provider/transform.ts`.
 
 **Diferença estrutural chave em relação à Fase 2:** a Fase 2 (já implementada) só *encolhe* tool outputs antigos para um stub JSON (`{"pruned":true,...}`) — o conteúdo original desaparece. O OpenCode faz algo mais parecido com o que um humano faria: manda os turnos antigos pra o próprio modelo pedindo um **resumo real em texto**, guarda esse resumo como uma mensagem, e descarta os turnos originais só depois de ter o resumo. Isso preserva mais contexto útil por token gasto do que um stub genérico. É essa mecânica — resumir de verdade, não só truncar — que falta copiar.
 
@@ -320,7 +320,7 @@ Detectar por `baseUrl` (mesmo padrão de `isOpenRouter`): OpenRouter repassa `ca
 
 ## Fase 7 — Teste de integração determinístico (pré-requisito antes de mexer mais em Fase 3/6)
 
-**Status: pendente — recomendado como bloqueio antes da Fase 3.** Motivo: em 16/08 uma mudança pequena e aparentemente segura (enxugar o `toolInstruction`) foi seguida por uma medição manual pior (509.310 vs 423.700 tokens), e não foi possível confirmar se foi regressão real ou variância de uma única amostra não-determinística. Continuar julgando mudanças de poda/compactação por "rodei uma vez no app de verdade e comparei o número" não é confiável o suficiente pra uma mudança do tamanho da Fase 3.
+**Status: ✅ implementado (confirmado em 2026-08-22).** A suíte WebSocket de `index.test.ts` usa `fetch` mockado e cobre poda intra-turno em três turnos, compactação única com persistência de resumo e falha sem loop — determinísticos, sem rede nem modelo real. Motivo: em 16/08 uma mudança pequena e aparentemente segura (enxugar o `toolInstruction`) foi seguida por uma medição manual pior (509.310 vs 423.700 tokens), e não foi possível confirmar se foi regressão real ou variância de uma única amostra não-determinística. Continuar julgando mudanças de poda/compactação por "rodei uma vez no app de verdade e comparei o número" não é confiável o suficiente pra uma mudança do tamanho da Fase 3.
 
 Construir um teste em `index.test.ts` (mockando `global.fetch`, no mesmo padrão já usado ali) que: roda 3 turnos com ~30 chamadas de ferramenta cada através do `executeChat` real; asserta um teto determinístico de tamanho de transcript enviado por requisição; e, depois que a Fase 3 existir, asserta que uma mensagem com `isSummary: true` aparece quando o cenário simulado excede o orçamento mesmo após a poda da Fase 2.
 
@@ -328,17 +328,20 @@ Construir um teste em `index.test.ts` (mockando `global.fetch`, no mesmo padrão
 
 ---
 
-## Ordem de rollout recomendada (atualizada em 2026-08-16)
+## Ordem de rollout recomendada (atualizada em 2026-08-22)
 
 1. ~~Fase 0~~ — concluída.
 2. ~~Fase 1~~ — concluída.
 3. ~~Fase 2~~ — concluída (redução de ~44% medida).
 4. ~~Fase 4.1~~ — concluída.
-5. **Fase 7 primeiro** (teste determinístico) — pré-requisito antes de tocar em Fase 3, dado o susto de regressão de 16/08. Sem isso, cada mudança de poda/compactação continua sendo julgada por amostra única e ruidosa.
-6. Fase 3 (resumo real via LLM) — maior peça restante; 1–2 dias incluindo testes.
-7. Fase 4.3 e 4.4 (doom loop e retry/backoff) — pequenos, podem ir juntos, meio dia.
-8. Fase 6 (cache_control) — só depois das anteriores estarem estáveis; é ganho de custo, não de contagem de tokens, então não é urgente.
-9. Fase 4.2 (ajuste de `DEFAULT_TOOL_CALL_BUDGET`/`MAX_TOOL_RESULT_BYTES_PER_TURN`) — depende de medir Fase 3 em produção.
+5. ~~Fase 7~~ — concluída (testes determinísticos WebSocket).
+6. ~~Fase 3~~ — concluída (resumo real via LLM, persistido com isSummary).
+7. **Fase 4.3** (doom loop 2→3) — decisão pendente do owner; medir a taxa de erro com o aviso proativo atual antes de subir o threshold.
+8. **Fase 4.4** (retry/backoff) — pendente: adicionar jitter (~25%) e teto de 30s quando não há header retry-after; hoje o piso é fixo em 2s sem jitter (`index.ts`, bloco retry-after).
+9. Fase 6 (cache_control) — adiada por design: ganho de custo, não de contagem; só depois das anteriores estabilizarem.
+10. Fase 4.2 (ajuste de budgets) — depende de medir a Fase 3 em uso real.
+
+> **Estado consolidado e próximos passos macro:** ver `ROADMAP.md` na raiz.
 
 Cada fase tem testes automatizados existentes que servem de rede de segurança (`index.test.ts`, `streaming.test.ts`, `tool-contract.test.ts`, `providers.test.ts`, `usage.test.ts`, `store.test.ts`, `context-budget.test.ts`) — rodar a suíte completa entre fases antes de avançar.
 
