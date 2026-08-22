@@ -1,7 +1,9 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { type FormEvent, type KeyboardEvent, type RefObject, useRef } from "react";
+import { type FormEvent, type KeyboardEvent, type RefObject, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
+import { cn } from "@/shared/lib/utils";
 import type { ConnectedProvider, ProviderModel, Workspace } from "../../shared/api/sidecar";
 import { isSubmitShortcut } from "../composer";
 import { CompactIcon } from "./CompactIcon";
@@ -16,25 +18,24 @@ type ComposerProps = {
   isSending: boolean;
   modelName: string;
   models: ProviderModel[];
-  modelOpen: boolean;
   onAttachFile: (file: File) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   permissionError: string;
-  permissionOpen: boolean;
   selectedModel: string;
   setDraft: (draft: string) => void;
-  setModelOpen: DispatchSetBoolean;
-  setPermissionOpen: DispatchSetBoolean;
   stopGeneration: () => void;
   workspace: Workspace | undefined;
 };
-
-type DispatchSetBoolean = (update: (current: boolean) => boolean) => void;
 
 function resizeComposer(target: HTMLTextAreaElement) {
   target.style.height = "auto";
   target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
 }
+
+const menuItem =
+  "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none aria-checked:bg-accent/60";
+
+const popoverContent = "w-64 p-1";
 
 export function Composer({
   activeProvider,
@@ -46,20 +47,18 @@ export function Composer({
   isSending,
   modelName,
   models,
-  modelOpen,
   onAttachFile,
   onSubmit,
   permissionError,
-  permissionOpen,
   selectedModel,
   setDraft,
-  setModelOpen,
-  setPermissionOpen,
   stopGeneration,
   workspace,
 }: ComposerProps) {
   const { t } = useTranslation();
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [permissionOpen, setPermissionOpen] = useState(false);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
@@ -77,7 +76,7 @@ export function Composer({
   }
 
   return (
-    <form className="composer" onSubmit={onSubmit}>
+    <form className="composer relative z-10" onSubmit={onSubmit}>
       <input
         accept=".c,.cpp,.css,.csv,.go,.h,.html,.java,.js,.json,.jsx,.md,.pdf,.py,.rs,.sh,.sql,.toml,.ts,.tsx,.txt,.yaml,.yml"
         className="sr-only"
@@ -99,13 +98,10 @@ export function Composer({
         <CompactIcon kind="clip" />
       </button>
       {workspace && (
-        <div className="permission-control" data-permission-control>
-          <button
-            aria-expanded={permissionOpen}
-            aria-haspopup="menu"
+        <Popover onOpenChange={setPermissionOpen} open={permissionOpen}>
+          <PopoverTrigger
             aria-label={t("composer.permissionMode")}
             className="composer-permission"
-            onClick={() => setPermissionOpen((current) => !current)}
             title={`${t("composer.permissions")}: ${
               workspace.permissionMode === "ask"
                 ? t("composer.askEveryTime")
@@ -119,36 +115,47 @@ export function Composer({
               <path d="M12 3 5 6v5c0 4.3 2.8 8.2 7 10 4.2-1.8 7-5.7 7-10V6l-7-3Z" />
               <path d="m9 12 2 2 4-4" />
             </svg>
-          </button>
-          {permissionOpen && (
-            <div className="permission-popover" role="menu">
-              <p>{t("composer.permissions")}</p>
-              {(
-                [
-                  ["ask", t("composer.askEveryTime")],
-                  ["automatic", t("composer.automatic")],
-                  ["read-only", t("composer.readonly")],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  className={workspace.permissionMode === mode ? "is-selected" : ""}
-                  key={mode}
-                  onClick={() => {
-                    changePermissionMode(mode);
-                    setPermissionOpen(() => false);
-                  }}
-                  role="menuitemradio"
-                  aria-checked={workspace.permissionMode === mode}
-                  type="button"
-                >
-                  <span>{label}</span>
-                  {workspace.permissionMode === mode && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-              {permissionError && <small className="permission-error">{permissionError}</small>}
-            </div>
-          )}
-        </div>
+          </PopoverTrigger>
+          <PopoverContent align="start" className={popoverContent} role="menu">
+            <p className="px-2 pb-1 font-mono text-[0.68rem] tracking-wide text-muted-foreground uppercase">
+              {t("composer.permissions")}
+            </p>
+            {(
+              [
+                ["ask", t("composer.askEveryTime")],
+                ["automatic", t("composer.automatic")],
+                ["read-only", t("composer.readonly")],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                aria-checked={workspace.permissionMode === mode}
+                className={cn(
+                  menuItem,
+                  workspace.permissionMode === mode && "aria-checked:bg-accent",
+                )}
+                key={mode}
+                onClick={() => {
+                  changePermissionMode(mode);
+                  setPermissionOpen(false);
+                }}
+                role="menuitemradio"
+                type="button"
+              >
+                <span>{label}</span>
+                {workspace.permissionMode === mode && (
+                  <span aria-hidden="true" className="text-xs text-muted-foreground">
+                    ✓
+                  </span>
+                )}
+              </button>
+            ))}
+            {permissionError && (
+              <small className="block px-2 pt-1 text-xs text-muted-foreground">
+                {permissionError}
+              </small>
+            )}
+          </PopoverContent>
+        </Popover>
       )}
       <textarea
         aria-label={t("composer.message")}
@@ -165,40 +172,43 @@ export function Composer({
         value={draft}
       />
       {activeProvider && (
-        <div className="model-control" data-model-control>
-          <button
-            aria-expanded={modelOpen}
-            aria-haspopup="menu"
-            className="composer-model"
-            onClick={() => setModelOpen((current) => !current)}
-            title={modelName}
-            type="button"
-          >
+        <Popover onOpenChange={setModelOpen} open={modelOpen}>
+          <PopoverTrigger className="composer-model" title={modelName} type="button">
+            <span className="hidden font-mono text-[0.68rem] text-muted-foreground sm:inline">
+              {activeProvider.name}
+            </span>
+            <span aria-hidden="true" className="hidden text-muted-foreground sm:inline">
+              ▸
+            </span>
             <span className="composer-model-name">{modelName}</span>
             <CompactIcon kind="chevron" />
-          </button>
-          {modelOpen && (
-            <div className="model-popover" role="menu">
-              <p className="eyebrow">{activeProvider.name}</p>
-              {models.map((model) => (
-                <button
-                  aria-checked={model.id === selectedModel}
-                  className={model.id === selectedModel ? "is-selected" : ""}
-                  key={model.id}
-                  onClick={() => {
-                    changeModel(model.id);
-                    setModelOpen(() => false);
-                  }}
-                  role="menuitemradio"
-                  type="button"
-                >
-                  <span>{model.name}</span>
-                  {model.id === selectedModel && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+          </PopoverTrigger>
+          <PopoverContent align="end" className={popoverContent} role="menu">
+            <p className="px-2 pb-1 font-mono text-[0.68rem] tracking-wide text-muted-foreground uppercase">
+              {activeProvider.name}
+            </p>
+            {models.map((model) => (
+              <button
+                aria-checked={model.id === selectedModel}
+                className={cn(menuItem, model.id === selectedModel && "aria-checked:bg-accent")}
+                key={model.id}
+                onClick={() => {
+                  changeModel(model.id);
+                  setModelOpen(false);
+                }}
+                role="menuitemradio"
+                type="button"
+              >
+                <span>{model.name}</span>
+                {model.id === selectedModel && (
+                  <span aria-hidden="true" className="text-xs text-muted-foreground">
+                    ✓
+                  </span>
+                )}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
       )}
       {isSending ? (
         <button

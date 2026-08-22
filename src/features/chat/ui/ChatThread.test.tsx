@@ -54,8 +54,8 @@ describe("ChatThread", () => {
       streamingStatus: "Gerando…",
       visibleMessages: [{ content: "", id: "stream-1", role: "assistant" }],
     });
-    expect(html).toContain("message-streaming");
-    expect(html).toContain("streaming-cursor");
+    expect(html).toContain("min-h-[1.6em]");
+    expect(html).toContain("motion-caret-blink");
     expect(html).toContain("Gerando…");
   });
 

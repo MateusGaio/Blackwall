@@ -33,6 +33,8 @@ import {
   uploadAttachment,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
+import { EnterExit } from "../shared/components/motion/EnterExit";
+import { Skeleton } from "../shared/components/motion/Skeleton";
 import { greetingForTime } from "./greetings";
 import {
   readBooleanPreference,
@@ -96,13 +98,12 @@ export default function WorkspaceShell({
     ),
   );
   const [isResizingVault, setIsResizingVault] = useState(false);
-  const [permissionOpen, setPermissionOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [switchingSession, setSwitchingSession] = useState(false);
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
@@ -155,6 +156,7 @@ export default function WorkspaceShell({
     error: chatError,
     isRunning: isSending,
     messages,
+    queuedCount,
     regenerate,
     resolveToolDecision,
     runtime,
@@ -253,15 +255,11 @@ export default function WorkspaceShell({
         setOpenSessionMenuId(null);
         setSessionMenuPosition(null);
       }
-      if (!target.closest("[data-permission-control]")) setPermissionOpen(false);
-      if (!target.closest("[data-model-control]")) setModelOpen(false);
     }
     function closeWithEscape(event: globalThis.KeyboardEvent) {
       if (event.key !== "Escape") return;
       setOpenSessionMenuId(null);
       setSessionMenuPosition(null);
-      setPermissionOpen(false);
-      setModelOpen(false);
       setShowSettings(false);
     }
     document.addEventListener("click", closeFloatingMenus);
@@ -275,7 +273,6 @@ export default function WorkspaceShell({
   useEffect(() => {
     if (!workspace) {
       setShowVault(false);
-      setPermissionOpen(false);
       setAttachments([]);
     }
   }, [workspace]);
@@ -390,6 +387,7 @@ export default function WorkspaceShell({
   async function openSession(sessionId: string) {
     setError("");
     setOpenSessionMenuId(null);
+    setSwitchingSession(true);
     try {
       const nextState = await selectSession(sessionId);
       activeSessionIdRef.current = sessionId;
@@ -404,6 +402,8 @@ export default function WorkspaceShell({
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheSession"));
+    } finally {
+      setSwitchingSession(false);
     }
   }
 
@@ -411,6 +411,7 @@ export default function WorkspaceShell({
     if (workspaceId === workspace?.id) return;
     const wasWithoutWorkspace = !workspace;
     setError("");
+    setSwitchingSession(true);
     try {
       const nextState = await selectWorkspace(workspaceId);
       activeSessionIdRef.current = nextState.activeSessionId;
@@ -426,6 +427,8 @@ export default function WorkspaceShell({
       if (wasWithoutWorkspace) setShowVault(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheWorkspace"));
+    } finally {
+      setSwitchingSession(false);
     }
   }
 
@@ -695,7 +698,16 @@ export default function WorkspaceShell({
             className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
             aria-label={t("chat.conversation")}
           >
-            {visibleMessages.length === 0 ? (
+            {switchingSession && (
+              <EnterExit className="px-1 pt-2" offsetPx={4} show>
+                <div aria-busy="true" role="status">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="mt-4 h-16" />
+                  <Skeleton className="mt-4 h-10 w-2/3" />
+                </div>
+              </EnterExit>
+            )}
+            {!switchingSession && visibleMessages.length === 0 ? (
               <div className="empty-state">
                 <h1>
                   {greeting}, {name}
@@ -741,6 +753,14 @@ export default function WorkspaceShell({
                 ))}
               </ul>
             )}
+            <EnterExit className="justify-self-start" offsetPx={4} show={queuedCount > 0}>
+              <p
+                className="rounded-full border border-border bg-muted px-3 py-1 font-mono text-xs text-muted-foreground"
+                role="status"
+              >
+                {t("chat.inQueue", { count: queuedCount })}
+              </p>
+            </EnterExit>
             {toolApproval && (
               <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
                 <p className="eyebrow">{t("chat.permissionRequested")}</p>
@@ -785,18 +805,14 @@ export default function WorkspaceShell({
               isSending={isSending}
               modelName={modelName}
               models={models}
-              modelOpen={modelOpen}
               onAttachFile={(file) => void attachFile(file)}
               onSubmit={(event) => {
                 event.preventDefault();
                 submitDraft();
               }}
               permissionError={permissionError}
-              permissionOpen={permissionOpen}
               selectedModel={selectedModel}
               setDraft={setDraft}
-              setModelOpen={setModelOpen}
-              setPermissionOpen={setPermissionOpen}
               stopGeneration={stopGeneration}
               workspace={workspace}
             />

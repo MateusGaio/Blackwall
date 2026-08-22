@@ -116,6 +116,12 @@
 /* Motion utilities — consumidas por src/shared/components/motion/.
    Indeterminado: apenas transform (monocromático, sem cor nova).
    A animação prevalece sobre o transform inline do indicador do shadcn. */
+@keyframes motion-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 @keyframes motion-indeterminate-slide {
   from {
     transform: translateX(-100%);
@@ -2600,13 +2606,6 @@ button:disabled {
   scrollbar-width: thin;
 }
 
-.message {
-  align-self: flex-start;
-  line-height: 1.6;
-  max-width: min(85%, 640px);
-  white-space: pre-wrap;
-}
-
 .safe-markdown p {
   margin: 0 0 8px;
 }
@@ -2749,57 +2748,6 @@ button:disabled {
   top: 8px;
 }
 
-.message-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.message-action {
-  background: transparent;
-  border: 0;
-  color: #8f8f98;
-  cursor: pointer;
-  font-size: 0.74rem;
-  padding: 2px 0;
-}
-
-.message-action:hover {
-  color: #f0f0f2;
-}
-
-.message-edit-form textarea {
-  background: #151519;
-  border: 1px solid #56565e;
-  border-radius: 8px;
-  color: inherit;
-  min-height: 100px;
-  padding: 10px;
-  resize: vertical;
-  width: min(100%, 620px);
-}
-
-.message-user {
-  align-self: flex-end;
-  background: #202024;
-  border: 1px solid #2d2d31;
-  border-radius: 12px;
-  padding: 12px 15px;
-}
-
-.message-assistant {
-  color: #e5e5e7;
-  padding: 0 4px;
-}
-
-.message-system {
-  border-left: 2px solid #45454b;
-  color: #89898e;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
-  padding: 0 10px;
-}
-
 .conversation-summary-card {
   animation: summary-card-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
   border: 1px solid #303036;
@@ -2863,38 +2811,6 @@ button:disabled {
   filter: blur(3px);
   opacity: 0;
   transform: translateY(-5px);
-}
-
-.message-tool {
-  background: #17171a;
-  border: 1px solid #303036;
-  border-radius: 10px;
-  color: #a6a6ab;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.76rem;
-  max-width: min(92%, 680px);
-  padding: 10px 12px;
-}
-
-.message-pending {
-  color: #929297;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
-  padding: 0 4px;
-}
-
-.message-streaming {
-  min-height: 1.6em;
-}
-
-.streaming-cursor {
-  background: #f2f2f3;
-  display: inline-block;
-  height: 1em;
-  margin-left: 4px;
-  transform: translateY(2px);
-  width: 2px;
-  animation: cursor-blink 900ms steps(2, jump-none) infinite;
 }
 
 .composer {
@@ -3226,11 +3142,6 @@ button:disabled {
   }
 }
 
-@keyframes cursor-blink {
-  50% {
-    opacity: 0;
-  }
-}
 @keyframes card-exit {
   from {
     filter: blur(0);
@@ -3292,9 +3203,6 @@ button:disabled {
     min-height: calc(100vh - 200px);
     overflow: visible;
     padding: 20px;
-  }
-  .message {
-    max-width: 92%;
   }
 }
 
@@ -3508,57 +3416,6 @@ button:disabled {
   opacity: 0.55;
 }
 
-.action-bar {
-  align-items: center;
-  display: inline-flex;
-  gap: 4px;
-  margin-top: 8px;
-  min-height: 28px;
-  padding: 2px;
-}
-
-.action-bar-button {
-  align-items: center;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  color: #8f8f98;
-  cursor: pointer;
-  display: inline-flex;
-  height: 26px;
-  justify-content: center;
-  padding: 0;
-  transition:
-    background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    color 160ms cubic-bezier(0.22, 1, 0.36, 1);
-  width: 26px;
-}
-
-.action-bar-button span {
-  color: #f2f2f3;
-  font-size: 0.82rem;
-  line-height: 1;
-}
-
-.action-bar-button:hover,
-.action-bar-button:focus-visible {
-  background: #202024;
-  border-color: #353539;
-  color: #f2f2f3;
-  outline: none;
-}
-
-.action-bar-button svg {
-  fill: none;
-  height: 15px;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
-  width: 15px;
-}
-
 .composer-attach svg {
   fill: none;
   height: 16px;
@@ -3759,8 +3616,6 @@ button:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .breadcrumb-page,
-  .action-bar,
-  .action-bar-button,
   .sidebar-actions,
   .new-thread-button,
   .workspace-header-trigger,
