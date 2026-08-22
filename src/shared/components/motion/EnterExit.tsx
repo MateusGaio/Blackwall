@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { useEffect, useRef, useState } from "react";
+import { type ElementType, useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 
 type MotionDuration = "fast" | "base" | "slow";
@@ -23,6 +23,8 @@ type EnterExitProps = {
   children: React.ReactNode;
   /** Chamado quando a saída termina e o conteúdo é desmontado. */
   onExited?: () => void;
+  /** Elemento host renderizado (padrão `div`; use `li` dentro de listas). */
+  as?: "div" | "li";
 };
 
 /**
@@ -37,14 +39,16 @@ export function EnterExit({
   offsetPx = 4,
   className,
   onExited,
+  as = "div",
   children,
 }: EnterExitProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [mounted, setMounted] = useState(show);
   const [entered, setEntered] = useState(show);
-  const hostRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLElement>(null);
   const onExitedRef = useRef(onExited);
   onExitedRef.current = onExited;
+  const Host = as as ElementType;
 
   useEffect(() => {
     if (!show) {
@@ -96,7 +100,7 @@ export function EnterExit({
   const state = show ? (entered ? "entered" : "entering") : "exiting";
 
   return (
-    <div
+    <Host
       ref={hostRef}
       data-slot="motion-enter-exit"
       data-state={state}
@@ -117,6 +121,6 @@ export function EnterExit({
       }
     >
       {children}
-    </div>
+    </Host>
   );
 }

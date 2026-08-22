@@ -1,0 +1,349 @@
+// MIT License — Copyright (c) 2026 Mateus Gaio
+
+import { describe, expect, it } from "vitest";
+import type { AppState, StreamHandlers, StreamResult } from "../../../shared/api/sidecar";
+import { SidecarChatStore } from "./sidecar-chat-store";
+
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+async function until(check: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200 && !check(); attempt += 1) await tick();
+  if (!check()) throw new Error("Condição não satisfeita dentro do prazo.");
+}
+
+type FakeStream = {
+  complete: (result: Partial<StreamResult>) => void;
+  delta: (text: string) => void;
+  done: Promise<StreamResult>;
+  fail: (reason: Error) => void;
+  handlers: StreamHandlers;
+  sessionId: string;
+  stop: () => void;
+  stopped: boolean;
+};
+
+type HarnessOverrides = {
+  editedMessages?: unknown[];
+  regenerateMessages?: unknown[];
+};
+
+function createHarness(overrides: HarnessOverrides = {}) {
+  const streams: FakeStream[] = [];
+  const persisted: Array<{ message: Record<string, unknown>; sessionId: string }> = [];
+  const stateRefreshes: number[] = [];
+  let serverMessages: Record<string, unknown>[] = [];
+
+  const appState: AppState = {
+    activeProfileId: "p",
+    activeSessionId: "s1",
+    activeWorkspaceId: null,
+    get messages() {
+      return serverMessages as AppState["messages"];
+    },
+    profiles: [],
+    recentSessions: [],
+    sessions: [],
+    workspaces: [],
+  };
+
+  const store = new SidecarChatStore(
+    {
+      editSessionMessage: async () => {
+        serverMessages = (overrides.editedMessages ?? []) as never;
+        return serverMessages as never;
+      },
+      generateId: (() => {
+        let counter = 0;
+        return () => {
+          counter += 1;
+          return `id-${counter}`;
+        };
+      })(),
+      getAppState: async () => appState,
+      persistMessage: async (sessionId: string, message) => {
+        persisted.push({ message: { ...message }, sessionId });
+        const stored = {
+          ...message,
+          createdAt: 0,
+          id: `stored-${persisted.length}`,
+          isSummary: false,
+          sequence: persisted.length,
+        };
+        serverMessages = [...serverMessages, stored];
+        return stored as never;
+      },
+      regenerateSession: async () => {
+        serverMessages = (overrides.regenerateMessages ?? []) as never;
+        return serverMessages as never;
+      },
+      searchAttachments: async () => [],
+      streamMessage: async (
+        _providerId: string,
+        _messages: unknown[],
+        _model: string | undefined,
+        _workspaceId: string,
+        handlers: StreamHandlers,
+        _profileId?: string,
+        sessionId?: string,
+      ) => {
+        let resolveDone: (result: StreamResult) => void = () => undefined;
+        let rejectDone: (reason: Error) => void = () => undefined;
+        const done = new Promise<StreamResult>((resolve, reject) => {
+          resolveDone = resolve;
+          rejectDone = reject;
+        });
+        let buffer = "";
+        const stream: FakeStream = {
+          complete: (result) =>
+            resolveDone({
+              content: result.content ?? "",
+              error: result.error,
+              failed: result.failed,
+              persisted: result.persisted,
+              provider: null,
+              stopped: result.stopped,
+            }),
+          delta: (text) => {
+            buffer += text;
+            handlers.onDelta?.(text);
+          },
+          done,
+          fail: (reason) => rejectDone(reason),
+          handlers,
+          sessionId: sessionId ?? "",
+          stop: () => {
+            stream.stopped = true;
+            resolveDone({ content: buffer, persisted: false, provider: null, stopped: true });
+          },
+          stopped: false,
+        };
+        streams.push(stream);
+        return { done, stop: stream.stop };
+      },
+    },
+    { onAppStateRefreshed: () => stateRefreshes.push(stateRefreshes.length + 1) },
+  );
+
+  store.configure({
+    model: "mock-model",
+    profileId: null,
+    providerId: "provider-1",
+    workspaceId: null,
+  });
+
+  return { persisted, serverMessages: () => serverMessages, stateRefreshes, store, streams };
+}
+
+describe("SidecarChatStore", () => {
+  it("fluxo feliz: mensagem do usuário otimista, streaming e conclusão persistida", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("Olá");
+
+    await until(() => harness.streams.length === 1);
+    expect(harness.store.getSnapshot().isRunning).toBe(true);
+    expect(harness.store.getSnapshot().messages.at(-2)?.role).toBe("user");
+    expect(harness.persisted[0]).toMatchObject({
+      message: { content: "Olá", role: "user" },
+      sessionId: "s1",
+    });
+
+    harness.streams[0].delta("Res");
+    harness.streams[0].delta("posta");
+    expect(harness.store.getSnapshot().messages.at(-1)?.content).toBe("Resposta");
+    expect(harness.store.getSnapshot().streamingId).toBe(
+      harness.store.getSnapshot().messages.at(-1)?.id,
+    );
+
+    harness.streams[0].complete({ content: "Resposta.", persisted: false });
+    await until(() => !harness.store.getSnapshot().isRunning);
+    expect(harness.persisted[1]).toMatchObject({
+      message: { content: "Resposta.", role: "assistant", status: "complete" },
+    });
+    expect(harness.store.getSnapshot().streamingId).toBeNull();
+    expect(harness.stateRefreshes.length).toBeGreaterThan(0);
+  });
+
+  it("guard anti-vazamento: deltas de sessão antiga não entram na sessão nova", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("Pergunta antiga");
+
+    await until(() => harness.streams.length === 1);
+    harness.streams[0].delta("parcial ");
+    harness.store.setActiveSession("s2", [
+      { content: "outra conversa", id: "other-1", role: "user" },
+    ]);
+    expect(harness.store.getSnapshot().messages).toHaveLength(1);
+    expect(harness.store.getSnapshot().messages[0]?.id).toBe("other-1");
+
+    harness.streams[0].delta("que não deve vazar");
+    expect(harness.store.getSnapshot().messages).toHaveLength(1);
+
+    harness.streams[0].complete({ content: "parcial resposta", persisted: false });
+    await until(() => harness.persisted.some((item) => item.sessionId === "s1"));
+    expect(harness.persisted.at(-1)).toMatchObject({ sessionId: "s1" });
+    expect(harness.store.getSnapshot().messages[0]?.id).toBe("other-1");
+  });
+
+  it("fila FIFO (ADR-21): envio durante execução enfileira e dispara na sequência", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("primeira");
+    await until(() => harness.streams.length === 1);
+
+    harness.store.send("segunda");
+    expect(harness.store.getSnapshot().queuedCount).toBe(1);
+
+    harness.streams[0].complete({ content: "r1", persisted: true });
+    await until(
+      () => harness.persisted.filter((item) => item.message.role === "user").length === 2,
+    );
+    await until(() => harness.streams.length === 2);
+    expect(harness.store.getSnapshot().queuedCount).toBe(0);
+    expect(harness.persisted[1]).toMatchObject({ message: { content: "segunda" } });
+
+    harness.streams[1].complete({ content: "r2", persisted: true });
+    await until(() => !harness.store.getSnapshot().isRunning);
+  });
+
+  it("cancelamento preserva o parcial como mensagem stopped", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("escreva");
+    await until(() => harness.streams.length === 1);
+
+    harness.streams[0].delta("texto parcial ");
+    harness.store.cancel();
+    expect(harness.streams[0].stopped).toBe(true);
+
+    await until(() => !harness.store.getSnapshot().isRunning);
+    expect(harness.persisted.at(-1)).toMatchObject({
+      message: { content: "texto parcial", role: "assistant", status: "stopped" },
+    });
+  });
+
+  it("falha de conexão preserva o parcial com status failed e expõe erro acionável", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("pergunta");
+    await until(() => harness.streams.length === 1);
+
+    harness.streams[0].delta("resposta incompleta");
+    harness.streams[0].fail(new Error("A conexão local foi interrompida."));
+
+    await until(() => Boolean(harness.store.getSnapshot().error));
+    expect(harness.store.getSnapshot().error).toContain("conexão");
+    expect(harness.persisted.at(-1)).toMatchObject({
+      message: { content: "resposta incompleta", role: "assistant", status: "failed" },
+    });
+  });
+
+  it("erro do roteador (ADR-16) vira banner acionável, nunca exceção", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("pergunta");
+    await until(() => harness.streams.length === 1);
+
+    harness.streams[0].complete({
+      content: "",
+      error: "Não foi possível obter resposta — todos os provedores configurados falharam.",
+      failed: true,
+    });
+
+    await until(() => Boolean(harness.store.getSnapshot().error));
+    expect(harness.store.getSnapshot().error).toContain("todos os provedores");
+    expect(harness.store.getSnapshot().isRunning).toBe(false);
+  });
+
+  it("aprovação que chega após troca de sessão é negada automaticamente", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("use ferramenta");
+    await until(() => harness.streams.length === 1);
+
+    const decisions: string[] = [];
+    harness.streams[0].handlers.onApproval?.(
+      {
+        args: {},
+        id: "a1",
+        requestId: "r1",
+        sessionId: "s1",
+        tool: "read_file",
+        workspaceId: "w1",
+      },
+      (decision) => decisions.push(decision),
+    );
+
+    harness.store.setActiveSession("s2", []);
+    await until(() => decisions.length === 1);
+    expect(decisions[0]).toBe("deny");
+  });
+
+  it("aprovação resolvida pelo usuário segue para o socket", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("use ferramenta");
+    await until(() => harness.streams.length === 1);
+
+    const decisions: string[] = [];
+    harness.streams[0].handlers.onApproval?.(
+      {
+        args: {},
+        id: "a2",
+        requestId: "r2",
+        sessionId: "s1",
+        tool: "list_directory",
+        workspaceId: "w1",
+      },
+      (decision) => decisions.push(decision),
+    );
+    await until(() => harness.store.getSnapshot().toolApproval !== null);
+
+    harness.store.resolveToolDecision("allow_once");
+    expect(decisions).toEqual(["allow_once"]);
+    expect(harness.store.getSnapshot().toolApproval).toBeNull();
+  });
+
+  it("reload regenera via sidecar e dispara nova geração", async () => {
+    const harness = createHarness({
+      regenerateMessages: [{ content: "histórico regenerado", id: "m1", role: "user" }],
+    });
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("inicial");
+    await until(() => harness.streams.length === 1);
+    harness.streams[0].complete({ content: "primeira", persisted: true });
+    await until(() => !harness.store.getSnapshot().isRunning);
+
+    void harness.store.reload();
+    await until(() => harness.streams.length === 2);
+    expect(harness.store.getSnapshot().messages.map((message) => message.id)).toContain("m1");
+    harness.streams[1].complete({ content: "regenerada", persisted: true });
+    await until(() => !harness.store.getSnapshot().isRunning);
+  });
+
+  it("editMessage reescreve a mensagem e regenera a partir do estado do servidor", async () => {
+    const harness = createHarness({
+      editedMessages: [{ content: "editada", id: "e1", role: "user" }],
+    });
+    harness.store.setActiveSession("s1", [{ content: "original", id: "old-user", role: "user" }]);
+    void harness.store.editMessage("old-user", "editada");
+    await until(() => harness.streams.length === 1);
+    harness.streams[0].complete({ content: "nova resposta", persisted: true });
+    await until(() => !harness.store.getSnapshot().isRunning);
+  });
+
+  it("sync da mesma sessão durante execução não apaga o placeholder de streaming", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("mensagem");
+    await until(() => harness.streams.length === 1);
+    harness.streams[0].delta("streaming…");
+
+    harness.store.setActiveSession("s1", [{ content: "mensagem", id: "u1", role: "user" }]);
+    expect(harness.store.getSnapshot().messages.at(-1)?.content).toBe("streaming…");
+
+    harness.streams[0].complete({ content: "streaming… final", persisted: true });
+    await until(() => !harness.store.getSnapshot().isRunning);
+  });
+});

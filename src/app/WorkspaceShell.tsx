@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { ChatRuntimeProvider, useSidecarChat } from "../features/chat/adapter/use-sidecar-runtime";
+import { ChatThread } from "../features/chat/ui/ChatThread";
 import { ProviderManager } from "../features/config/components/ProviderManager";
 import {
   type AppState,
@@ -45,9 +47,7 @@ import { SessionUsageDialog } from "./SessionUsageDialog";
 import { ChatHeader } from "./shell/ChatHeader";
 import { Composer } from "./shell/Composer";
 import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
-import { MessageList } from "./shell/MessageList";
 import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
-import { useStreamingChat } from "./shell/useStreamingChat";
 import { maximumVaultWidth, minimumVaultWidth, VaultSlot, type VaultTab } from "./shell/VaultSlot";
 
 const defaultVaultWidth = 360;
@@ -100,7 +100,6 @@ export default function WorkspaceShell({
   const [modelOpen, setModelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>(() => appState?.messages ?? []);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -151,35 +150,46 @@ export default function WorkspaceShell({
     t("chat.selectModel");
 
   const {
+    cancel: stopGeneration,
     editMessage,
-    isSending,
+    error: chatError,
+    isRunning: isSending,
+    messages,
     regenerate,
     resolveToolDecision,
-    stopGeneration,
-    streamingContent,
+    runtime,
+    sendMessage,
+    streamingId,
     streamingStatus,
-    submit,
     toolApproval,
-  } = useStreamingChat({
-    activeProvider,
-    activeSessionIdRef,
-    composerRef,
-    draft,
-    messages,
-    selectedModel,
-    setActiveSessionId: (sessionId) => {
-      activeSessionIdRef.current = sessionId;
+  } = useSidecarChat({
+    model: selectedModel,
+    onAppStateRefreshed: (refreshed) => setState(refreshed),
+    onProviderUsage: (providerId, filters) => {
+      void getProviderUsage(providerId, {
+        modelId: filters.modelId,
+        profileId: filters.profileId ?? undefined,
+        sessionId: filters.sessionId,
+      })
+        .then(setUsageSummary)
+        .catch(() => undefined);
     },
-    setDraft,
-    setError,
-    setMessages,
-    setResourceNotice,
-    setState,
-    setUsageSummary,
-    setVaultRefreshKey,
-    state,
+    onVaultFileChanged: () => setVaultRefreshKey((key) => key + 1),
+    profileId: state?.activeProfileId,
+    providerId: activeProvider?.id ?? null,
+    sessionId: state?.activeSessionId ?? null,
+    storedMessages: state?.messages ?? [],
     workspaceId: workspace?.id,
   });
+
+  function submitDraft() {
+    const content = draft.trim();
+    if (!content) return;
+    setDraft("");
+    composerRef.current?.style.removeProperty("height");
+    setResourceNotice("");
+    sendMessage(content);
+  }
 
   useEffect(() => {
     if (!activeProvider) {
@@ -208,7 +218,6 @@ export default function WorkspaceShell({
     lastAppStateRef.current = appState;
     activeSessionIdRef.current = appState.activeSessionId;
     setState(appState);
-    setMessages(appState.messages);
   }, [appState]);
 
   useEffect(() => {
@@ -385,7 +394,6 @@ export default function WorkspaceShell({
       const nextState = await selectSession(sessionId);
       activeSessionIdRef.current = sessionId;
       setState(nextState);
-      setMessages(nextState.messages);
       const nextSession = nextState.sessions.find((item) => item.id === sessionId);
       setActiveProvider(
         nextSession?.selectedProviderId
@@ -407,7 +415,6 @@ export default function WorkspaceShell({
       const nextState = await selectWorkspace(workspaceId);
       activeSessionIdRef.current = nextState.activeSessionId;
       setState(nextState);
-      setMessages(nextState.messages);
       const nextSession = nextState.sessions.find((item) => item.id === nextState.activeSessionId);
       setActiveProvider(
         nextSession?.selectedProviderId
@@ -501,7 +508,6 @@ export default function WorkspaceShell({
     };
     activeSessionIdRef.current = session.id;
     setState(nextStateWithWorkspace);
-    setMessages(nextStateWithWorkspace.messages);
     setActiveProvider(
       session.selectedProviderId
         ? (providers.find((item) => item.id === session.selectedProviderId) ?? providers[0] ?? null)
@@ -542,7 +548,6 @@ export default function WorkspaceShell({
       await deleteSession(sessionId);
       const refreshed = await getAppState();
       setState(refreshed);
-      setMessages(refreshed.messages);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("chat.couldNotDeleteTheSession"));
     }
@@ -614,325 +619,331 @@ export default function WorkspaceShell({
   );
 
   return (
-    <main
-      className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
-      style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
-    >
-      <SessionsSidebar
-        activeProfile={activeProfile}
-        activeSessionId={activeSession?.id}
-        collapsed={sidebarCollapsed}
-        expandSidebar={expandSidebar}
-        hasActiveProfile={Boolean(state?.activeProfileId)}
-        isCreatingSession={isCreatingSession}
-        name={name}
-        newSession={() => void newSession()}
-        newWorkspace={() => void newWorkspace()}
-        onDeleteRequest={(session) => setSessionToDelete({ id: session.id, title: session.title })}
-        onRenameRequest={(session) => {
-          setRenameDraft(session.title);
-          setSessionToRename({ id: session.id, title: session.title });
-        }}
-        onRequestCloseMenu={() => {
-          setOpenSessionMenuId(null);
-          setSessionMenuPosition(null);
-        }}
-        onToggleSessionMenu={(sessionId, position) => {
-          setOpenSessionMenuId(sessionId);
-          setSessionMenuPosition(position);
-        }}
-        openSession={(sessionId) => void openSession(sessionId)}
-        openSessionMenuId={openSessionMenuId}
-        openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
-        recentSessions={recentSessions}
-        recentSessionsRef={recentSessionsRef}
-        sessionMenuPosition={sessionMenuPosition}
-        settingsButtonRef={settingsButtonRef}
-        setShowSettings={setShowSettings}
-        workspace={workspace}
-        workspacePickerRef={workspacePickerRef}
-        workspaces={state?.workspaces ?? []}
-      />
-
-      <section className="workspace-main">
-        <ChatHeader
-          activeProvider={activeProvider}
-          onOpenUsageDetails={() => {
-            setUsageOpen(false);
-            setShowUsageDetails(true);
+    <ChatRuntimeProvider runtime={runtime}>
+      <main
+        className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
+        style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
+      >
+        <SessionsSidebar
+          activeProfile={activeProfile}
+          activeSessionId={activeSession?.id}
+          collapsed={sidebarCollapsed}
+          expandSidebar={expandSidebar}
+          hasActiveProfile={Boolean(state?.activeProfileId)}
+          isCreatingSession={isCreatingSession}
+          name={name}
+          newSession={() => void newSession()}
+          newWorkspace={() => void newWorkspace()}
+          onDeleteRequest={(session) =>
+            setSessionToDelete({ id: session.id, title: session.title })
+          }
+          onRenameRequest={(session) => {
+            setRenameDraft(session.title);
+            setSessionToRename({ id: session.id, title: session.title });
           }}
-          onSelectProvider={(next) => void selectProvider(next)}
-          onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
-          onVaultClick={() => {
-            if (!workspace) {
-              setResourceNotice(t("chat.selectAFolderToConfigure"));
-              return;
-            }
-            setResourceNotice("");
-            setShowVault((current) => {
-              if (!current) setVaultCollapsed(false);
-              return !current;
-            });
+          onRequestCloseMenu={() => {
+            setOpenSessionMenuId(null);
+            setSessionMenuPosition(null);
           }}
-          providers={providers}
-          sessionTitle={activeSession?.title}
-          setUsageOpen={setUsageOpen}
-          sidebarCollapsed={sidebarCollapsed}
-          usageOpen={usageOpen}
-          usageSummary={usageSummary}
-          vaultActive={Boolean(workspace && showVault)}
+          onToggleSessionMenu={(sessionId, position) => {
+            setOpenSessionMenuId(sessionId);
+            setSessionMenuPosition(position);
+          }}
+          openSession={(sessionId) => void openSession(sessionId)}
+          openSessionMenuId={openSessionMenuId}
+          openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
+          recentSessions={recentSessions}
+          recentSessionsRef={recentSessionsRef}
+          sessionMenuPosition={sessionMenuPosition}
+          settingsButtonRef={settingsButtonRef}
+          setShowSettings={setShowSettings}
           workspace={workspace}
-        />
-        <section
-          className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
-          aria-label={t("chat.conversation")}
-        >
-          {visibleMessages.length === 0 ? (
-            <div className="empty-state">
-              <h1>
-                {greeting}, {name}
-              </h1>
-              <p>{workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}</p>
-            </div>
-          ) : (
-            <MessageList
-              copiedMessageId={copiedMessageId}
-              copyMessage={(message) => void copyMessage(message)}
-              editingMessageDraft={editingMessageDraft}
-              editingMessageId={editingMessageId}
-              isSending={isSending}
-              listRef={messageListRef}
-              onEditCancel={() => setEditingMessageId(null)}
-              onEditChange={setEditingMessageDraft}
-              onEditSubmit={(messageId, draft) => {
-                setEditingMessageId(null);
-                void editMessage(messageId, draft);
-              }}
-              onEditingStart={(message) => {
-                setEditingMessageDraft(message.content);
-                setEditingMessageId(message.id);
-              }}
-              regenerate={() => void regenerate()}
-              streamingContent={streamingContent}
-              streamingStatus={streamingStatus}
-              visibleMessages={visibleMessages}
-            />
-          )}
-          {attachments.length > 0 && (
-            <ul className="attachment-list" aria-label={t("chat.indexedAttachments")}>
-              {attachments.map((attachment) => (
-                <li className="attachment-chip" key={attachment.id}>
-                  <span>{attachment.filename}</span>
-                  <button
-                    aria-label={`${t("chat.remove")} ${attachment.filename}`}
-                    onClick={() => setAttachmentToRemove(attachment)}
-                    type="button"
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {toolApproval && (
-            <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
-              <p className="eyebrow">{t("chat.permissionRequested")}</p>
-              <strong>{toolApproval.tool}</strong>
-              <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
-              <div className="workspace-access-actions">
-                <button
-                  className="button button-primary"
-                  onClick={() => resolveToolDecision("allow_once")}
-                  type="button"
-                >
-                  {t("chat.allowOnce")}
-                </button>
-                {!["apply_patch", "create_or_update_file", "execute_command"].includes(
-                  toolApproval.tool,
-                ) && (
-                  <button
-                    className="button button-secondary"
-                    onClick={() => resolveToolDecision("allow_session")}
-                    type="button"
-                  >
-                    {t("chat.allowThisSession")}
-                  </button>
-                )}
-                <button
-                  className="text-button"
-                  onClick={() => resolveToolDecision("deny")}
-                  type="button"
-                >
-                  {t("chat.deny")}
-                </button>
-              </div>
-            </section>
-          )}
-          <Composer
-            activeProvider={activeProvider}
-            activeSessionId={activeSession?.id}
-            changeModel={(model) => void changeModel(model)}
-            changePermissionMode={(mode) => void changePermissionMode(mode)}
-            composerRef={composerRef}
-            draft={draft}
-            isSending={isSending}
-            modelName={modelName}
-            models={models}
-            modelOpen={modelOpen}
-            onAttachFile={(file) => void attachFile(file)}
-            onSubmit={(event) => void submit(event)}
-            permissionError={permissionError}
-            permissionOpen={permissionOpen}
-            selectedModel={selectedModel}
-            setDraft={setDraft}
-            setModelOpen={setModelOpen}
-            setPermissionOpen={setPermissionOpen}
-            stopGeneration={stopGeneration}
-            workspace={workspace}
-          />
-          {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
-          {resourceNotice && (
-            <div className="resource-gate" role="alert">
-              <span>{resourceNotice}</span>
-              <button className="text-button" onClick={newWorkspace} type="button">
-                {t("chat.addAWorkspaceInSettings")}
-              </button>
-            </div>
-          )}
-          {error && (
-            <p className="form-error chat-error" role="alert">
-              {error}
-            </p>
-          )}
-        </section>
-      </section>
-      {showVault && workspace && (
-        <VaultSlot
-          isResizingVault={isResizingVault}
-          onCollapse={() => setVaultCollapsed(true)}
-          onFinishResize={finishVaultResize}
-          onNudgeWidth={(delta) => setVaultWidth((current) => boundedVaultWidth(current + delta))}
-          onOpenFiles={() => {
-            setVaultTab("files");
-            setVaultCollapsed(false);
-          }}
-          onOpenGraph={() => {
-            setVaultTab("graph");
-            setVaultCollapsed(false);
-          }}
-          onResize={resizeVault}
-          onStartResize={startVaultResize}
-          onTabChange={setVaultTab}
-          refreshKey={vaultRefreshKey}
-          tab={vaultTab}
-          vaultCollapsed={vaultCollapsed}
-          vaultWidth={vaultWidth}
-          workspaceId={workspace.id}
-        />
-      )}
-      {showSettings && (
-        <ProviderManager
-          activeSessionId={state?.activeSessionId ?? null}
-          activeWorkspaceId={state?.activeWorkspaceId ?? null}
-          activeProviderId={activeProvider?.id ?? null}
-          onClose={() => setShowSettings(false)}
-          onDeleteProfile={onDeleteProfile}
-          onProvidersChange={(next) => {
-            setProviders(next);
-            setActiveProvider((current) =>
-              current
-                ? (next.find((item) => item.id === current.id) ?? next[0] ?? null)
-                : (next[0] ?? null),
-            );
-          }}
-          onProfileChange={(updated) => {
-            setState((current) =>
-              current
-                ? {
-                    ...current,
-                    profiles: current.profiles.map((profile) =>
-                      profile.id === updated.id ? updated : profile,
-                    ),
-                  }
-                : current,
-            );
-          }}
-          onSignOut={onSignOut}
-          onSelect={(next) => void selectProvider(next)}
-          onWorkspaceChange={(updated) => {
-            setState((current) =>
-              current
-                ? {
-                    ...current,
-                    workspaces: current.workspaces.map((item) =>
-                      item.id === updated.id ? updated : item,
-                    ),
-                  }
-                : current,
-            );
-          }}
-          onWorkspaceSelected={activateWorkspace}
-          profile={activeProfile ?? null}
-          profileId={state?.activeProfileId ?? null}
-          providers={providers}
+          workspacePickerRef={workspacePickerRef}
           workspaces={state?.workspaces ?? []}
         />
-      )}
-      {showUsageDetails && (
-        <SessionUsageDialog
-          messages={messages}
-          modelName={selectedModel || t("chat.notSelected")}
-          onClose={() => setShowUsageDetails(false)}
-          providerName={activeProvider?.name ?? "—"}
-          sessionTitle={activeSession?.title ?? t("chat.newSession")}
-          summary={usageSummary}
+
+        <section className="workspace-main">
+          <ChatHeader
+            activeProvider={activeProvider}
+            onOpenUsageDetails={() => {
+              setUsageOpen(false);
+              setShowUsageDetails(true);
+            }}
+            onSelectProvider={(next) => void selectProvider(next)}
+            onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+            onVaultClick={() => {
+              if (!workspace) {
+                setResourceNotice(t("chat.selectAFolderToConfigure"));
+                return;
+              }
+              setResourceNotice("");
+              setShowVault((current) => {
+                if (!current) setVaultCollapsed(false);
+                return !current;
+              });
+            }}
+            providers={providers}
+            sessionTitle={activeSession?.title}
+            setUsageOpen={setUsageOpen}
+            sidebarCollapsed={sidebarCollapsed}
+            usageOpen={usageOpen}
+            usageSummary={usageSummary}
+            vaultActive={Boolean(workspace && showVault)}
+            workspace={workspace}
+          />
+          <section
+            className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
+            aria-label={t("chat.conversation")}
+          >
+            {visibleMessages.length === 0 ? (
+              <div className="empty-state">
+                <h1>
+                  {greeting}, {name}
+                </h1>
+                <p>{workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}</p>
+              </div>
+            ) : (
+              <ChatThread
+                copiedMessageId={copiedMessageId}
+                copyMessage={(message) => void copyMessage(message)}
+                editingMessageDraft={editingMessageDraft}
+                editingMessageId={editingMessageId}
+                listRef={messageListRef}
+                onEditCancel={() => setEditingMessageId(null)}
+                onEditChange={setEditingMessageDraft}
+                onEditSubmit={(messageId, editDraft) => {
+                  setEditingMessageId(null);
+                  void editMessage(messageId, editDraft);
+                }}
+                onEditingStart={(message) => {
+                  setEditingMessageDraft(message.content);
+                  setEditingMessageId(message.id);
+                }}
+                regenerate={() => void regenerate()}
+                streamingId={streamingId}
+                streamingStatus={streamingStatus}
+                visibleMessages={visibleMessages}
+              />
+            )}
+            {attachments.length > 0 && (
+              <ul className="attachment-list" aria-label={t("chat.indexedAttachments")}>
+                {attachments.map((attachment) => (
+                  <li className="attachment-chip" key={attachment.id}>
+                    <span>{attachment.filename}</span>
+                    <button
+                      aria-label={`${t("chat.remove")} ${attachment.filename}`}
+                      onClick={() => setAttachmentToRemove(attachment)}
+                      type="button"
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {toolApproval && (
+              <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
+                <p className="eyebrow">{t("chat.permissionRequested")}</p>
+                <strong>{toolApproval.tool}</strong>
+                <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
+                <div className="workspace-access-actions">
+                  <button
+                    className="button button-primary"
+                    onClick={() => resolveToolDecision("allow_once")}
+                    type="button"
+                  >
+                    {t("chat.allowOnce")}
+                  </button>
+                  {!["apply_patch", "create_or_update_file", "execute_command"].includes(
+                    toolApproval.tool,
+                  ) && (
+                    <button
+                      className="button button-secondary"
+                      onClick={() => resolveToolDecision("allow_session")}
+                      type="button"
+                    >
+                      {t("chat.allowThisSession")}
+                    </button>
+                  )}
+                  <button
+                    className="text-button"
+                    onClick={() => resolveToolDecision("deny")}
+                    type="button"
+                  >
+                    {t("chat.deny")}
+                  </button>
+                </div>
+              </section>
+            )}
+            <Composer
+              activeProvider={activeProvider}
+              activeSessionId={activeSession?.id}
+              changeModel={(model) => void changeModel(model)}
+              changePermissionMode={(mode) => void changePermissionMode(mode)}
+              composerRef={composerRef}
+              draft={draft}
+              isSending={isSending}
+              modelName={modelName}
+              models={models}
+              modelOpen={modelOpen}
+              onAttachFile={(file) => void attachFile(file)}
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitDraft();
+              }}
+              permissionError={permissionError}
+              permissionOpen={permissionOpen}
+              selectedModel={selectedModel}
+              setDraft={setDraft}
+              setModelOpen={setModelOpen}
+              setPermissionOpen={setPermissionOpen}
+              stopGeneration={stopGeneration}
+              workspace={workspace}
+            />
+            {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
+            {resourceNotice && (
+              <div className="resource-gate" role="alert">
+                <span>{resourceNotice}</span>
+                <button className="text-button" onClick={newWorkspace} type="button">
+                  {t("chat.addAWorkspaceInSettings")}
+                </button>
+              </div>
+            )}
+            {(error || chatError) && (
+              <p className="form-error chat-error" role="alert">
+                {error || chatError}
+              </p>
+            )}
+          </section>
+        </section>
+        {showVault && workspace && (
+          <VaultSlot
+            isResizingVault={isResizingVault}
+            onCollapse={() => setVaultCollapsed(true)}
+            onFinishResize={finishVaultResize}
+            onNudgeWidth={(delta) => setVaultWidth((current) => boundedVaultWidth(current + delta))}
+            onOpenFiles={() => {
+              setVaultTab("files");
+              setVaultCollapsed(false);
+            }}
+            onOpenGraph={() => {
+              setVaultTab("graph");
+              setVaultCollapsed(false);
+            }}
+            onResize={resizeVault}
+            onStartResize={startVaultResize}
+            onTabChange={setVaultTab}
+            refreshKey={vaultRefreshKey}
+            tab={vaultTab}
+            vaultCollapsed={vaultCollapsed}
+            vaultWidth={vaultWidth}
+            workspaceId={workspace.id}
+          />
+        )}
+        {showSettings && (
+          <ProviderManager
+            activeSessionId={state?.activeSessionId ?? null}
+            activeWorkspaceId={state?.activeWorkspaceId ?? null}
+            activeProviderId={activeProvider?.id ?? null}
+            onClose={() => setShowSettings(false)}
+            onDeleteProfile={onDeleteProfile}
+            onProvidersChange={(next) => {
+              setProviders(next);
+              setActiveProvider((current) =>
+                current
+                  ? (next.find((item) => item.id === current.id) ?? next[0] ?? null)
+                  : (next[0] ?? null),
+              );
+            }}
+            onProfileChange={(updated) => {
+              setState((current) =>
+                current
+                  ? {
+                      ...current,
+                      profiles: current.profiles.map((profile) =>
+                        profile.id === updated.id ? updated : profile,
+                      ),
+                    }
+                  : current,
+              );
+            }}
+            onSignOut={onSignOut}
+            onSelect={(next) => void selectProvider(next)}
+            onWorkspaceChange={(updated) => {
+              setState((current) =>
+                current
+                  ? {
+                      ...current,
+                      workspaces: current.workspaces.map((item) =>
+                        item.id === updated.id ? updated : item,
+                      ),
+                    }
+                  : current,
+              );
+            }}
+            onWorkspaceSelected={activateWorkspace}
+            profile={activeProfile ?? null}
+            profileId={state?.activeProfileId ?? null}
+            providers={providers}
+            workspaces={state?.workspaces ?? []}
+          />
+        )}
+        {showUsageDetails && (
+          <SessionUsageDialog
+            messages={[...messages]}
+            modelName={selectedModel || t("chat.notSelected")}
+            onClose={() => setShowUsageDetails(false)}
+            providerName={activeProvider?.name ?? "—"}
+            sessionTitle={activeSession?.title ?? t("chat.newSession")}
+            summary={usageSummary}
+          />
+        )}
+        {sessionToDelete && (
+          <ConfirmDialog
+            confirmLabel={t("chat.deleteSession")}
+            description={t("chat.theMessagesInThisConversation")}
+            onCancel={() => setSessionToDelete(null)}
+            onConfirm={() => {
+              const session = sessionToDelete;
+              setSessionToDelete(null);
+              void remove(session.id);
+            }}
+            headingLabel={t("chat.confirmation")}
+            title={`${t("chat.delete")} ${sessionToDelete.title}?`}
+          />
+        )}
+        {attachmentToRemove && (
+          <ConfirmDialog
+            confirmLabel={t("chat.removeAttachment")}
+            description={t("chat.theFileAndItsLocal")}
+            onCancel={() => setAttachmentToRemove(null)}
+            onConfirm={() => {
+              const attachment = attachmentToRemove;
+              setAttachmentToRemove(null);
+              void detachFile(attachment);
+            }}
+            headingLabel={t("chat.confirmation")}
+            title={`${t("chat.remove")} ${attachmentToRemove.filename}?`}
+          />
+        )}
+        <RenameSessionDialog
+          onCancel={() => setSessionToRename(null)}
+          onRenameDraftChange={setRenameDraft}
+          onSubmit={(sessionId) => void rename(sessionId, sessionToRename?.title ?? "")}
+          renameDraft={renameDraft}
+          sessionToRename={sessionToRename}
         />
-      )}
-      {sessionToDelete && (
-        <ConfirmDialog
-          confirmLabel={t("chat.deleteSession")}
-          description={t("chat.theMessagesInThisConversation")}
-          onCancel={() => setSessionToDelete(null)}
-          onConfirm={() => {
-            const session = sessionToDelete;
-            setSessionToDelete(null);
-            void remove(session.id);
-          }}
-          headingLabel={t("chat.confirmation")}
-          title={`${t("chat.delete")} ${sessionToDelete.title}?`}
-        />
-      )}
-      {attachmentToRemove && (
-        <ConfirmDialog
-          confirmLabel={t("chat.removeAttachment")}
-          description={t("chat.theFileAndItsLocal")}
-          onCancel={() => setAttachmentToRemove(null)}
-          onConfirm={() => {
-            const attachment = attachmentToRemove;
-            setAttachmentToRemove(null);
-            void detachFile(attachment);
-          }}
-          headingLabel={t("chat.confirmation")}
-          title={`${t("chat.remove")} ${attachmentToRemove.filename}?`}
-        />
-      )}
-      <RenameSessionDialog
-        onCancel={() => setSessionToRename(null)}
-        onRenameDraftChange={setRenameDraft}
-        onSubmit={(sessionId) => void rename(sessionId, sessionToRename?.title ?? "")}
-        renameDraft={renameDraft}
-        sessionToRename={sessionToRename}
-      />
-      {paletteOpen && (
-        <CommandPalette
-          onClose={() => setPaletteOpen(false)}
-          onOpenSession={(sessionId) => void openSession(sessionId)}
-          onOpenSettings={() => setShowSettings(true)}
-          paletteQuery={paletteQuery}
-          recentSessions={recentSessions}
-          setPaletteQuery={setPaletteQuery}
-        />
-      )}
-    </main>
+        {paletteOpen && (
+          <CommandPalette
+            onClose={() => setPaletteOpen(false)}
+            onOpenSession={(sessionId) => void openSession(sessionId)}
+            onOpenSettings={() => setShowSettings(true)}
+            paletteQuery={paletteQuery}
+            recentSessions={recentSessions}
+            setPaletteQuery={setPaletteQuery}
+          />
+        )}
+      </main>
+    </ChatRuntimeProvider>
   );
 }
