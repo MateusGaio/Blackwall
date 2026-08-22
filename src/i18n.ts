@@ -13,6 +13,11 @@ void i18n.use(initReactI18next).init({
         brand: {
           note: "Privado por padrão. Seu contexto continua no seu computador.",
         },
+        motion: {
+          progressBusy: "Processando…",
+          progressLabel: "Progresso da operação",
+          skeletonLoading: "Carregando…",
+        },
         onboarding: {
           aRealVaultInMarkdown: "Um Vault real, em Markdown.",
           addAProjectFolderLater: "Adicione uma pasta de projeto depois",
@@ -402,6 +407,11 @@ void i18n.use(initReactI18next).init({
       translation: {
         brand: {
           note: "Private by default. Your context stays on your computer.",
+        },
+        motion: {
+          progressBusy: "Processing…",
+          progressLabel: "Operation progress",
+          skeletonLoading: "Loading…",
         },
         onboarding: {
           aRealVaultInMarkdown: "A real Vault, in Markdown.",

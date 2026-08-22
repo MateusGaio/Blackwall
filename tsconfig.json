@@ -1,4 +1,10 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./sidecar/tsconfig.json" }]
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./sidecar/tsconfig.json" }],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
 }
