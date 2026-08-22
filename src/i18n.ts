@@ -221,7 +221,8 @@ void i18n.use(initReactI18next).init({
           interactiveMarkdownLinkGraph: "Grafo interativo de links Markdown",
           linkDistance: "Distância de link",
           markdownLinkGraph: "Grafo de links Markdown",
-          noMarkdownFilesWereFound: "Nenhum arquivo Markdown foi encontrado nesta pasta.",
+          noMarkdownFilesWereFound:
+            "Nenhuma nota por ora — crie uma nota ou peça para a IA salvar algo importante da conversa.",
           note: "Nota",
           noteNotFound: "Nota não encontrada no Vault",
           openVaultFiles: "Abrir arquivos do Vault",
@@ -627,7 +628,8 @@ void i18n.use(initReactI18next).init({
           interactiveMarkdownLinkGraph: "Interactive Markdown link graph",
           linkDistance: "Link distance",
           markdownLinkGraph: "Markdown link graph",
-          noMarkdownFilesWereFound: "No Markdown files were found in this folder.",
+          noMarkdownFilesWereFound:
+            "No notes yet — create one or ask the AI to save something important from the conversation.",
           note: "Note",
           noteNotFound: "Note not found in the Vault",
           openVaultFiles: "Open Vault files",
