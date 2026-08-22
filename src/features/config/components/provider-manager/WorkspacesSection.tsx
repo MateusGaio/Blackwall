@@ -2,6 +2,9 @@
 
 import type { ChangeEvent, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
+import { Textarea } from "@/shared/components/ui/textarea";
 import type { FolderSelection } from "../../../../platform/runtime";
 import type { Workspace } from "../../../../shared/api/sidecar";
 
@@ -24,6 +27,11 @@ type WorkspacesSectionProps = {
   workspaceStatus: string;
 };
 
+const fieldLabelClass = "grid gap-2 font-mono text-[0.72rem] text-muted-foreground";
+
+const folderButtonClass =
+  "flex items-center gap-3.5 rounded-lg border border-border bg-input/30 px-4 py-4 text-left transition-colors duration-150 hover:bg-muted focus-visible:border-ring focus-visible:outline-none";
+
 export function WorkspacesSection({
   activeWorkspace,
   activeWorkspaceId,
@@ -44,14 +52,21 @@ export function WorkspacesSection({
 }: WorkspacesSectionProps) {
   const { t } = useTranslation();
   return (
-    <section aria-labelledby="workspace-settings-title" className="settings-section">
-      <p className="eyebrow" id="workspace-settings-title">
+    <section aria-labelledby="workspace-settings-title" className="grid gap-4">
+      <p
+        className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground"
+        id="workspace-settings-title"
+      >
         {t("settings.workspaces")}
       </p>
-      <div className="settings-workspace-list">
+      <div className="grid gap-1.5">
         {workspaces.map((workspace) => (
           <button
-            className={`settings-workspace-row ${workspace.id === activeWorkspaceId ? "is-active" : ""}`}
+            className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 ${
+              workspace.id === activeWorkspaceId
+                ? "border-ring bg-accent"
+                : "border-transparent hover:border-border hover:bg-muted"
+            }`}
             key={workspace.id}
             onClick={() => {
               setWorkspaceSoulDraft(workspace.soul);
@@ -59,18 +74,20 @@ export function WorkspacesSection({
             }}
             type="button"
           >
-            <strong>{workspace.name}</strong>
-            <span>{workspace.rootPath}</span>
+            <strong className="block text-[0.86rem] font-medium">{workspace.name}</strong>
+            <span className="font-mono text-[0.68rem] text-muted-foreground">
+              {workspace.rootPath}
+            </span>
           </button>
         ))}
         {workspaces.length === 0 && (
-          <p className="settings-empty">{t("settings.noWorkspaceFolderSelected")}</p>
+          <p className="text-sm text-muted-foreground">{t("settings.noWorkspaceFolderSelected")}</p>
         )}
       </div>
-      <form className="workspace-create-form" onSubmit={submitWorkspace}>
-        <label className="field-label" htmlFor="settings-workspace-name">
+      <form className="grid gap-3" onSubmit={submitWorkspace}>
+        <label className={fieldLabelClass} htmlFor="settings-workspace-name">
           {t("settings.workspaceName")}
-          <input
+          <Input
             id="settings-workspace-name"
             onChange={(event) => setWorkspaceName(event.target.value)}
             placeholder={t("settings.myProject")}
@@ -78,9 +95,10 @@ export function WorkspacesSection({
           />
         </label>
         {runtime === "web" ? (
-          <label className="folder-select-button settings-folder-button">
+          <label className={`${folderButtonClass} cursor-pointer`}>
             <input
               aria-label={t("settings.chooseWorkspaceFolder")}
+              className="sr-only"
               onChange={chooseBrowserFolder}
               ref={(input) => {
                 input?.setAttribute("webkitdirectory", "");
@@ -89,45 +107,52 @@ export function WorkspacesSection({
               type="file"
             />
             <strong>{workspaceFolder?.name ?? t("settings.chooseFolder")}</strong>
-            <small>{t("settings.chooseAFolderToEnable")}</small>
+            <small className="font-mono text-[0.68rem] text-muted-foreground">
+              {t("settings.chooseAFolderToEnable")}
+            </small>
           </label>
         ) : (
-          <button
-            className="folder-select-button settings-folder-button"
-            onClick={() => void chooseFolder()}
-            type="button"
-          >
+          <button className={folderButtonClass} onClick={() => void chooseFolder()} type="button">
             <strong>{workspaceFolder?.name ?? t("settings.chooseFolder")}</strong>
-            <small>{t("settings.chooseAFolderToEnable")}</small>
+            <small className="font-mono text-[0.68rem] text-muted-foreground">
+              {t("settings.chooseAFolderToEnable")}
+            </small>
           </button>
         )}
-        <button
-          className="button button-primary"
+        <Button
+          className="w-fit justify-self-end"
           disabled={isSaving || !workspaceName.trim() || !workspaceFolder}
           type="submit"
         >
           {isSaving ? t("settings.saving") : t("settings.addWorkspace")}
-        </button>
+        </Button>
       </form>
       {activeWorkspace && (
-        <form className="workspace-soul-form" onSubmit={saveSoulDraft}>
-          <label className="field-label" htmlFor="settings-workspace-soul">
+        <form className="grid gap-3" onSubmit={saveSoulDraft}>
+          <label className={fieldLabelClass} htmlFor="settings-workspace-soul">
             {t("settings.workspaceContext")}
-            <textarea
+            <Textarea
               id="settings-workspace-soul"
               onChange={(event) => setWorkspaceSoulDraft(event.target.value)}
               placeholder={t("settings.describeTheProjectConventionsAnd")}
               rows={6}
               value={workspaceSoul}
             />
-            <span className="field-hint">{t("settings.addContextThatShouldGuide")}</span>
+            <span className="font-sans text-[0.76rem] leading-snug tracking-normal text-muted-foreground">
+              {t("settings.addContextThatShouldGuide")}
+            </span>
           </label>
-          <button className="button button-secondary" disabled={isSaving} type="submit">
+          <Button
+            className="w-fit justify-self-end"
+            disabled={isSaving}
+            type="submit"
+            variant="secondary"
+          >
             {t("settings.saveContext")}
-          </button>
+          </Button>
         </form>
       )}
-      {workspaceStatus && <p className="settings-status">{workspaceStatus}</p>}
+      {workspaceStatus && <p className="text-xs text-muted-foreground">{workspaceStatus}</p>}
     </section>
   );
 }
