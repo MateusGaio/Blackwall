@@ -67,7 +67,7 @@ export function SessionStatusLine({
             {activeProvider.name} › {modelName}
           </span>
         )}
-        {ctxPercent !== undefined && last ? (
+        {last && last.totalTokens > 0 ? (
           <button
             aria-haspopup="dialog"
             className="transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
@@ -75,7 +75,10 @@ export function SessionStatusLine({
             title={t("chat.viewFullUsage")}
             type="button"
           >
-            {t("chat.ctx")} {ctxPercent}% [{bar}] {compact.format(last.totalTokens)}
+            {t("chat.ctx")}{" "}
+            {ctxPercent !== undefined
+              ? `${ctxPercent}% [${bar}] `
+              : ""}{compact.format(last.totalTokens)}
             {last.contextLimit ? `/${compact.format(last.contextLimit)}` : ""}
           </button>
         ) : null}
