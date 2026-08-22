@@ -130,6 +130,7 @@ void i18n.use(initReactI18next).init({
           generating: "Gerando…",
           hideSidebar: "Esconder sidebar",
           inContext: "no contexto",
+          inQueue: "{{count}} na fila",
           indexedAttachments: "Anexos indexados",
           limitUnavailable: "limite indisponível",
           newConversation: "Nova conversa",
@@ -147,6 +148,7 @@ void i18n.use(initReactI18next).init({
           removeAttachment: "Remover anexo",
           requestsCumulative: "Requisições (acumulado)",
           saveAndRegenerate: "Salvar e regenerar",
+          scrollToBottom: "Rolar para o final",
           selectAFolderToConfigure:
             "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
           selectModel: "Selecionar modelo",
@@ -529,6 +531,7 @@ void i18n.use(initReactI18next).init({
           generating: "Generating…",
           hideSidebar: "Hide sidebar",
           inContext: "in context",
+          inQueue: "{{count}} in queue",
           indexedAttachments: "Indexed attachments",
           limitUnavailable: "limit unavailable",
           newConversation: "New conversation",
@@ -546,6 +549,7 @@ void i18n.use(initReactI18next).init({
           removeAttachment: "Remove attachment",
           requestsCumulative: "Requests (cumulative)",
           saveAndRegenerate: "Save and regenerate",
+          scrollToBottom: "Scroll to bottom",
           selectAFolderToConfigure:
             "Select a folder to configure your workspace and use the Vault and graph.",
           selectModel: "Select model",
