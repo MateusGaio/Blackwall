@@ -5,14 +5,7 @@ import { join, relative, resolve } from "node:path";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { ToolCall } from "../tool-contract.js";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
-import {
-  appSettings,
-  messages,
-  profiles,
-  routerEntries,
-  sessions,
-  workspaces,
-} from "./schema.js";
+import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
 
 export type PermissionMode = "ask" | "automatic" | "read-only";
 type Profile = typeof profiles.$inferSelect;
