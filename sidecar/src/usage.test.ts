@@ -63,7 +63,6 @@ describe("provider rate limits", () => {
       Date.now(),
     );
   });
-
 });
 
 describe("usage persistence", () => {

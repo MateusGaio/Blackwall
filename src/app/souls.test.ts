@@ -1,11 +1,6 @@
 /* MIT License — Copyright (c) 2026 Mateus Gaio */
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_SOUL_PROMPT,
-  getSoulPreset,
-  identifySoul,
-  SOUL_PRESETS,
-} from "./souls";
+import { DEFAULT_SOUL_PROMPT, getSoulPreset, identifySoul, SOUL_PRESETS } from "./souls";
 
 describe("Soul presets", () => {
   it("uses the English Blackwall prompt as the default", () => {

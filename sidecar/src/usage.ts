@@ -179,7 +179,6 @@ export function parseRateLimitHeaders(headers: Headers): UsageWindow[] {
   return windows;
 }
 
-
 // Statements preparados por conexão: recordProviderUsage roda ≥2× por turno
 // de chat e preparar INSERT a cada evento é desperdício evitável. WeakMap
 // para o cache morrer junto com a conexão.
