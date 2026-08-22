@@ -9,6 +9,7 @@ import {
 } from "@/shared/components/ui/resizable";
 import { ChatRuntimeProvider, useSidecarChat } from "../features/chat/adapter/use-sidecar-runtime";
 import { ChatThread } from "../features/chat/ui/ChatThread";
+import { SessionStatusLine } from "../features/chat/ui/SessionStatusLine";
 import { ProviderManager } from "../features/config/components/ProviderManager";
 import {
   type AppState,
@@ -116,7 +117,6 @@ export default function WorkspaceShell({
   const [usageSummary, setUsageSummary] = useState<
     import("../shared/api/sidecar").UsageSummary | null
   >(null);
-  const [usageOpen, setUsageOpen] = useState(false);
   const [showUsageDetails, setShowUsageDetails] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(
     null,
@@ -618,19 +618,12 @@ export default function WorkspaceShell({
 
   const visibleMessages = messages.filter(
     (message) =>
-      message.role !== "tool" &&
       !(message.role === "assistant" && !message.content.trim() && message.toolCalls?.length),
   );
 
   const chatArea = (
     <section className="workspace-main">
       <ChatHeader
-        activeProvider={activeProvider}
-        onOpenUsageDetails={() => {
-          setUsageOpen(false);
-          setShowUsageDetails(true);
-        }}
-        onSelectProvider={(next) => void selectProvider(next)}
         onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         onVaultClick={() => {
           if (!workspace) {
@@ -643,12 +636,8 @@ export default function WorkspaceShell({
             return !current;
           });
         }}
-        providers={providers}
         sessionTitle={activeSession?.title}
-        setUsageOpen={setUsageOpen}
         sidebarCollapsed={sidebarCollapsed}
-        usageOpen={usageOpen}
-        usageSummary={usageSummary}
         vaultActive={Boolean(workspace && showVault)}
         workspace={workspace}
       />
@@ -780,6 +769,14 @@ export default function WorkspaceShell({
           setDraft={setDraft}
           stopGeneration={stopGeneration}
           workspace={workspace}
+        />
+        <SessionStatusLine
+          activeProvider={activeProvider}
+          modelName={modelName}
+          onOpenDetails={() => setShowUsageDetails(true)}
+          queuedCount={queuedCount}
+          streamingStatus={streamingId !== null ? streamingStatus : ""}
+          summary={usageSummary}
         />
         {attachmentStatus && (
           <p className="font-mono text-xs text-muted-foreground">{attachmentStatus}</p>
