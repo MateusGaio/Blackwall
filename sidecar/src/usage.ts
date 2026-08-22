@@ -188,39 +188,25 @@ export function mostRestrictiveWindow(windows: UsageWindow[]): UsageWindow | nul
   );
 }
 
-export function recordProviderUsage(client: Database.Database, event: ProviderUsageEvent) {
-  const observedAt = event.observedAt ?? Date.now();
-  const tokens = event.tokens ?? {};
-  const windows = JSON.stringify(event.windows ?? []);
-  const transaction = client.transaction(() => {
-    const inserted = client
-      .prepare(
+// Statements preparados por conexão: recordProviderUsage roda ≥2× por turno
+// de chat e preparar INSERT a cada evento é desperdício evitável. WeakMap
+// para o cache morrer junto com a conexão.
+const usageStatements = new WeakMap<
+  Database.Database,
+  { insertEvent: Database.Statement; upsertDaily: Database.Statement }
+>();
+
+function usageStatementsFor(client: Database.Database) {
+  let statements = usageStatements.get(client);
+  if (!statements) {
+    statements = {
+      insertEvent: client.prepare(
         `INSERT OR IGNORE INTO provider_usage_events
           (request_id, attempt_id, session_id, profile_id, provider_id, model_id, status, error_code,
            input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, windows_json, observed_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        event.requestId,
-        event.attemptId,
-        event.sessionId ?? null,
-        event.profileId ?? "",
-        event.providerId,
-        event.modelId,
-        event.status ?? "completed",
-        event.errorCode ?? null,
-        tokens.inputTokens ?? null,
-        tokens.outputTokens ?? null,
-        tokens.cachedInputTokens ?? null,
-        tokens.reasoningTokens ?? null,
-        tokens.totalTokens ?? null,
-        windows,
-        observedAt,
-      );
-    if (inserted.changes !== 1) return;
-    const date = new Date(observedAt).toISOString().slice(0, 10);
-    client
-      .prepare(
+      ),
+      upsertDaily: client.prepare(
         `INSERT INTO provider_usage_daily
           (profile_id, provider_id, model_id, date_key, requests, input_tokens, output_tokens,
            cached_input_tokens, reasoning_tokens, total_tokens, updated_at)
@@ -233,19 +219,50 @@ export function recordProviderUsage(client: Database.Database, event: ProviderUs
            reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
            total_tokens = total_tokens + excluded.total_tokens,
            updated_at = excluded.updated_at`,
-      )
-      .run(
-        event.profileId ?? "",
-        event.providerId,
-        event.modelId,
-        date,
-        tokens.inputTokens ?? 0,
-        tokens.outputTokens ?? 0,
-        tokens.cachedInputTokens ?? 0,
-        tokens.reasoningTokens ?? 0,
-        tokens.totalTokens ?? 0,
-        observedAt,
-      );
+      ),
+    };
+    usageStatements.set(client, statements);
+  }
+  return statements;
+}
+
+export function recordProviderUsage(client: Database.Database, event: ProviderUsageEvent) {
+  const observedAt = event.observedAt ?? Date.now();
+  const tokens = event.tokens ?? {};
+  const windows = JSON.stringify(event.windows ?? []);
+  const { insertEvent, upsertDaily } = usageStatementsFor(client);
+  const transaction = client.transaction(() => {
+    const inserted = insertEvent.run(
+      event.requestId,
+      event.attemptId,
+      event.sessionId ?? null,
+      event.profileId ?? "",
+      event.providerId,
+      event.modelId,
+      event.status ?? "completed",
+      event.errorCode ?? null,
+      tokens.inputTokens ?? null,
+      tokens.outputTokens ?? null,
+      tokens.cachedInputTokens ?? null,
+      tokens.reasoningTokens ?? null,
+      tokens.totalTokens ?? null,
+      windows,
+      observedAt,
+    );
+    if (inserted.changes !== 1) return;
+    const date = new Date(observedAt).toISOString().slice(0, 10);
+    upsertDaily.run(
+      event.profileId ?? "",
+      event.providerId,
+      event.modelId,
+      date,
+      tokens.inputTokens ?? 0,
+      tokens.outputTokens ?? 0,
+      tokens.cachedInputTokens ?? 0,
+      tokens.reasoningTokens ?? 0,
+      tokens.totalTokens ?? 0,
+      observedAt,
+    );
   });
   transaction();
 }

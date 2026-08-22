@@ -7,7 +7,6 @@ import type { ToolCall } from "../tool-contract.js";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
 import {
   appSettings,
-  attachments,
   messages,
   profiles,
   routerEntries,
@@ -659,26 +658,20 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       : [];
     database.client.transaction(() => {
       if (workspaceIds.length) {
+        const workspacePlaceholders = workspaceIds.map(() => "?").join(",");
         database.client
           .prepare(
-            `DELETE FROM attachments_fts WHERE attachment_id IN (SELECT id FROM attachments WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")}))`,
+            `DELETE FROM attachments_fts WHERE attachment_id IN (SELECT id FROM attachments WHERE workspace_id IN (${workspacePlaceholders}))`,
           )
           .run(...workspaceIds);
-        database.db.delete(attachments).where(eq(attachments.workspaceId, workspaceIds[0])).run();
-        for (const workspaceId of workspaceIds.slice(1)) {
-          database.db.delete(attachments).where(eq(attachments.workspaceId, workspaceId)).run();
-        }
-        database.db
-          .delete(routerEntries)
-          .where(eq(routerEntries.workspaceId, workspaceIds[0]))
-          .run();
-        for (const workspaceId of workspaceIds.slice(1)) {
-          database.db.delete(routerEntries).where(eq(routerEntries.workspaceId, workspaceId)).run();
-        }
         database.client
-          .prepare(
-            `DELETE FROM approvals WHERE workspace_id IN (${workspaceIds.map(() => "?").join(",")})`,
-          )
+          .prepare(`DELETE FROM attachments WHERE workspace_id IN (${workspacePlaceholders})`)
+          .run(...workspaceIds);
+        database.client
+          .prepare(`DELETE FROM router_entries WHERE workspace_id IN (${workspacePlaceholders})`)
+          .run(...workspaceIds);
+        database.client
+          .prepare(`DELETE FROM approvals WHERE workspace_id IN (${workspacePlaceholders})`)
           .run(...workspaceIds);
       }
       database.db.delete(profiles).where(eq(profiles.id, profileId)).run();

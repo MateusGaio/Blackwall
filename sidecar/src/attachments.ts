@@ -4,7 +4,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { PDFParse } from "pdf-parse";
-import { dataDirectory, openDatabase } from "./db/database.js";
+import { dataDirectory, openSharedDatabase } from "./db/database.js";
 import { attachments } from "./db/schema.js";
 
 const maxAttachmentBytes = 10 * 1024 * 1024;
@@ -79,7 +79,7 @@ export async function saveAttachment(input: AttachmentInput, storageDirectory = 
   if (buffer.byteLength > maxAttachmentBytes) {
     throw new Error("O anexo excede o limite local de 10 MB.");
   }
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   const workspace = database.client
     .prepare("SELECT id FROM workspaces WHERE id = ?")
     .get(input.workspaceId);
@@ -135,7 +135,7 @@ export async function searchAttachments(
   storageDirectory = dataDirectory(),
 ): Promise<AttachmentSearchResult[]> {
   if (!query.trim()) return [];
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   try {
     return database.client
       .prepare(
@@ -152,7 +152,7 @@ export async function listAttachments(
   sessionId?: string | null,
   storageDirectory = dataDirectory(),
 ) {
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   try {
     const rows = database.client
       .prepare(
@@ -173,7 +173,7 @@ export async function listAttachments(
 }
 
 export async function removeAttachment(id: string, storageDirectory = dataDirectory()) {
-  const database = openDatabase(storageDirectory);
+  const database = openSharedDatabase(storageDirectory);
   try {
     const attachment = database.db.select().from(attachments).where(eq(attachments.id, id)).get();
     if (!attachment) throw new Error("O anexo selecionado não existe.");
