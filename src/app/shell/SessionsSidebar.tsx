@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { Profile, SessionSummary, Workspace } from "../../shared/api/sidecar";
 import { CompactIcon } from "./CompactIcon";
 
@@ -12,7 +14,6 @@ type SessionsSidebarProps = {
   expandSidebar: (target?: SidebarFocusTarget) => void;
   hasActiveProfile: boolean;
   isCreatingSession: boolean;
-  isEnglish: boolean;
   name: string;
   newSession: () => void;
   newWorkspace: () => void;
@@ -43,7 +44,6 @@ export function SessionsSidebar({
   expandSidebar,
   hasActiveProfile,
   isCreatingSession,
-  isEnglish,
   name,
   newSession,
   newWorkspace,
@@ -63,11 +63,9 @@ export function SessionsSidebar({
   workspacePickerRef,
   workspaces,
 }: SessionsSidebarProps) {
+  const { t } = useTranslation();
   return (
-    <aside
-      className="workspace-sidebar"
-      aria-label={isEnglish ? "Workspace navigation" : "Navegação do workspace"}
-    >
+    <aside className="workspace-sidebar" aria-label={t("sessions.workspaceNavigation")}>
       <div className="sidebar-heading">
         <span aria-label="Blackwall" className="sidebar-brand-mark" role="img">
           BW
@@ -80,15 +78,12 @@ export function SessionsSidebar({
         </div>
       </div>
       {collapsed && (
-        <nav
-          aria-label={isEnglish ? "Sidebar shortcuts" : "Atalhos da sidebar"}
-          className="sidebar-rail"
-        >
+        <nav aria-label={t("sessions.sidebarShortcuts")} className="sidebar-rail">
           <button
-            aria-label={isEnglish ? "Open settings" : "Abrir configurações"}
+            aria-label={t("sessions.openSettings")}
             className="sidebar-rail-settings"
             onClick={() => expandSidebar("settings")}
-            title={isEnglish ? "Settings" : "Configurações"}
+            title={t("sessions.settings")}
             type="button"
           >
             <CompactIcon kind="settings" />
@@ -105,7 +100,7 @@ export function SessionsSidebar({
             type="button"
           >
             <CompactIcon kind="new-thread" />
-            <span>{isEnglish ? "New thread" : "Nova thread"}</span>
+            <span>{t("sessions.newThread")}</span>
           </button>
         </div>
       )}
@@ -113,7 +108,7 @@ export function SessionsSidebar({
         <div className="sidebar-section-heading">
           <p className="eyebrow">Workspaces</p>
           <button
-            aria-label={isEnglish ? "Create workspace" : "Criar workspace"}
+            aria-label={t("sessions.createWorkspace")}
             className="icon-button"
             onClick={() => void newWorkspace()}
             type="button"
@@ -123,12 +118,10 @@ export function SessionsSidebar({
         </div>
         {workspace && (
           <label className="workspace-picker">
-            <span className="workspace-picker-label">
-              {isEnglish ? "Current workspace" : "Workspace atual"}
-            </span>
+            <span className="workspace-picker-label">{t("sessions.currentWorkspace")}</span>
             <span className="workspace-picker-control">
               <select
-                aria-label={isEnglish ? "Current workspace" : "Workspace atual"}
+                aria-label={t("sessions.currentWorkspace")}
                 onChange={(event) => void openWorkspace(event.target.value)}
                 ref={workspacePickerRef}
                 value={workspace.id}
@@ -148,27 +141,19 @@ export function SessionsSidebar({
         )}
         {!workspace && (
           <div className="workspace-empty">
-            <strong>{isEnglish ? "No workspace" : "Sem workspace"}</strong>
-            <span>
-              {isEnglish
-                ? "Conversation without file context."
-                : "Conversa sem contexto de arquivos."}
-            </span>
+            <strong>{t("sessions.noWorkspace")}</strong>
+            <span>{t("sessions.conversationWithoutFileContext")}</span>
             <button className="sidebar-config" onClick={() => void newWorkspace()} type="button">
-              {isEnglish ? "Add workspace" : "Adicionar workspace"}
+              {t("sessions.addWorkspace")}
             </button>
           </div>
         )}
       </div>
       <div className="sidebar-section sidebar-sessions">
         <div className="sidebar-section-heading">
-          <p className="eyebrow">{isEnglish ? "Threads" : "Conversas"}</p>
+          <p className="eyebrow">{t("sessions.threads")}</p>
         </div>
-        <nav
-          aria-label={isEnglish ? "Thread list" : "Lista de conversas"}
-          ref={recentSessionsRef}
-          tabIndex={-1}
-        >
+        <nav aria-label={t("sessions.threadList")} ref={recentSessionsRef} tabIndex={-1}>
           {recentSessions.map((session) => (
             <div className="session-row" data-session-menu key={session.id}>
               <button
@@ -179,15 +164,13 @@ export function SessionsSidebar({
                 <span aria-hidden="true" className="session-icon" />
                 <span className="session-copy">
                   <strong>{session.title}</strong>
-                  <small>
-                    {session.workspaceName ?? (isEnglish ? "No workspace" : "Sem workspace")}
-                  </small>
+                  <small>{session.workspaceName ?? t("sessions.noWorkspace")}</small>
                 </span>
               </button>
               <button
                 aria-expanded={openSessionMenuId === session.id}
                 aria-haspopup="menu"
-                aria-label={`${isEnglish ? "Actions for" : "Ações de"} ${session.title}`}
+                aria-label={`${t("sessions.actionsFor")} ${session.title}`}
                 className="session-more"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -218,7 +201,7 @@ export function SessionsSidebar({
           ref={settingsButtonRef}
           type="button"
         >
-          {isEnglish ? "Settings" : "Configurações"}
+          {t("sessions.settings")}
         </button>
       </div>
       {openSessionMenuId && sessionMenuPosition && (
@@ -237,7 +220,7 @@ export function SessionsSidebar({
             role="menuitem"
             type="button"
           >
-            {isEnglish ? "Rename" : "Renomear"}
+            {t("sessions.rename")}
           </button>
           <button
             className="session-menu-danger"
@@ -250,7 +233,7 @@ export function SessionsSidebar({
             role="menuitem"
             type="button"
           >
-            {isEnglish ? "Delete" : "Excluir"}
+            {t("sessions.delete")}
           </button>
         </div>
       )}

@@ -1,15 +1,15 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import type { ChangeEvent, FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { SoulPicker } from "../../../../shared/components/SoulPicker";
 
 type ProfileSettingsProps = {
-  isEnglish: boolean;
   isSavingProfile: boolean;
   onAvatarChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   profileAvatar: string | null;
   profileError: string;
-  profileLocale: "en" | "pt-BR";
   profileName: string;
   profileSoul: string;
   profileStatus: string;
@@ -19,13 +19,11 @@ type ProfileSettingsProps = {
 };
 
 export function ProfileSettings({
-  isEnglish,
   isSavingProfile,
   onAvatarChange,
   onSave,
   profileAvatar,
   profileError,
-  profileLocale,
   profileName,
   profileSoul,
   profileStatus,
@@ -33,19 +31,20 @@ export function ProfileSettings({
   setProfileName,
   setProfileSoul,
 }: ProfileSettingsProps) {
+  const { t } = useTranslation();
   return (
     <form className="settings-section profile-settings" onSubmit={onSave}>
       <div className="settings-section-heading">
         <div>
-          <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
-          <h3>{isEnglish ? "What should we call you?" : "Como você quer ser chamado?"}</h3>
+          <p className="eyebrow">{t("settings.profile")}</p>
+          <h3>{t("settings.whatShouldWeCallYou")}</h3>
         </div>
         <div className="profile-avatar-preview" aria-hidden="true">
           {profileAvatar ? <img alt="" src={profileAvatar} /> : <span>BW</span>}
         </div>
       </div>
       <label className="field-label" htmlFor="settings-profile-name">
-        {isEnglish ? "Name" : "Nome"}
+        {t("settings.name")}
         <input
           id="settings-profile-name"
           onChange={(event) => setProfileName(event.target.value)}
@@ -54,7 +53,7 @@ export function ProfileSettings({
       </label>
       <div className="profile-avatar-actions">
         <label className="button button-secondary" htmlFor="settings-profile-avatar">
-          {isEnglish ? "Change photo" : "Alterar foto"}
+          {t("settings.changePhoto")}
           <input
             accept="image/png,image/jpeg,image/webp,image/gif"
             className="sr-only"
@@ -65,24 +64,15 @@ export function ProfileSettings({
         </label>
         {profileAvatar && (
           <button className="text-button" onClick={() => setProfileAvatar(null)} type="button">
-            {isEnglish ? "Remove photo" : "Remover foto"}
+            {t("settings.removePhoto")}
           </button>
         )}
-        <small>
-          {isEnglish
-            ? "PNG, JPEG, WebP or GIF · up to 2 MB · stays on this device"
-            : "PNG, JPEG, WebP ou GIF · até 2 MB · fica somente neste dispositivo"}
-        </small>
+        <small>{t("settings.pngJpegWebpOrGif")}</small>
       </div>
       <SoulPicker
-        hint={
-          isEnglish
-            ? "Choose a ready-made personality or write your own prompt."
-            : "Escolha uma personalidade pronta ou escreva seu próprio prompt."
-        }
+        hint={t("settings.chooseAReadymadePersonalityOr")}
         id="settings-profile-soul"
-        label={isEnglish ? "Profile Soul" : "Soul do perfil"}
-        locale={profileLocale}
+        label={t("settings.profileSoul")}
         onChange={setProfileSoul}
         rows={4}
         value={profileSoul}
@@ -93,13 +83,7 @@ export function ProfileSettings({
           disabled={isSavingProfile || !profileName.trim() || !profileSoul.trim()}
           type="submit"
         >
-          {isSavingProfile
-            ? isEnglish
-              ? "Saving…"
-              : "Salvando…"
-            : isEnglish
-              ? "Save profile"
-              : "Salvar perfil"}
+          {isSavingProfile ? t("settings.saving") : t("settings.saveProfile")}
         </button>
       </div>
       {profileStatus && <p className="settings-status">{profileStatus}</p>}

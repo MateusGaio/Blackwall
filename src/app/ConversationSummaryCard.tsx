@@ -1,11 +1,11 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SafeMarkdown } from "../shared/components/SafeMarkdown";
 
 type ConversationSummaryCardProps = {
   content: string;
-  isEnglish?: boolean;
   defaultExpanded?: boolean;
 };
 
@@ -18,8 +18,8 @@ function reducedMotionPreferred() {
 export function ConversationSummaryCard({
   content,
   defaultExpanded = false,
-  isEnglish = false,
 }: ConversationSummaryCardProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [bodyVisible, setBodyVisible] = useState(defaultExpanded);
   const [leaving, setLeaving] = useState(false);
@@ -54,9 +54,7 @@ export function ConversationSummaryCard({
         onClick={toggle}
         type="button"
       >
-        <span className="conversation-summary-label">
-          {isEnglish ? "Automatic conversation summary" : "Resumo automático da conversa"}
-        </span>
+        <span className="conversation-summary-label">{t("chat.automaticConversationSummary")}</span>
         <span aria-hidden="true" className="conversation-summary-chevron">
           {expanded ? "−" : "+"}
         </span>
@@ -65,7 +63,7 @@ export function ConversationSummaryCard({
         <div
           className={`conversation-summary-body ${expanded ? "is-open" : ""} ${leaving ? "is-leaving" : ""}`}
         >
-          <SafeMarkdown content={content} locale={isEnglish ? "en" : "pt-BR"} />
+          <SafeMarkdown content={content} />
         </div>
       ) : null}
     </li>

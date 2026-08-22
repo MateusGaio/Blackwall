@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   browserFilesToFolderSelection,
   currentRuntime,
@@ -11,7 +12,6 @@ import { createWorkspace, setWorkspaceSoul, type Workspace } from "../../../../s
 
 type UseWorkspaceSettingsFormArgs = {
   activeWorkspace: Workspace | null;
-  isEnglish: boolean;
   onWorkspaceChange: (workspace: Workspace) => void;
   onWorkspaceSelected: (workspace: Workspace) => Promise<void>;
   profileId: string | null;
@@ -22,7 +22,6 @@ type UseWorkspaceSettingsFormArgs = {
 
 export function useWorkspaceSettingsForm({
   activeWorkspace,
-  isEnglish,
   onWorkspaceChange,
   onWorkspaceSelected,
   profileId,
@@ -30,6 +29,7 @@ export function useWorkspaceSettingsForm({
   setError,
   setIsSaving,
 }: UseWorkspaceSettingsFormArgs) {
+  const { t } = useTranslation();
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("");
@@ -48,18 +48,10 @@ export function useWorkspaceSettingsForm({
     try {
       const saved = await setWorkspaceSoul(activeWorkspace.id, workspaceSoul);
       onWorkspaceChange(saved);
-      setWorkspaceStatus(
-        profileLocale === "en"
-          ? "Workspace context saved on this device."
-          : "Contexto do workspace salvo neste dispositivo.",
-      );
+      setWorkspaceStatus(t("settings.workspaceContextSavedOnThis"));
     } catch (reason) {
       setWorkspaceStatus(
-        reason instanceof Error
-          ? reason.message
-          : profileLocale === "en"
-            ? "Could not save workspace context."
-            : "Não foi possível salvar o contexto do workspace.",
+        reason instanceof Error ? reason.message : t("settings.couldNotSaveWorkspaceContext"),
       );
     } finally {
       setIsSaving(false);
@@ -78,11 +70,7 @@ export function useWorkspaceSettingsForm({
       setWorkspaceName((current) => current || selected.name);
     } catch (reason) {
       setWorkspaceStatus(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not choose the folder."
-            : "Não foi possível escolher a pasta.",
+        reason instanceof Error ? reason.message : t("settings.couldNotChooseTheFolder"),
       );
     }
   }
@@ -114,16 +102,10 @@ export function useWorkspaceSettingsForm({
       await onWorkspaceSelected(created);
       setWorkspaceName("");
       setWorkspaceFolder(null);
-      setWorkspaceStatus(
-        isEnglish ? `Workspace ${created.name} added.` : `Workspace ${created.name} adicionado.`,
-      );
+      setWorkspaceStatus(t("settings.workspaceAdded", { name: created.name }));
     } catch (reason) {
       setWorkspaceStatus(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not create the workspace."
-            : "Não foi possível criar o workspace.",
+        reason instanceof Error ? reason.message : t("settings.couldNotCreateTheWorkspace"),
       );
     } finally {
       setIsSaving(false);

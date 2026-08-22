@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import type { ChangeEvent, FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { FolderSelection } from "../../../../platform/runtime";
 import type { Workspace } from "../../../../shared/api/sidecar";
 
@@ -8,10 +10,8 @@ type WorkspacesSectionProps = {
   activeWorkspaceId: string | null;
   chooseBrowserFolder: (event: ChangeEvent<HTMLInputElement>) => void;
   chooseFolder: () => Promise<void>;
-  isEnglish: boolean;
   isSaving: boolean;
   onWorkspaceSelected: (workspace: Workspace) => Promise<void>;
-  profileLocale: "en" | "pt-BR";
   runtime: string;
   saveSoulDraft: (event: FormEvent<HTMLFormElement>) => void;
   setWorkspaceName: (name: string) => void;
@@ -29,10 +29,8 @@ export function WorkspacesSection({
   activeWorkspaceId,
   chooseBrowserFolder,
   chooseFolder,
-  isEnglish,
   isSaving,
   onWorkspaceSelected,
-  profileLocale,
   runtime,
   saveSoulDraft,
   setWorkspaceName,
@@ -44,10 +42,11 @@ export function WorkspacesSection({
   workspaceSoul,
   workspaceStatus,
 }: WorkspacesSectionProps) {
+  const { t } = useTranslation();
   return (
     <section aria-labelledby="workspace-settings-title" className="settings-section">
       <p className="eyebrow" id="workspace-settings-title">
-        {isEnglish ? "Workspaces" : "Workspaces"}
+        {t("settings.workspaces")}
       </p>
       <div className="settings-workspace-list">
         {workspaces.map((workspace) => (
@@ -65,27 +64,23 @@ export function WorkspacesSection({
           </button>
         ))}
         {workspaces.length === 0 && (
-          <p className="settings-empty">
-            {isEnglish
-              ? "No workspace folder selected."
-              : "Nenhum workspace com pasta selecionada."}
-          </p>
+          <p className="settings-empty">{t("settings.noWorkspaceFolderSelected")}</p>
         )}
       </div>
       <form className="workspace-create-form" onSubmit={submitWorkspace}>
         <label className="field-label" htmlFor="settings-workspace-name">
-          {isEnglish ? "Workspace name" : "Nome do workspace"}
+          {t("settings.workspaceName")}
           <input
             id="settings-workspace-name"
             onChange={(event) => setWorkspaceName(event.target.value)}
-            placeholder={isEnglish ? "My project" : "Meu projeto"}
+            placeholder={t("settings.myProject")}
             value={workspaceName}
           />
         </label>
         {runtime === "web" ? (
           <label className="folder-select-button settings-folder-button">
             <input
-              aria-label={isEnglish ? "Choose workspace folder" : "Escolher pasta do workspace"}
+              aria-label={t("settings.chooseWorkspaceFolder")}
               onChange={chooseBrowserFolder}
               ref={(input) => {
                 input?.setAttribute("webkitdirectory", "");
@@ -93,14 +88,8 @@ export function WorkspacesSection({
               }}
               type="file"
             />
-            <strong>
-              {workspaceFolder?.name ?? (isEnglish ? "Choose folder" : "Escolher pasta")}
-            </strong>
-            <small>
-              {isEnglish
-                ? "Choose a folder to enable the Vault, graph and tools."
-                : "Selecione uma pasta para habilitar Vault, grafo e ferramentas."}
-            </small>
+            <strong>{workspaceFolder?.name ?? t("settings.chooseFolder")}</strong>
+            <small>{t("settings.chooseAFolderToEnable")}</small>
           </label>
         ) : (
           <button
@@ -108,14 +97,8 @@ export function WorkspacesSection({
             onClick={() => void chooseFolder()}
             type="button"
           >
-            <strong>
-              {workspaceFolder?.name ?? (isEnglish ? "Choose folder" : "Escolher pasta")}
-            </strong>
-            <small>
-              {isEnglish
-                ? "Choose a folder to enable the Vault, graph and tools."
-                : "Selecione uma pasta para habilitar Vault, grafo e ferramentas."}
-            </small>
+            <strong>{workspaceFolder?.name ?? t("settings.chooseFolder")}</strong>
+            <small>{t("settings.chooseAFolderToEnable")}</small>
           </button>
         )}
         <button
@@ -123,38 +106,24 @@ export function WorkspacesSection({
           disabled={isSaving || !workspaceName.trim() || !workspaceFolder}
           type="submit"
         >
-          {isSaving
-            ? isEnglish
-              ? "Saving…"
-              : "Salvando…"
-            : isEnglish
-              ? "Add workspace"
-              : "Adicionar workspace"}
+          {isSaving ? t("settings.saving") : t("settings.addWorkspace")}
         </button>
       </form>
       {activeWorkspace && (
         <form className="workspace-soul-form" onSubmit={saveSoulDraft}>
           <label className="field-label" htmlFor="settings-workspace-soul">
-            {profileLocale === "en" ? "Workspace context" : "Contexto do workspace"}
+            {t("settings.workspaceContext")}
             <textarea
               id="settings-workspace-soul"
               onChange={(event) => setWorkspaceSoulDraft(event.target.value)}
-              placeholder={
-                profileLocale === "en"
-                  ? "Describe the project, conventions and goals…"
-                  : "Descreva o projeto, as convenções e os objetivos…"
-              }
+              placeholder={t("settings.describeTheProjectConventionsAnd")}
               rows={6}
               value={workspaceSoul}
             />
-            <span className="field-hint">
-              {profileLocale === "en"
-                ? "Add context that should guide conversations in this workspace."
-                : "Adicione o contexto que deve orientar as conversas neste workspace."}
-            </span>
+            <span className="field-hint">{t("settings.addContextThatShouldGuide")}</span>
           </label>
           <button className="button button-secondary" disabled={isSaving} type="submit">
-            {profileLocale === "en" ? "Save context" : "Salvar contexto"}
+            {t("settings.saveContext")}
           </button>
         </form>
       )}

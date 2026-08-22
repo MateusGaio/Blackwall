@@ -1,41 +1,26 @@
 /* MIT License — Copyright (c) 2026 Mateus Gaio */
+
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getSoulPreset, identifySoul, SOUL_PRESETS, type SoulPresetId } from "../../app/souls";
 
 type SoulPickerProps = {
   hint: string;
   id: string;
   label: string;
-  locale: "pt-BR" | "en";
   onChange: (value: string) => void;
   rows?: number;
   value: string;
 };
 
-export function SoulPicker({
-  hint,
-  id,
-  label,
-  locale,
-  onChange,
-  rows = 5,
-  value,
-}: SoulPickerProps) {
+export function SoulPicker({ hint, id, label, onChange, rows = 5, value }: SoulPickerProps) {
+  const { t } = useTranslation();
   const [selectedId, setSelectedId] = useState<SoulPresetId>(() => identifySoul(value));
-  const isEnglish = locale === "en";
   const localizedDescriptions: Record<SoulPresetId, string> = {
-    blackwall: isEnglish
-      ? "Clear, practical and privacy-first for building software."
-      : "Clara, prática e local-first para construir software.",
-    creative: isEnglish
-      ? "Curious, imaginative and useful when exploring new directions."
-      : "Curiosa, imaginativa e útil para explorar novas direções.",
-    dev: isEnglish
-      ? "A disciplined engineering partner with repository-quality guardrails."
-      : "Uma parceira de engenharia com guardrails de qualidade do repositório.",
-    custom: isEnglish
-      ? "Write your own instructions and keep them local to this profile."
-      : "Escreva suas próprias instruções e mantenha-as neste perfil.",
+    blackwall: t("settings.clearPracticalAndPrivacyfirstFor"),
+    creative: t("settings.curiousImaginativeAndUsefulWhen"),
+    dev: t("settings.aDisciplinedEngineeringPartnerWith"),
+    custom: t("settings.writeYourOwnInstructionsAnd"),
   };
 
   useEffect(() => {
@@ -51,9 +36,7 @@ export function SoulPicker({
     <div className="soul-picker">
       <span className="soul-picker-label">{label}</span>
       <fieldset className="soul-preset-list">
-        <legend className="sr-only">
-          {isEnglish ? "Soul personalities" : "Personalidades de Soul"}
-        </legend>
+        <legend className="sr-only">{t("settings.soulPersonalities")}</legend>
         {SOUL_PRESETS.map((preset) => (
           <button
             aria-pressed={selectedId === preset.id}
@@ -66,21 +49,17 @@ export function SoulPicker({
               {preset.id === "blackwall"
                 ? "Builder"
                 : preset.id === "creative"
-                  ? isEnglish
-                    ? "Creative"
-                    : "Criativa"
+                  ? t("settings.creative")
                   : preset.id === "dev"
                     ? "Dev"
-                    : isEnglish
-                      ? "Custom"
-                      : "Personalizada"}
+                    : t("settings.custom")}
             </strong>
             <small>{localizedDescriptions[preset.id]}</small>
           </button>
         ))}
       </fieldset>
       <textarea
-        aria-label={isEnglish ? "Soul prompt" : "Prompt da Soul"}
+        aria-label={t("settings.soulPrompt")}
         className="soul-picker-editor"
         id={id}
         onChange={(event) => {

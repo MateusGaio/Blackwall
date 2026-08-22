@@ -1,9 +1,10 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { ChatMessage, UsageSummary } from "../shared/api/sidecar";
 
 type SessionUsageDialogProps = {
-  isEnglish: boolean;
   messages: ChatMessage[];
   modelName: string;
   onClose: () => void;
@@ -31,7 +32,6 @@ function Field({ label, value }: { label: string; value: string }) {
  * request), not the cumulative sum of every request — those are shown apart.
  */
 function SessionUsageDialog({
-  isEnglish,
   messages,
   modelName,
   onClose,
@@ -39,6 +39,7 @@ function SessionUsageDialog({
   sessionTitle,
   summary,
 }: SessionUsageDialogProps) {
+  const { t } = useTranslation();
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -60,7 +61,7 @@ function SessionUsageDialog({
       : undefined;
   const userMessages = messages.filter((message) => message.role === "user").length;
   const assistantMessages = messages.filter((message) => message.role === "assistant").length;
-  const unavailable = isEnglish ? "not reported" : "não informado";
+  const unavailable = t("usage.notReported");
 
   return (
     <div className="confirm-backdrop" role="presentation">
@@ -72,29 +73,24 @@ function SessionUsageDialog({
       >
         <header>
           <div>
-            <p className="eyebrow">{isEnglish ? "Usage" : "Uso"}</p>
-            <h2 id="session-usage-title">{isEnglish ? "Session usage" : "Uso da sessão"}</h2>
+            <p className="eyebrow">{t("usage.usage")}</p>
+            <h2 id="session-usage-title">{t("usage.sessionUsage")}</h2>
           </div>
           <button className="text-button" onClick={onClose} ref={closeRef} type="button">
-            {isEnglish ? "Close" : "Fechar"}
+            {t("usage.close")}
           </button>
         </header>
 
         <div className="session-usage-grid">
-          <Field label={isEnglish ? "Session" : "Sessão"} value={sessionTitle} />
-          <Field
-            label={isEnglish ? "Messages" : "Mensagens"}
-            value={formatNumber(messages.length)}
-          />
-          <Field label={isEnglish ? "Provider" : "Provedor"} value={providerName} />
-          <Field label={isEnglish ? "Model" : "Modelo"} value={modelName} />
+          <Field label={t("usage.session")} value={sessionTitle} />
+          <Field label={t("usage.messages")} value={formatNumber(messages.length)} />
+          <Field label={t("usage.provider")} value={providerName} />
+          <Field label={t("usage.model")} value={modelName} />
         </div>
 
         {last ? (
           <>
-            <p className="eyebrow session-usage-section">
-              {isEnglish ? "Current context" : "Contexto atual"}
-            </p>
+            <p className="eyebrow session-usage-section">{t("usage.currentContext")}</p>
             {usagePercent !== undefined && (
               <div className="session-usage-meter">
                 <div style={{ width: `${Math.min(100, usagePercent)}%` }} />
@@ -102,78 +98,49 @@ function SessionUsageDialog({
             )}
             <div className="session-usage-grid">
               <Field
-                label={isEnglish ? "Context limit" : "Limite de contexto"}
+                label={t("usage.contextLimit")}
                 value={last.contextLimit ? formatNumber(last.contextLimit) : unavailable}
               />
               <Field
-                label={isEnglish ? "Usage" : "Uso"}
+                label={t("usage.usage")}
                 value={usagePercent === undefined ? unavailable : `${usagePercent}%`}
               />
+              <Field label={t("usage.totalTokens")} value={formatNumber(last.totalTokens)} />
+              <Field label={t("usage.inputTokens")} value={formatNumber(freshInput)} />
               <Field
-                label={isEnglish ? "Total tokens" : "Total de tokens"}
-                value={formatNumber(last.totalTokens)}
-              />
-              <Field
-                label={isEnglish ? "Input tokens" : "Tokens de entrada"}
-                value={formatNumber(freshInput)}
-              />
-              <Field
-                label={isEnglish ? "Cache tokens (read)" : "Tokens de cache (leitura)"}
+                label={t("usage.cacheTokensRead")}
                 value={formatNumber(last.cachedInputTokens)}
               />
               <Field
-                label={
-                  isEnglish
-                    ? "Output tokens (incl. reasoning)"
-                    : "Tokens de saída (inclui raciocínio)"
-                }
+                label={t("usage.outputTokensInclReasoning")}
                 value={formatNumber(last.outputTokens)}
               />
               <Field
-                label={isEnglish ? "Reasoning tokens" : "Tokens de raciocínio"}
+                label={t("usage.reasoningTokens")}
                 value={formatNumber(last.reasoningTokens)}
               />
-              <Field
-                label={isEnglish ? "User messages" : "Mensagens do usuário"}
-                value={formatNumber(userMessages)}
-              />
-              <Field
-                label={isEnglish ? "Assistant messages" : "Mensagens do assistente"}
-                value={formatNumber(assistantMessages)}
-              />
+              <Field label={t("usage.userMessages")} value={formatNumber(userMessages)} />
+              <Field label={t("usage.assistantMessages")} value={formatNumber(assistantMessages)} />
             </div>
           </>
         ) : (
-          <p className="settings-empty">
-            {isEnglish
-              ? "No request recorded for this session yet."
-              : "Nenhuma requisição registrada nesta sessão ainda."}
-          </p>
+          <p className="settings-empty">{t("usage.noRequestRecordedForThis")}</p>
         )}
 
-        <p className="eyebrow session-usage-section">
-          {isEnglish ? "Cumulative (billing)" : "Acumulado (cobrança)"}
-        </p>
-        <p className="session-usage-note">
-          {isEnglish
-            ? "Every request resends the whole transcript, so this sum grows much faster than the context above."
-            : "Cada requisição reenvia o transcript inteiro, então esta soma cresce muito mais rápido que o contexto acima."}
-        </p>
+        <p className="eyebrow session-usage-section">{t("usage.cumulativeBilling")}</p>
+        <p className="session-usage-note">{t("usage.everyRequestResendsTheWhole")}</p>
         <div className="session-usage-grid">
+          <Field label={t("usage.requests")} value={formatNumber(summary?.totals.requests ?? 0)} />
           <Field
-            label={isEnglish ? "Requests" : "Requisições"}
-            value={formatNumber(summary?.totals.requests ?? 0)}
-          />
-          <Field
-            label={isEnglish ? "Total tokens" : "Tokens totais"}
+            label={t("usage.totalTokens")}
             value={formatNumber(summary?.totals.totalTokens ?? 0)}
           />
           <Field
-            label={isEnglish ? "Input tokens" : "Tokens de entrada"}
+            label={t("usage.inputTokens")}
             value={formatNumber(summary?.totals.inputTokens ?? 0)}
           />
           <Field
-            label={isEnglish ? "Output tokens" : "Tokens de saída"}
+            label={t("usage.outputTokens")}
             value={formatNumber(summary?.totals.outputTokens ?? 0)}
           />
         </div>
