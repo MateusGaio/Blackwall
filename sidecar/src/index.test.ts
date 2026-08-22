@@ -630,3 +630,183 @@ describe("sidecar health", () => {
     }
   });
 });
+
+describe("sidecar robustez", () => {
+  it("recusa upgrade WebSocket com Origin fora da allowlist e aceita origem permitida", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-origin-"));
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+
+    const blocked = new WebSocket(`ws://${SIDECAR_HOST}:${port}`, {
+      origin: "https://evil.example",
+    });
+    const outcome = await new Promise<{ code?: number; rejected: boolean }>((resolve) => {
+      blocked.on("unexpected-response", (_request, response) =>
+        resolve({ code: response.statusCode, rejected: true }),
+      );
+      blocked.on("open", () => resolve({ rejected: false }));
+      blocked.on("error", () => undefined);
+    });
+    expect(outcome.rejected).toBe(true);
+    expect(outcome.code).toBe(403);
+    blocked.terminate();
+
+    const allowed = new WebSocket(`ws://${SIDECAR_HOST}:${port}`, {
+      origin: "http://localhost:1420",
+    });
+    // Espera abertura e mensagem em paralelo: system:ready chega junto com o
+    // open e seria perdido se o listener fosse registrado depois.
+    const opened = once(allowed, "open");
+    const ready = once(allowed, "message");
+    await opened;
+    const [message] = await ready;
+    expect(JSON.parse(String(message))).toMatchObject({ topic: "system:ready" });
+    allowed.close();
+  });
+
+  it("chat.stop cancela um request ainda enfileirado na fila do workspace", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stop-enqueued-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Stop enqueued test",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "stop-key",
+        baseUrl: "https://stop.example/v1",
+        model: "stop-model",
+        name: "Stop provider",
+      },
+      directory,
+    );
+    const database = openDatabase(directory);
+    database.client
+      .prepare(
+        "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_support_source, tool_checked_at, tool_probe_error_code, tool_mode, parallel_tool_calls, context_limit, output_reserve, updated_at) VALUES (?, ?, ?, ?, ?, 1, 'auto', NULL, 'native', 'test', NULL, NULL, 'auto', 'disabled', ?, NULL, ?)",
+      )
+      .run(
+        `${provider.id}:${provider.model}`,
+        provider.id,
+        provider.model,
+        provider.model,
+        "[]",
+        1_000_000,
+        Date.now(),
+      );
+    database.close();
+
+    let releaseFirst: () => void = () => undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let mainCalls = 0;
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { stream?: boolean };
+      if (body.stream === false)
+        return Promise.resolve(
+          new Response(JSON.stringify({ choices: [{ message: { content: "resumo" } }] }), {
+            status: 200,
+          }),
+        );
+      mainCalls += 1;
+      if (mainCalls === 1) {
+        // Segura o primeiro turno aberto até o teste liberar — garante que o
+        // segundo request está enfileirado quando o chat.stop chega.
+        return firstGate.then(() =>
+          responseWithLines([
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "primeira" } }] })}`,
+            "data: [DONE]",
+          ]),
+        );
+      }
+      return Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "segunda" } }] })}`,
+          "data: [DONE]",
+        ]),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      const received: Array<{ key: string; message: Record<string, unknown> }> = [];
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const key = `${String(message.type ?? message.topic)}:${String(message.requestId ?? "")}`;
+        const waiter = waiters.get(key);
+        if (waiter) {
+          waiters.delete(key);
+          waiter(message);
+          return;
+        }
+        received.push({ key, message });
+      });
+      const waitFor = (type: string, requestId: string) => {
+        const key = `${type}:${requestId}`;
+        const index = received.findIndex((item) => item.key === key);
+        if (index >= 0) return Promise.resolve(received.splice(index, 1)[0].message);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(key, resolve));
+      };
+
+      await once(client, "open");
+
+      const startTurn = (requestId: string) => {
+        client?.send(
+          JSON.stringify({
+            messages: [{ content: `turno ${requestId}`, role: "user" }],
+            model: provider.model,
+            profileId: state.activeProfileId,
+            providerId: provider.id,
+            requestId,
+            sessionId: state.activeSessionId,
+            type: "chat.start",
+            workspaceId: state.activeWorkspaceId,
+          }),
+        );
+      };
+      void waitFor("queue.updated", "turno-a");
+      startTurn("turno-a");
+      await waitFor("chat.started", "turno-a");
+
+      startTurn("turno-b");
+      client.send(JSON.stringify({ requestId: "turno-b", type: "chat.stop" }));
+      releaseFirst();
+
+      await expect(waitFor("chat.completed", "turno-a")).resolves.toMatchObject({
+        content: "primeira",
+      });
+      await expect(waitFor("chat.stopped", "turno-b")).resolves.toMatchObject({
+        requestId: "turno-b",
+      });
+      // O turno parado nunca chegou ao provedor.
+      expect(mainCalls).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+});

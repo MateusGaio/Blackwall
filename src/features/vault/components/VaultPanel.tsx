@@ -10,8 +10,28 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { type PointerEvent, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
+import {
+  type PointerEvent,
+  type UIEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type WheelEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
+import { Skeleton } from "@/shared/components/motion/Skeleton";
+import { Button } from "@/shared/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
+import { ScrollArea } from "@/shared/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
 import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 import {
@@ -54,6 +74,8 @@ function GraphIcon({ kind }: { kind: "settings" }) {
     </svg>
   );
 }
+
+const graphFieldLabel = "grid gap-1 font-mono text-[0.7rem] text-muted-foreground";
 
 function GraphView({
   graph,
@@ -244,7 +266,9 @@ function GraphView({
   ]);
 
   if (!graph.nodes.length) {
-    return <p className="vault-empty">{t("vault.addLinksBetweenMarkdownNotes")}</p>;
+    return (
+      <p className="p-4 text-sm text-muted-foreground">{t("vault.addLinksBetweenMarkdownNotes")}</p>
+    );
   }
 
   function updatePreferences(next: Partial<GraphPreferences>) {
@@ -273,10 +297,14 @@ function GraphView({
   }
 
   return (
-    <div aria-label={t("vault.markdownLinkGraph")} className="vault-graph" role="img">
+    <div
+      aria-label={t("vault.markdownLinkGraph")}
+      className="vault-graph relative min-h-0 flex-1 bg-background"
+      role="img"
+    >
       <canvas
         aria-label={t("vault.interactiveMarkdownLinkGraph")}
-        className="vault-graph-canvas"
+        className="vault-graph-canvas absolute inset-0 h-full w-full cursor-grab touch-none active:cursor-grabbing"
         onPointerDown={(event) => {
           const point = pointFor(event);
           const node = nodeAt(point);
@@ -350,90 +378,114 @@ function GraphView({
         }}
         ref={canvasRef}
       />
-      <button
-        aria-expanded={settingsOpen}
-        aria-label={t("vault.configureGraphPhysics")}
-        className="graph-settings-toggle"
-        onClick={() => setSettingsOpen((current) => !current)}
-        type="button"
-      >
-        <GraphIcon kind="settings" />
-      </button>
-      {settingsOpen && (
-        <section aria-label={t("vault.physicsSettings")} className="graph-settings-popover">
-          <label>
-            {t("vault.groupBy")}
-            <select
-              onChange={(event) =>
-                updatePreferences({ groupBy: event.target.value as GraphPreferences["groupBy"] })
-              }
-              value={preferences.groupBy}
+      <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <PopoverTrigger
+          aria-label={t("vault.configureGraphPhysics")}
+          className="absolute top-3 right-3 z-10"
+          title={t("vault.configureGraphPhysics")}
+          asChild
+        >
+          <Button size="icon-sm" variant="outline">
+            <GraphIcon kind="settings" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-64 p-3">
+          <section aria-label={t("vault.physicsSettings")} className="grid gap-3">
+            <div className={graphFieldLabel}>
+              {t("vault.groupBy")}
+              <Select
+                value={preferences.groupBy}
+                onValueChange={(value) =>
+                  updatePreferences({ groupBy: value as GraphPreferences["groupBy"] })
+                }
+              >
+                <SelectTrigger aria-label={t("vault.groupBy")} className="w-full" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="folder">{t("vault.folder")}</SelectItem>
+                  <SelectItem value="tag">Tag</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className={graphFieldLabel}>
+              {t("vault.repulsionStrength")} <output>{Math.abs(preferences.chargeStrength)}</output>
+              <input
+                className="w-full accent-foreground"
+                max="-40"
+                min="-600"
+                onChange={(event) =>
+                  updatePreferences({ chargeStrength: Number(event.target.value) })
+                }
+                step="10"
+                type="range"
+                value={preferences.chargeStrength}
+              />
+            </label>
+            <label className={graphFieldLabel}>
+              {t("vault.linkDistance")} <output>{preferences.linkDistance}</output>
+              <input
+                className="w-full accent-foreground"
+                max="160"
+                min="20"
+                onChange={(event) =>
+                  updatePreferences({ linkDistance: Number(event.target.value) })
+                }
+                step="2"
+                type="range"
+                value={preferences.linkDistance}
+              />
+            </label>
+            <label className={graphFieldLabel}>
+              {t("vault.centerStrength")} <output>{preferences.centerStrength.toFixed(2)}</output>
+              <input
+                className="w-full accent-foreground"
+                max="0.3"
+                min="0.01"
+                onChange={(event) =>
+                  updatePreferences({ centerStrength: Number(event.target.value) })
+                }
+                step="0.01"
+                type="range"
+                value={preferences.centerStrength}
+              />
+            </label>
+            <div className="grid gap-1.5">
+              <p className="font-mono text-[0.7rem] text-muted-foreground">
+                {t("vault.groupColors")}
+              </p>
+              {groups.map((group) => (
+                <label className="flex items-center justify-between gap-2 text-xs" key={group}>
+                  <span className="truncate">{group}</span>
+                  <input
+                    aria-label={`${t("vault.colorFor")} ${group}`}
+                    className="size-6 cursor-pointer border border-border bg-transparent"
+                    onChange={(event) =>
+                      updatePreferences({
+                        colors: { ...preferences.colors, [group]: event.target.value },
+                      })
+                    }
+                    type="color"
+                    value={preferences.colors[group] ?? defaultColorForGroup(group)}
+                  />
+                </label>
+              ))}
+            </div>
+            <Button
+              onClick={() => setPreferences(defaultGraphPreferences)}
+              size="sm"
+              variant="outline"
             >
-              <option value="folder">{t("vault.folder")}</option>
-              <option value="tag">Tag</option>
-            </select>
-          </label>
-          <label>
-            {t("vault.repulsionStrength")} <output>{Math.abs(preferences.chargeStrength)}</output>
-            <input
-              max="-40"
-              min="-600"
-              onChange={(event) =>
-                updatePreferences({ chargeStrength: Number(event.target.value) })
-              }
-              step="10"
-              type="range"
-              value={preferences.chargeStrength}
-            />
-          </label>
-          <label>
-            {t("vault.linkDistance")} <output>{preferences.linkDistance}</output>
-            <input
-              max="160"
-              min="20"
-              onChange={(event) => updatePreferences({ linkDistance: Number(event.target.value) })}
-              step="2"
-              type="range"
-              value={preferences.linkDistance}
-            />
-          </label>
-          <label>
-            {t("vault.centerStrength")} <output>{preferences.centerStrength.toFixed(2)}</output>
-            <input
-              max="0.3"
-              min="0.01"
-              onChange={(event) =>
-                updatePreferences({ centerStrength: Number(event.target.value) })
-              }
-              step="0.01"
-              type="range"
-              value={preferences.centerStrength}
-            />
-          </label>
-          <div className="graph-group-colors">
-            <p>{t("vault.groupColors")}</p>
-            {groups.map((group) => (
-              <label key={group}>
-                <span>{group}</span>
-                <input
-                  aria-label={`${t("vault.colorFor")} ${group}`}
-                  onChange={(event) =>
-                    updatePreferences({
-                      colors: { ...preferences.colors, [group]: event.target.value },
-                    })
-                  }
-                  type="color"
-                  value={preferences.colors[group] ?? defaultColorForGroup(group)}
-                />
-              </label>
-            ))}
-          </div>
-          <button onClick={() => setPreferences(defaultGraphPreferences)} type="button">
-            {t("vault.resetDefaults")}
-          </button>
-        </section>
+              {t("vault.resetDefaults")}
+            </Button>
+          </section>
+        </PopoverContent>
+      </Popover>
+      {hoveredNode && (
+        <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-background/90 px-3 py-1 font-mono text-xs text-muted-foreground">
+          {hoveredNode.label}
+        </p>
       )}
-      {hoveredNode && <p className="graph-hover-label">{hoveredNode.label}</p>}
     </div>
   );
 }
@@ -450,7 +502,7 @@ export function VaultPanel({
   const [error, setError] = useState("");
   const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
   const [fileListScrollTop, setFileListScrollTop] = useState(0);
-  const fileListRef = useRef<HTMLUListElement | null>(null);
+  const fileListWrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // The increment is the explicit signal that a tool changed workspace files.
@@ -474,58 +526,71 @@ export function VaultPanel({
 
   const selectedNote = graph?.files.find((file) => file.path === selectedNotePath) ?? null;
 
+  function listViewport(): HTMLElement | null {
+    return (
+      fileListWrapRef.current?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ??
+      null
+    );
+  }
+
+  function trackListScroll(event: UIEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement | null;
+    if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
+      setFileListScrollTop(target.scrollTop);
+    }
+  }
+
   function openNote(path: string) {
     if (!graph?.files.some((file) => file.path === path)) return;
-    if (!selectedNotePath && fileListRef.current)
-      setFileListScrollTop(fileListRef.current.scrollTop);
+    if (!selectedNotePath) setFileListScrollTop(listViewport()?.scrollTop ?? 0);
     setSelectedNotePath(path);
     onTabChange("files");
   }
 
   function closeNote() {
     setSelectedNotePath(null);
-    requestAnimationFrame(() => fileListRef.current?.scrollTo({ top: fileListScrollTop }));
+    requestAnimationFrame(() => {
+      const viewport = listViewport();
+      viewport?.scrollTo({ top: fileListScrollTop });
+    });
   }
 
   return (
-    <aside aria-label={t("vault.workspaceVault")} className="vault-panel">
-      <header className="vault-panel-header">
-        <strong>Vault</strong>
-        <button
+    <aside
+      aria-label={t("vault.workspaceVault")}
+      className="flex h-full min-h-0 flex-col overflow-hidden"
+    >
+      <header className="flex items-center justify-between px-4 pt-3 pb-1">
+        <strong className="font-mono text-sm tracking-wide">Vault</strong>
+        <Button
           aria-label={t("vault.collapseVault")}
-          className="vault-collapse-button"
           onClick={onCollapse}
+          size="icon-sm"
           title={t("vault.collapseVault")}
-          type="button"
+          variant="ghost"
         >
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="M4 5h16v14H4V5Zm5 0v14M15 9l-3 3 3 3" />
           </svg>
-        </button>
+        </Button>
       </header>
-      <div className="vault-tabs" role="tablist" aria-label={t("vault.vaultView")}>
-        <button
-          aria-selected={tab === "files"}
-          className={tab === "files" ? "is-active" : ""}
-          onClick={() => onTabChange("files")}
-          role="tab"
-          type="button"
-        >
-          {t("vault.files")}
-        </button>
-        <button
-          aria-selected={tab === "graph"}
-          className={tab === "graph" ? "is-active" : ""}
-          onClick={() => onTabChange("graph")}
-          role="tab"
-          type="button"
-        >
-          {t("vault.graph")}
-        </button>
-      </div>
-      {!graph && !error && <div aria-busy="true" className="vault-loading skeleton" />}
+      <Tabs
+        className="px-3 pb-1"
+        value={tab}
+        onValueChange={(value) => onTabChange(value as VaultTab)}
+      >
+        <TabsList aria-label={t("vault.vaultView")} className="w-full">
+          <TabsTrigger value="files">{t("vault.files")}</TabsTrigger>
+          <TabsTrigger value="graph">{t("vault.graph")}</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {!graph && !error && (
+        <div aria-busy="true" className="min-h-0 flex-1 p-4">
+          <Skeleton className="h-full" />
+        </div>
+      )}
       {error && (
-        <p className="form-error" role="alert">
+        <p className="m-4 text-sm text-destructive" role="alert">
           {error}
         </p>
       )}
@@ -534,52 +599,60 @@ export function VaultPanel({
         (selectedNote ? (
           <section
             aria-label={`${t("vault.note")} ${selectedNote.title}`}
-            className="vault-note-reader"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="vault-note-toolbar">
-              <button className="text-button" onClick={closeNote} type="button">
+            <div className="px-2 pt-1">
+              <Button onClick={closeNote} size="xs" variant="ghost">
                 ← {t("vault.files")}
-              </button>
+              </Button>
             </div>
-            <header>
-              <p className="eyebrow">{selectedNote.path}</p>
-              <h2>{selectedNote.title}</h2>
+            <header className="px-4 pt-1">
+              <p className="font-mono text-[0.7rem] tracking-[0.08em] text-muted-foreground uppercase">
+                {selectedNote.path}
+              </p>
+              <h2 className="mt-1 mb-2 text-lg font-medium">{selectedNote.title}</h2>
             </header>
-            <article className="vault-note-content">
-              <SafeMarkdown
-                content={selectedNote.content}
-                currentPath={selectedNote.path}
-                files={graph.files}
-                onLocalLink={openNote}
-              />
-            </article>
+            <div className="min-h-0 flex-1">
+              <ScrollArea className="h-full">
+                <article className="px-4 pb-6">
+                  <SafeMarkdown
+                    content={selectedNote.content}
+                    currentPath={selectedNote.path}
+                    files={graph.files}
+                    onLocalLink={openNote}
+                  />
+                </article>
+              </ScrollArea>
+            </div>
           </section>
         ) : graph.files.length ? (
-          <ul
-            className="vault-file-list"
-            onScroll={(event) => setFileListScrollTop(event.currentTarget.scrollTop)}
-            ref={fileListRef}
-          >
-            {graph.files.map((file) => (
-              <li key={file.path}>
-                <button
-                  aria-label={file.title}
-                  className="vault-file-button"
-                  onClick={() => openNote(file.path)}
-                  type="button"
-                >
-                  <strong>{file.title}</strong>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div ref={fileListWrapRef} className="min-h-0 flex-1" onScrollCapture={trackListScroll}>
+            <ScrollArea className="h-full">
+              <ul className="m-0 grid list-none gap-1 p-2">
+                {graph.files.map((file) => (
+                  <li key={file.path}>
+                    <button
+                      aria-label={file.title}
+                      className="w-full rounded-lg border border-transparent px-3 py-2.5 text-left transition-colors duration-150 hover:border-border hover:bg-muted focus-visible:border-ring focus-visible:outline-none"
+                      onClick={() => openNote(file.path)}
+                      type="button"
+                    >
+                      <strong className="text-[0.86rem] font-medium">{file.title}</strong>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          </div>
         ) : (
-          <p className="vault-empty">{t("vault.noMarkdownFilesWereFound")}</p>
+          <p className="p-4 text-sm leading-relaxed text-muted-foreground">
+            {t("vault.noMarkdownFilesWereFound")}
+          </p>
         ))}
       {graph && tab === "graph" && (
-        <div className="vault-graph-frame">
+        <div className="flex min-h-0 flex-1 flex-col">
           <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
-          <p className="vault-count" aria-live="polite">
+          <p aria-live="polite" className="px-4 py-2 font-mono text-[0.7rem] text-muted-foreground">
             {graph.files.length} {t("vault.files2")} · {graph.edges.length} links
           </p>
         </div>

@@ -2,6 +2,15 @@
 
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 import type { Profile, ProviderModel } from "../../../../shared/api/sidecar";
 import type { ProviderForm } from "./providerForm";
 import type { useModelOptions } from "./useModelOptions";
@@ -23,6 +32,8 @@ type ProviderFormSectionProps = {
   status: string;
 };
 
+const fieldLabelClass = "grid gap-2 font-mono text-[0.72rem] text-muted-foreground";
+
 export function ProviderFormSection({
   editingId,
   error,
@@ -41,110 +52,142 @@ export function ProviderFormSection({
 }: ProviderFormSectionProps) {
   const { t } = useTranslation();
   return (
-    <form className="provider-form settings-form" onSubmit={onSubmit}>
-      <p className="eyebrow">
+    <form className="grid gap-4" onSubmit={onSubmit}>
+      <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
         {editingId ? t("settings.editProvider") : t("settings.addProvider")}
       </p>
-      <label className="field-label" htmlFor="settings-provider-type">
+      <label className={fieldLabelClass} htmlFor="settings-provider-type">
         {t("settings.type")}
-        <select
-          id="settings-provider-type"
-          onChange={(event) => setFormField("type", event.target.value)}
-          value={form.type}
-        >
-          <option value="ollama">Ollama local</option>
-          <option value="openai-compatible">OpenAI-compatible</option>
-        </select>
+        <Select value={form.type} onValueChange={(value) => setFormField("type", value)}>
+          <SelectTrigger className="w-full" id="settings-provider-type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ollama">Ollama local</SelectItem>
+            <SelectItem value="openai-compatible">OpenAI-compatible</SelectItem>
+          </SelectContent>
+        </Select>
       </label>
-      <label className="field-label" htmlFor="settings-provider-name">
+      <label className={fieldLabelClass} htmlFor="settings-provider-name">
         {t("settings.name")}
-        <input
+        <Input
           id="settings-provider-name"
           onChange={(event) => setFormField("name", event.target.value)}
           value={form.name}
         />
       </label>
-      <label className="field-label" htmlFor="settings-provider-url">
+      <label className={fieldLabelClass} htmlFor="settings-provider-url">
         Endpoint
-        <input
+        <Input
           id="settings-provider-url"
           onChange={(event) => setFormField("baseUrl", event.target.value)}
           value={form.baseUrl}
         />
       </label>
-      <label className="field-label" htmlFor="settings-provider-model">
-        {t("settings.defaultModel")}
-        <div className="model-input-row">
-          <input
+      <div className={fieldLabelClass}>
+        <label htmlFor="settings-provider-model">{t("settings.defaultModel")}</label>
+        <span className="flex items-center gap-2">
+          <Input
+            className="flex-1"
             id="settings-provider-model"
             onChange={(event) => setFormField("model", event.target.value)}
             value={form.model}
           />
-          <button
-            className="button button-secondary"
+          <Button
             disabled={
               modelOptions.isListingModels ||
               (!editingId && form.type === "openai-compatible" && !form.apiKey.trim())
             }
             onClick={() => void modelOptions.listModels()}
             type="button"
+            variant="secondary"
           >
             {modelOptions.isListingModels ? t("settings.listing") : t("settings.listModels")}
-          </button>
-        </div>
+          </Button>
+        </span>
         {modelOptions.providerModels.length > 0 && (
-          <select
-            aria-label={t("settings.availableModels")}
-            onChange={(event) => setFormField("model", event.target.value)}
-            value={form.model}
-          >
-            {modelOptions.providerModels.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-          </select>
+          <Select value={form.model} onValueChange={(value) => setFormField("model", value)}>
+            <SelectTrigger aria-label={t("settings.availableModels")} className="w-full" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {modelOptions.providerModels.map((model) => (
+                <SelectItem key={model.id} value={model.id}>
+                  {model.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
         {editingId && modelOptions.providerModels.length > 0 && (
           <>
-            <select
-              aria-label={t("settings.toolCallingMode")}
-              onChange={(event) =>
-                void modelOptions.changeToolMode(event.target.value as ProviderModel["toolMode"])
-              }
+            <Select
               value={modelOptions.toolMode}
-            >
-              <option value="auto">{t("settings.nativeToolsAutomatic")}</option>
-              <option value="compatibility">{t("settings.compatibilityJsonOptin")}</option>
-              <option value="disabled">{t("settings.disabled")}</option>
-            </select>
-            <select
-              aria-label={t("settings.protocolPreference")}
-              onChange={(event) =>
-                void modelOptions.changeProtocol(
-                  event.target.value as NonNullable<ProviderModel["protocolPreference"]>,
-                )
+              onValueChange={(value) =>
+                void modelOptions.changeToolMode(value as ProviderModel["toolMode"])
               }
+            >
+              <SelectTrigger
+                aria-label={t("settings.toolCallingMode")}
+                className="w-full"
+                size="sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("settings.nativeToolsAutomatic")}</SelectItem>
+                <SelectItem value="compatibility">
+                  {t("settings.compatibilityJsonOptin")}
+                </SelectItem>
+                <SelectItem value="disabled">{t("settings.disabled")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
               value={modelOptions.protocolPreference}
-            >
-              <option value="auto">{t("settings.protocolAutomatic")}</option>
-              <option value="openai-chat">OpenAI Chat Completions</option>
-              <option value="openai-responses">OpenAI Responses</option>
-            </select>
-            <select
-              aria-label={t("settings.parallelToolCalls")}
-              onChange={(event) =>
-                void modelOptions.changeParallelToolCalls(
-                  event.target.value as ProviderModel["parallelToolCalls"],
+              onValueChange={(value) =>
+                void modelOptions.changeProtocol(
+                  value as NonNullable<ProviderModel["protocolPreference"]>,
                 )
               }
-              value={modelOptions.parallelToolCalls}
             >
-              <option value="auto">{t("settings.parallelCallsAutomaticOnFor")}</option>
-              <option value="enabled">{t("settings.parallelCallsForceOn")}</option>
-              <option value="disabled">{t("settings.parallelCallsForceOff")}</option>
-            </select>
-            <div className="provider-model-capability" aria-live="polite">
+              <SelectTrigger
+                aria-label={t("settings.protocolPreference")}
+                className="w-full"
+                size="sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("settings.protocolAutomatic")}</SelectItem>
+                <SelectItem value="openai-chat">OpenAI Chat Completions</SelectItem>
+                <SelectItem value="openai-responses">OpenAI Responses</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={modelOptions.parallelToolCalls}
+              onValueChange={(value) =>
+                void modelOptions.changeParallelToolCalls(
+                  value as ProviderModel["parallelToolCalls"],
+                )
+              }
+            >
+              <SelectTrigger
+                aria-label={t("settings.parallelToolCalls")}
+                className="w-full"
+                size="sm"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("settings.parallelCallsAutomaticOnFor")}</SelectItem>
+                <SelectItem value="enabled">{t("settings.parallelCallsForceOn")}</SelectItem>
+                <SelectItem value="disabled">{t("settings.parallelCallsForceOff")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <div
+              aria-live="polite"
+              className="font-sans text-xs tracking-normal text-muted-foreground"
+            >
               {(() => {
                 const selected = modelOptions.providerModels.find(
                   (model) => model.id === form.model,
@@ -159,21 +202,23 @@ export function ProviderFormSection({
                       : t("settings.toolSupportNotTested");
               })()}
             </div>
-            <button
-              className="button button-secondary"
+            <Button
+              className="w-fit"
               disabled={modelOptions.isProbingTools}
               onClick={() => void modelOptions.probeTools()}
+              size="sm"
               type="button"
+              variant="outline"
             >
               {modelOptions.isProbingTools ? t("settings.testing") : t("settings.testTools")}
-            </button>
+            </Button>
           </>
         )}
-      </label>
+      </div>
       {form.type === "openai-compatible" && (
-        <label className="field-label" htmlFor="settings-provider-key">
+        <label className={fieldLabelClass} htmlFor="settings-provider-key">
           {t("settings.apiKey")}
-          <input
+          <Input
             autoComplete="off"
             id="settings-provider-key"
             onChange={(event) => setFormField("apiKey", event.target.value)}
@@ -183,48 +228,45 @@ export function ProviderFormSection({
           />
         </label>
       )}
-      <div className="settings-actions">
-        <button
-          className="button button-secondary"
-          disabled={isSaving}
-          onClick={() => void onTest()}
-          type="button"
-        >
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button disabled={isSaving} onClick={() => void onTest()} type="button" variant="secondary">
           {t("settings.test")}
-        </button>
-        <button
-          className="button button-primary"
+        </Button>
+        <Button
           disabled={isSaving || !form.name.trim() || !form.baseUrl.trim() || !form.model.trim()}
           type="submit"
         >
           {isSaving ? t("settings.saving") : t("settings.save")}
-        </button>
+        </Button>
         {editingId && (
-          <button className="text-button" onClick={reset} type="button">
+          <Button onClick={reset} size="sm" type="button" variant="ghost">
             {t("settings.cancel")}
-          </button>
+          </Button>
         )}
-        <button
-          className="text-button danger settings-sign-out"
+        <Button
+          className="text-destructive hover:text-destructive"
           onClick={() => void onSignOut()}
+          size="sm"
           type="button"
+          variant="ghost"
         >
           {t("settings.signOut")}
-        </button>
+        </Button>
         {profile && (
-          <button
-            className="text-button danger settings-delete-profile"
+          <Button
             disabled={isDeletingProfile}
             onClick={requestDeleteProfile}
+            size="sm"
             type="button"
+            variant="ghost"
           >
-            {t("settings.deleteProfile")}
-          </button>
+            <span className="text-destructive">{t("settings.deleteProfile")}</span>
+          </Button>
         )}
       </div>
-      {status && <p className="settings-status">{status}</p>}
+      {status && <p className="text-xs text-muted-foreground">{status}</p>}
       {error && (
-        <p className="form-error" role="alert">
+        <p className="text-sm text-destructive" role="alert">
           {error}
         </p>
       )}

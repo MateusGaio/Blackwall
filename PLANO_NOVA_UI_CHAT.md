@@ -136,6 +136,33 @@ Mesma disciplina (Issue → PR → gates → motion audit), nesta ordem:
 4. Remoção gradual do CSS legado de `index.css` conforme cada tela migra (Knip passa a acusar
    classes mortas — limpar por tela).
 
+---
+
+## Fase U4 — Estética terminal do chat · `type:enhancement`
+
+> Preferências decididas pelo owner (ago/2026). Supersedem o visual da U2.3 onde conflitarem;
+> as mecânicas do §3 do `UX_SPEC.md` (parar geração, regenerar, editar, fila FIFO, pill de
+> scroll) permanecem intocadas. **Escopo fechado:** apenas thread + composer (estado vazio
+> incluído). Sidebar, header e Vault fora desta fase.
+
+Decisões trancadas:
+
+1. **Mensagens sem bolha** — usuário alinhado à direita, agente à esquerda; ambos texto flat
+   com marcador de papel em mono (`›` você / `●` agente); largura máxima por mensagem
+   mantida (~640px). Ganchos de teste preservados: `li.message-user`, `li.message-assistant`.
+2. **Tipografia** — estrutura em mono (marcadores, status line, tool calls, código,
+   contadores); a prosa das respostas continua sans-serif.
+3. **Streaming** — cursor de bloco ▊ piscando no fim do stream + linha de status mono
+   (`gerando…`). Efeitos *Shiny Text* / *Border Beam* da U2.3 ficam descartados.
+4. **Composer** — linha de prompt com borda 1px e raio `--radius-control`, prefixo mono `❯`;
+   anexos como tokens `[arquivo.md]` removíveis; auto-resize, indicador de fila e escudo de
+   permissões preservados.
+5. **Escopo** — thread + composer apenas; nada de sidebar/header/Vault nesta fase.
+
+Execução: PR de documentação primeiro (amenda do UX_SPEC §3), depois Issue +
+branch `feat/<n>-chat-terminal` encadeada na stack aberta (`Depends on`), gates completos
+e motion audit ADR-09 nos dois componentes.
+
 ## Riscos
 
 | Risco | Mitigação |
@@ -153,3 +180,4 @@ Mesma disciplina (Issue → PR → gates → motion audit), nesta ordem:
 | Spike/adoção assistant-ui + adapter ExternalStoreRuntime | `type:feature` |
 | Redesign do chat (Thread/Message/Composer) | `type:feature` |
 | Um Issue por tela no rollout (onboarding, vault, settings) | `type:enhancement` |
+| Estética terminal do chat (thread+composer) | `type:enhancement` |

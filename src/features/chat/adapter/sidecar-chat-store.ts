@@ -401,9 +401,13 @@ export class SidecarChatStore {
             setStatus(labels.waitingForPermission);
           },
           onCompacting: () => {
+            if (!this.matchesRun(sessionId, runEpoch)) return;
             setStatus(labels.summarizingContext);
           },
           onDelta: (delta) => {
+            // Sem este guard, deltas tardios da sessão anterior contaminam o
+            // buffer/status da sessão recém-ativada durante o streaming.
+            if (!this.matchesRun(sessionId, runEpoch)) return;
             this.streamingBuffer += delta;
             this.messages = this.messages.map((message) =>
               message.id === placeholderId
@@ -413,18 +417,27 @@ export class SidecarChatStore {
             setStatus(labels.generating);
           },
           onRetry: (message) => {
+            if (!this.matchesRun(sessionId, runEpoch)) return;
             setStatus(message);
           },
           onToolCompleted: () => {
+            if (!this.matchesRun(sessionId, runEpoch)) return;
             if (this.runningTool === "create_or_update_file") this.callbacks.onVaultFileChanged?.();
             this.runningTool = null;
             setStatus(labels.continuing);
           },
+          onToolFailed: (message) => {
+            if (!this.matchesRun(sessionId, runEpoch)) return;
+            this.runningTool = null;
+            setStatus(message);
+          },
           onToolStarted: (tool) => {
+            if (!this.matchesRun(sessionId, runEpoch)) return;
             this.runningTool = tool;
             setStatus(labels.runningTool(tool));
           },
           onUsage: () => {
+            if (!this.matchesRun(sessionId, runEpoch)) return;
             this.callbacks.onProviderUsage?.(providerId, {
               modelId: requestModel || undefined,
               profileId: requestProfileId ?? null,

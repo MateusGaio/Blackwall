@@ -1,13 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import {
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/shared/components/ui/resizable";
 import { ChatRuntimeProvider, useSidecarChat } from "../features/chat/adapter/use-sidecar-runtime";
 import { ChatThread } from "../features/chat/ui/ChatThread";
 import { ProviderManager } from "../features/config/components/ProviderManager";
@@ -50,7 +49,13 @@ import { ChatHeader } from "./shell/ChatHeader";
 import { Composer } from "./shell/Composer";
 import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
 import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
-import { maximumVaultWidth, minimumVaultWidth, VaultSlot, type VaultTab } from "./shell/VaultSlot";
+import {
+  maximumVaultWidth,
+  minimumVaultWidth,
+  VaultRail,
+  VaultSlot,
+  type VaultTab,
+} from "./shell/VaultSlot";
 
 const defaultVaultWidth = 360;
 
@@ -97,7 +102,6 @@ export default function WorkspaceShell({
       ),
     ),
   );
-  const [isResizingVault, setIsResizingVault] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [draft, setDraft] = useState("");
@@ -132,7 +136,6 @@ export default function WorkspaceShell({
   const workspacePickerRef = useRef<HTMLSelectElement | null>(null);
   const activeSessionIdRef = useRef<string | null>(appState?.activeSessionId ?? null);
   const lastAppStateRef = useRef(appState);
-  const vaultResizeRef = useRef<{ startWidth: number; startX: number } | null>(null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
   const name = activeProfile?.name.trim() || profileName.trim() || t("chat.you");
@@ -293,6 +296,7 @@ export default function WorkspaceShell({
     }
   }, [activeSession?.id]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: o corpo só usa refs de propósito — re-rolar deve acontecer apenas ao trocar de sessão ou mudar a contagem de mensagens; sem deps, o scroll roubava a posição do usuário a cada render.
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       messageListRef.current?.scrollTo({
@@ -301,7 +305,7 @@ export default function WorkspaceShell({
       });
     });
     return () => cancelAnimationFrame(frame);
-  });
+  }, [activeSession?.id, messages.length]);
 
   useEffect(() => {
     if (!activeProvider) return;
@@ -469,23 +473,13 @@ export default function WorkspaceShell({
     return Math.min(viewportMaximum, Math.max(minimumVaultWidth, width));
   }
 
-  function startVaultResize(event: ReactPointerEvent<HTMLDivElement>) {
-    if (vaultCollapsed) return;
-    event.preventDefault();
-    vaultResizeRef.current = { startWidth: vaultWidth, startX: event.clientX };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setIsResizingVault(true);
-  }
-
-  function resizeVault(event: ReactPointerEvent<HTMLDivElement>) {
-    const resize = vaultResizeRef.current;
-    if (!resize) return;
-    setVaultWidth(boundedVaultWidth(resize.startWidth + resize.startX - event.clientX));
-  }
-
-  function finishVaultResize() {
-    vaultResizeRef.current = null;
-    setIsResizingVault(false);
+  function handleSplitLayout(layout: { [panelId: string]: number }) {
+    const width = layout["bw-vault"];
+    if (typeof width !== "number") return;
+    setVaultWidth((current) => {
+      const next = boundedVaultWidth(width);
+      return Math.abs(next - current) < 0.5 ? current : next;
+    });
   }
 
   async function activateWorkspace(created: NonNullable<typeof workspace>) {
@@ -493,32 +487,40 @@ export default function WorkspaceShell({
       await openWorkspace(created.id);
       return;
     }
-    const session = await createSession(created.id);
-    const nextState = await selectSession(session.id);
-    const nextStateWithWorkspace: AppState = {
-      ...nextState,
-      activeSessionId: session.id,
-      activeWorkspaceId: created.id,
-      recentSessions: nextState.recentSessions.some((item) => item.id === session.id)
-        ? nextState.recentSessions
-        : [{ ...session, workspaceName: created.name }, ...nextState.recentSessions],
-      sessions: nextState.sessions.some((item) => item.id === session.id)
-        ? nextState.sessions
-        : [session, ...nextState.sessions],
-      workspaces: nextState.workspaces.some((item) => item.id === created.id)
-        ? nextState.workspaces
-        : [created, ...nextState.workspaces],
-    };
-    activeSessionIdRef.current = session.id;
-    setState(nextStateWithWorkspace);
-    setActiveProvider(
-      session.selectedProviderId
-        ? (providers.find((item) => item.id === session.selectedProviderId) ?? providers[0] ?? null)
-        : (providers[0] ?? null),
-    );
-    setShowVault(true);
-    setVaultCollapsed(false);
-    setResourceNotice("");
+    try {
+      const session = await createSession(created.id);
+      const nextState = await selectSession(session.id);
+      const nextStateWithWorkspace: AppState = {
+        ...nextState,
+        activeSessionId: session.id,
+        activeWorkspaceId: created.id,
+        recentSessions: nextState.recentSessions.some((item) => item.id === session.id)
+          ? nextState.recentSessions
+          : [{ ...session, workspaceName: created.name }, ...nextState.recentSessions],
+        sessions: nextState.sessions.some((item) => item.id === session.id)
+          ? nextState.sessions
+          : [session, ...nextState.sessions],
+        workspaces: nextState.workspaces.some((item) => item.id === created.id)
+          ? nextState.workspaces
+          : [created, ...nextState.workspaces],
+      };
+      activeSessionIdRef.current = session.id;
+      setState(nextStateWithWorkspace);
+      setActiveProvider(
+        session.selectedProviderId
+          ? (providers.find((item) => item.id === session.selectedProviderId) ??
+              providers[0] ??
+              null)
+          : (providers[0] ?? null),
+      );
+      setShowVault(true);
+      setVaultCollapsed(false);
+      setResourceNotice("");
+    } catch (reason) {
+      // Única ação de fluxo sem tratamento — falha aqui virava unhandled
+      // rejection sem feedback nenhum para o usuário.
+      setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
+    }
   }
 
   async function rename(sessionId: string, currentTitle: string) {
@@ -621,11 +623,180 @@ export default function WorkspaceShell({
       !(message.role === "assistant" && !message.content.trim() && message.toolCalls?.length),
   );
 
+  const chatArea = (
+    <section className="workspace-main">
+      <ChatHeader
+        activeProvider={activeProvider}
+        onOpenUsageDetails={() => {
+          setUsageOpen(false);
+          setShowUsageDetails(true);
+        }}
+        onSelectProvider={(next) => void selectProvider(next)}
+        onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+        onVaultClick={() => {
+          if (!workspace) {
+            setResourceNotice(t("chat.selectAFolderToConfigure"));
+            return;
+          }
+          setResourceNotice("");
+          setShowVault((current) => {
+            if (!current) setVaultCollapsed(false);
+            return !current;
+          });
+        }}
+        providers={providers}
+        sessionTitle={activeSession?.title}
+        setUsageOpen={setUsageOpen}
+        sidebarCollapsed={sidebarCollapsed}
+        usageOpen={usageOpen}
+        usageSummary={usageSummary}
+        vaultActive={Boolean(workspace && showVault)}
+        workspace={workspace}
+      />
+      <section
+        className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
+        aria-label={t("chat.conversation")}
+      >
+        {switchingSession && (
+          <EnterExit className="px-1 pt-2" offsetPx={4} show>
+            <div aria-busy="true" role="status">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="mt-4 h-16" />
+              <Skeleton className="mt-4 h-10 w-2/3" />
+            </div>
+          </EnterExit>
+        )}
+        {!switchingSession && visibleMessages.length === 0 ? (
+          <div className="empty-state">
+            <h1>
+              {greeting}, {name}
+            </h1>
+            <p>{workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}</p>
+          </div>
+        ) : (
+          <ChatThread
+            copiedMessageId={copiedMessageId}
+            copyMessage={(message) => void copyMessage(message)}
+            editingMessageDraft={editingMessageDraft}
+            editingMessageId={editingMessageId}
+            listRef={messageListRef}
+            onEditCancel={() => setEditingMessageId(null)}
+            onEditChange={setEditingMessageDraft}
+            onEditSubmit={(messageId, editDraft) => {
+              setEditingMessageId(null);
+              void editMessage(messageId, editDraft);
+            }}
+            onEditingStart={(message) => {
+              setEditingMessageDraft(message.content);
+              setEditingMessageId(message.id);
+            }}
+            regenerate={() => void regenerate()}
+            streamingId={streamingId}
+            streamingStatus={streamingStatus}
+            visibleMessages={visibleMessages}
+          />
+        )}
+        {attachments.length > 0 && (
+          <ul className="attachment-list" aria-label={t("chat.indexedAttachments")}>
+            {attachments.map((attachment) => (
+              <li className="attachment-chip" key={attachment.id}>
+                <span>{attachment.filename}</span>
+                <button
+                  aria-label={`${t("chat.remove")} ${attachment.filename}`}
+                  onClick={() => setAttachmentToRemove(attachment)}
+                  type="button"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <EnterExit className="justify-self-start" offsetPx={4} show={queuedCount > 0}>
+          <p
+            className="rounded-full border border-border bg-muted px-3 py-1 font-mono text-xs text-muted-foreground"
+            role="status"
+          >
+            {t("chat.inQueue", { count: queuedCount })}
+          </p>
+        </EnterExit>
+        {toolApproval && (
+          <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
+            <p className="eyebrow">{t("chat.permissionRequested")}</p>
+            <strong>{toolApproval.tool}</strong>
+            <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
+            <div className="workspace-access-actions">
+              <button
+                className="button button-primary"
+                onClick={() => resolveToolDecision("allow_once")}
+                type="button"
+              >
+                {t("chat.allowOnce")}
+              </button>
+              {!["apply_patch", "create_or_update_file", "execute_command"].includes(
+                toolApproval.tool,
+              ) && (
+                <button
+                  className="button button-secondary"
+                  onClick={() => resolveToolDecision("allow_session")}
+                  type="button"
+                >
+                  {t("chat.allowThisSession")}
+                </button>
+              )}
+              <button
+                className="text-button"
+                onClick={() => resolveToolDecision("deny")}
+                type="button"
+              >
+                {t("chat.deny")}
+              </button>
+            </div>
+          </section>
+        )}
+        <Composer
+          activeProvider={activeProvider}
+          activeSessionId={activeSession?.id}
+          changeModel={(model) => void changeModel(model)}
+          changePermissionMode={(mode) => void changePermissionMode(mode)}
+          composerRef={composerRef}
+          draft={draft}
+          isSending={isSending}
+          modelName={modelName}
+          models={models}
+          onAttachFile={(file) => void attachFile(file)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitDraft();
+          }}
+          permissionError={permissionError}
+          selectedModel={selectedModel}
+          setDraft={setDraft}
+          stopGeneration={stopGeneration}
+          workspace={workspace}
+        />
+        {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
+        {resourceNotice && (
+          <div className="resource-gate" role="alert">
+            <span>{resourceNotice}</span>
+            <button className="text-button" onClick={newWorkspace} type="button">
+              {t("chat.addAWorkspaceInSettings")}
+            </button>
+          </div>
+        )}
+        {(error || chatError) && (
+          <p className="form-error chat-error" role="alert">
+            {error || chatError}
+          </p>
+        )}
+      </section>
+    </section>
+  );
+
   return (
     <ChatRuntimeProvider runtime={runtime}>
       <main
         className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
-        style={{ "--vault-width": `${vaultWidth}px` } as CSSProperties}
       >
         <SessionsSidebar
           activeProfile={activeProfile}
@@ -665,197 +836,57 @@ export default function WorkspaceShell({
           workspaces={state?.workspaces ?? []}
         />
 
-        <section className="workspace-main">
-          <ChatHeader
-            activeProvider={activeProvider}
-            onOpenUsageDetails={() => {
-              setUsageOpen(false);
-              setShowUsageDetails(true);
-            }}
-            onSelectProvider={(next) => void selectProvider(next)}
-            onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
-            onVaultClick={() => {
-              if (!workspace) {
-                setResourceNotice(t("chat.selectAFolderToConfigure"));
-                return;
-              }
-              setResourceNotice("");
-              setShowVault((current) => {
-                if (!current) setVaultCollapsed(false);
-                return !current;
-              });
-            }}
-            providers={providers}
-            sessionTitle={activeSession?.title}
-            setUsageOpen={setUsageOpen}
-            sidebarCollapsed={sidebarCollapsed}
-            usageOpen={usageOpen}
-            usageSummary={usageSummary}
-            vaultActive={Boolean(workspace && showVault)}
-            workspace={workspace}
-          />
-          <section
-            className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
-            aria-label={t("chat.conversation")}
-          >
-            {switchingSession && (
-              <EnterExit className="px-1 pt-2" offsetPx={4} show>
-                <div aria-busy="true" role="status">
-                  <Skeleton className="h-4 w-1/3" />
-                  <Skeleton className="mt-4 h-16" />
-                  <Skeleton className="mt-4 h-10 w-2/3" />
-                </div>
-              </EnterExit>
-            )}
-            {!switchingSession && visibleMessages.length === 0 ? (
-              <div className="empty-state">
-                <h1>
-                  {greeting}, {name}
-                </h1>
-                <p>{workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}</p>
-              </div>
-            ) : (
-              <ChatThread
-                copiedMessageId={copiedMessageId}
-                copyMessage={(message) => void copyMessage(message)}
-                editingMessageDraft={editingMessageDraft}
-                editingMessageId={editingMessageId}
-                listRef={messageListRef}
-                onEditCancel={() => setEditingMessageId(null)}
-                onEditChange={setEditingMessageDraft}
-                onEditSubmit={(messageId, editDraft) => {
-                  setEditingMessageId(null);
-                  void editMessage(messageId, editDraft);
-                }}
-                onEditingStart={(message) => {
-                  setEditingMessageDraft(message.content);
-                  setEditingMessageId(message.id);
-                }}
-                regenerate={() => void regenerate()}
-                streamingId={streamingId}
-                streamingStatus={streamingStatus}
-                visibleMessages={visibleMessages}
-              />
-            )}
-            {attachments.length > 0 && (
-              <ul className="attachment-list" aria-label={t("chat.indexedAttachments")}>
-                {attachments.map((attachment) => (
-                  <li className="attachment-chip" key={attachment.id}>
-                    <span>{attachment.filename}</span>
-                    <button
-                      aria-label={`${t("chat.remove")} ${attachment.filename}`}
-                      onClick={() => setAttachmentToRemove(attachment)}
-                      type="button"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <EnterExit className="justify-self-start" offsetPx={4} show={queuedCount > 0}>
-              <p
-                className="rounded-full border border-border bg-muted px-3 py-1 font-mono text-xs text-muted-foreground"
-                role="status"
+        {(() => {
+          const vaultOpen = Boolean(showVault && workspace && !vaultCollapsed);
+          if (!workspace) {
+            return chatArea;
+          }
+          if (vaultOpen) {
+            return (
+              <ResizablePanelGroup
+                className="workspace-body"
+                orientation="horizontal"
+                onLayoutChanged={handleSplitLayout}
               >
-                {t("chat.inQueue", { count: queuedCount })}
-              </p>
-            </EnterExit>
-            {toolApproval && (
-              <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
-                <p className="eyebrow">{t("chat.permissionRequested")}</p>
-                <strong>{toolApproval.tool}</strong>
-                <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
-                <div className="workspace-access-actions">
-                  <button
-                    className="button button-primary"
-                    onClick={() => resolveToolDecision("allow_once")}
-                    type="button"
-                  >
-                    {t("chat.allowOnce")}
-                  </button>
-                  {!["apply_patch", "create_or_update_file", "execute_command"].includes(
-                    toolApproval.tool,
-                  ) && (
-                    <button
-                      className="button button-secondary"
-                      onClick={() => resolveToolDecision("allow_session")}
-                      type="button"
-                    >
-                      {t("chat.allowThisSession")}
-                    </button>
-                  )}
-                  <button
-                    className="text-button"
-                    onClick={() => resolveToolDecision("deny")}
-                    type="button"
-                  >
-                    {t("chat.deny")}
-                  </button>
-                </div>
-              </section>
-            )}
-            <Composer
-              activeProvider={activeProvider}
-              activeSessionId={activeSession?.id}
-              changeModel={(model) => void changeModel(model)}
-              changePermissionMode={(mode) => void changePermissionMode(mode)}
-              composerRef={composerRef}
-              draft={draft}
-              isSending={isSending}
-              modelName={modelName}
-              models={models}
-              onAttachFile={(file) => void attachFile(file)}
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitDraft();
-              }}
-              permissionError={permissionError}
-              selectedModel={selectedModel}
-              setDraft={setDraft}
-              stopGeneration={stopGeneration}
-              workspace={workspace}
-            />
-            {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
-            {resourceNotice && (
-              <div className="resource-gate" role="alert">
-                <span>{resourceNotice}</span>
-                <button className="text-button" onClick={newWorkspace} type="button">
-                  {t("chat.addAWorkspaceInSettings")}
-                </button>
-              </div>
-            )}
-            {(error || chatError) && (
-              <p className="form-error chat-error" role="alert">
-                {error || chatError}
-              </p>
-            )}
-          </section>
-        </section>
-        {showVault && workspace && (
-          <VaultSlot
-            isResizingVault={isResizingVault}
-            onCollapse={() => setVaultCollapsed(true)}
-            onFinishResize={finishVaultResize}
-            onNudgeWidth={(delta) => setVaultWidth((current) => boundedVaultWidth(current + delta))}
-            onOpenFiles={() => {
-              setVaultTab("files");
-              setVaultCollapsed(false);
-            }}
-            onOpenGraph={() => {
-              setVaultTab("graph");
-              setVaultCollapsed(false);
-            }}
-            onResize={resizeVault}
-            onStartResize={startVaultResize}
-            onTabChange={setVaultTab}
-            refreshKey={vaultRefreshKey}
-            tab={vaultTab}
-            vaultCollapsed={vaultCollapsed}
-            vaultWidth={vaultWidth}
-            workspaceId={workspace.id}
-          />
-        )}
+                <ResizablePanel className="min-w-0" id="bw-main" minSize={360}>
+                  {chatArea}
+                </ResizablePanel>
+                <ResizableHandle aria-label={t("vault.resizeVaultPanel")} />
+                <ResizablePanel
+                  defaultSize={vaultWidth}
+                  id="bw-vault"
+                  maxSize={maximumVaultWidth}
+                  minSize={minimumVaultWidth}
+                >
+                  <VaultSlot
+                    onCollapse={() => setVaultCollapsed(true)}
+                    onTabChange={setVaultTab}
+                    refreshKey={vaultRefreshKey}
+                    tab={vaultTab}
+                    workspaceId={workspace.id}
+                  />
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            );
+          }
+          return (
+            <>
+              {chatArea}
+              {showVault && workspace && vaultCollapsed && (
+                <VaultRail
+                  onOpenFiles={() => {
+                    setVaultTab("files");
+                    setVaultCollapsed(false);
+                  }}
+                  onOpenGraph={() => {
+                    setVaultTab("graph");
+                    setVaultCollapsed(false);
+                  }}
+                />
+              )}
+            </>
+          );
+        })()}
         {showSettings && (
           <ProviderManager
             activeSessionId={state?.activeSessionId ?? null}

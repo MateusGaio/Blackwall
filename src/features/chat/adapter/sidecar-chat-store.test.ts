@@ -186,6 +186,51 @@ describe("SidecarChatStore", () => {
     expect(harness.store.getSnapshot().messages[0]?.id).toBe("other-1");
   });
 
+  it("eventos tardios de run antigo não alteram status da sessão ativa", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("pergunta antiga");
+    await until(() => harness.streams.length === 1);
+
+    harness.streams[0].delta("parcial ");
+    harness.store.setActiveSession("s2", [
+      { content: "outra conversa", id: "other-1", role: "user" },
+    ]);
+    expect(harness.store.getSnapshot().status).toBe("");
+
+    // Sem os guards matchesRun, esses eventos colocariam a sessão nova em
+    // "Gerando…"/"Executando…" fantasma.
+    harness.streams[0].handlers.onToolStarted?.("read_file", {}, "call-1");
+    harness.streams[0].handlers.onCompacting?.();
+    harness.streams[0].handlers.onRetry?.("Tentando novamente…");
+    expect(harness.store.getSnapshot().status).toBe("");
+
+    // Conclui o run antigo (a fila FIFO só libera o envio seguinte depois).
+    harness.streams[0].complete({ content: "parcial resposta", persisted: false });
+    await until(() => !harness.store.getSnapshot().isRunning);
+    await until(() => harness.persisted.some((item) => item.sessionId === "s1"));
+
+    // Run novo na sessão atual continua plenamente funcional.
+    harness.store.send("nova pergunta");
+    await until(() => harness.streams.length === 2);
+    harness.streams[1].delta("novo ");
+    expect(harness.store.getSnapshot().messages.at(-1)?.content).toBe("novo ");
+  });
+
+  it("tool.failed limpa o status de execução e mostra a falha", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("use ferramenta");
+    await until(() => harness.streams.length === 1);
+
+    harness.streams[0].handlers.onToolStarted?.("list_directory", {}, "call-1");
+    expect(harness.store.getSnapshot().status).toContain("list_directory");
+
+    // Antes deste handler o status ficava preso em "executando…" para sempre.
+    harness.streams[0].handlers.onToolFailed?.("A ferramenta falhou: permissão negada.", "call-1");
+    expect(harness.store.getSnapshot().status).toBe("A ferramenta falhou: permissão negada.");
+  });
+
   it("fila FIFO (ADR-21): envio durante execução enfileira e dispara na sequência", async () => {
     const harness = createHarness();
     harness.store.setActiveSession("s1", []);

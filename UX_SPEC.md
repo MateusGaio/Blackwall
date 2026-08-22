@@ -33,15 +33,15 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 
 ---
 
-## 3. Interface de chat (padrão ChatGPT)
+## 3. Interface de chat (estética terminal)
 
 Elementos obrigatórios, replicando a mecânica que você pediu:
-- Mensagens do usuário alinhadas à direita (bolha sutil); respostas do assistente à esquerda, sem bolha (texto corrido, como o ChatGPT faz).
-- **Efeito de streaming token a token**, com um cursor piscando no fim do texto sendo gerado.
+- **Mensagens sem bolha** (Fase U4 do plano): usuário alinhado à direita, respostas do assistente à esquerda — ambos texto flat, com marcador de papel em monoespaçada (`›` para você, `●` para o agente) e largura máxima por mensagem (~640px). Nenhuma superfície de fundo ou borda de balão.
+- **Efeito de streaming token a token**, com um **cursor de bloco** (`▊`) piscando no fim do texto sendo gerado, acompanhado de uma linha de status em mono.
 - Botão **Parar geração** enquanto está streaming.
 - Botão **Regenerar resposta** e **Editar mensagem** (do usuário) após o fim da resposta.
 - Blocos de código com syntax highlight + botão de copiar.
-- Composer (caixa de digitação) com auto-resize, seletor de modelo/Soul visível acima ou ao lado dela, e um indicador de "na fila" (ADR-21) quando aplicável.
+- Composer (caixa de digitação) no formato de **linha de prompt**: borda 1px, raio `--radius-control`, prefixo mono `❯`, auto-resize, seletor de modelo/Soul visível acima ou ao lado dele, e um indicador de "na fila" (ADR-21) quando aplicável. Anexos aparecem como tokens `[arquivo.md]` removíveis.
 - Em workspaces, o compositor exibe um escudo discreto ao lado do anexo para escolher `Perguntar sempre`, `Automático` ou `Somente leitura`; no modo sem workspace esse controle não aparece.
 - Pill de "rolar para o final" quando o usuário rola pra cima durante um streaming.
 

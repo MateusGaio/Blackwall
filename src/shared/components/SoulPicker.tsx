@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Textarea } from "@/shared/components/ui/textarea";
 import { getSoulPreset, identifySoul, SOUL_PRESETS, type SoulPresetId } from "../../app/souls";
 
 type SoulPickerProps = {
@@ -33,19 +34,23 @@ export function SoulPicker({ hint, id, label, onChange, rows = 5, value }: SoulP
   }
 
   return (
-    <div className="soul-picker">
-      <span className="soul-picker-label">{label}</span>
-      <fieldset className="soul-preset-list">
+    <div className="grid gap-2.5">
+      <span className="font-mono text-[0.72rem] text-muted-foreground">{label}</span>
+      <fieldset className="m-0 grid min-w-0 grid-cols-2 gap-2 border-0 p-0">
         <legend className="sr-only">{t("settings.soulPersonalities")}</legend>
         {SOUL_PRESETS.map((preset) => (
           <button
             aria-pressed={selectedId === preset.id}
-            className={`soul-preset-option ${selectedId === preset.id ? "is-selected" : ""}`}
+            className={`grid min-w-0 gap-[5px] rounded-lg border p-3 text-left transition-colors duration-150 focus-visible:border-ring focus-visible:outline-none ${
+              selectedId === preset.id
+                ? "border-ring bg-accent text-foreground"
+                : "border-border text-muted-foreground hover:border-ring hover:text-foreground"
+            }`}
             key={preset.id}
             onClick={() => selectPreset(preset.id)}
             type="button"
           >
-            <strong>
+            <strong className="text-[0.82rem] font-medium">
               {preset.id === "blackwall"
                 ? "Builder"
                 : preset.id === "creative"
@@ -54,13 +59,15 @@ export function SoulPicker({ hint, id, label, onChange, rows = 5, value }: SoulP
                     ? "Dev"
                     : t("settings.custom")}
             </strong>
-            <small>{localizedDescriptions[preset.id]}</small>
+            <small className="text-[0.67rem] leading-snug">
+              {localizedDescriptions[preset.id]}
+            </small>
           </button>
         ))}
       </fieldset>
-      <textarea
+      <Textarea
         aria-label={t("settings.soulPrompt")}
-        className="soul-picker-editor"
+        className="min-h-[132px]"
         id={id}
         onChange={(event) => {
           setSelectedId("custom");
@@ -69,7 +76,9 @@ export function SoulPicker({ hint, id, label, onChange, rows = 5, value }: SoulP
         rows={rows}
         value={value}
       />
-      <span className="field-hint">{hint}</span>
+      <span className="font-sans text-[0.76rem] leading-snug tracking-normal text-muted-foreground">
+        {hint}
+      </span>
     </div>
   );
 }

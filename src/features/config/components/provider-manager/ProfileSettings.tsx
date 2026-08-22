@@ -2,6 +2,8 @@
 
 import type { ChangeEvent, FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
 import { SoulPicker } from "../../../../shared/components/SoulPicker";
 
 type ProfileSettingsProps = {
@@ -18,6 +20,8 @@ type ProfileSettingsProps = {
   setProfileSoul: (soul: string) => void;
 };
 
+const fieldLabelClass = "grid gap-2 font-mono text-[0.72rem] text-muted-foreground";
+
 export function ProfileSettings({
   isSavingProfile,
   onAvatarChange,
@@ -33,26 +37,38 @@ export function ProfileSettings({
 }: ProfileSettingsProps) {
   const { t } = useTranslation();
   return (
-    <form className="settings-section profile-settings" onSubmit={onSave}>
-      <div className="settings-section-heading">
+    <form className="grid gap-4" onSubmit={onSave}>
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="eyebrow">{t("settings.profile")}</p>
-          <h3>{t("settings.whatShouldWeCallYou")}</h3>
+          <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
+            {t("settings.profile")}
+          </p>
+          <h3 className="mt-1 text-sm font-medium">{t("settings.whatShouldWeCallYou")}</h3>
         </div>
-        <div className="profile-avatar-preview" aria-hidden="true">
-          {profileAvatar ? <img alt="" src={profileAvatar} /> : <span>BW</span>}
+        <div
+          aria-hidden="true"
+          className="flex size-10 items-center justify-center overflow-hidden rounded-full bg-primary font-mono text-[0.7rem] font-bold text-primary-foreground"
+        >
+          {profileAvatar ? (
+            <img alt="" className="size-full object-cover" src={profileAvatar} />
+          ) : (
+            <span>BW</span>
+          )}
         </div>
       </div>
-      <label className="field-label" htmlFor="settings-profile-name">
+      <label className={fieldLabelClass} htmlFor="settings-profile-name">
         {t("settings.name")}
-        <input
+        <Input
           id="settings-profile-name"
           onChange={(event) => setProfileName(event.target.value)}
           value={profileName}
         />
       </label>
-      <div className="profile-avatar-actions">
-        <label className="button button-secondary" htmlFor="settings-profile-avatar">
+      <div className="flex items-center gap-3">
+        <label
+          className="inline-flex h-8 cursor-pointer items-center rounded-lg border border-input bg-transparent px-2.5 text-sm font-medium transition-colors hover:bg-muted focus-visible:border-ring focus-visible:outline-none"
+          htmlFor="settings-profile-avatar"
+        >
           {t("settings.changePhoto")}
           <input
             accept="image/png,image/jpeg,image/webp,image/gif"
@@ -63,11 +79,13 @@ export function ProfileSettings({
           />
         </label>
         {profileAvatar && (
-          <button className="text-button" onClick={() => setProfileAvatar(null)} type="button">
+          <Button onClick={() => setProfileAvatar(null)} size="sm" type="button" variant="ghost">
             {t("settings.removePhoto")}
-          </button>
+          </Button>
         )}
-        <small>{t("settings.pngJpegWebpOrGif")}</small>
+        <small className="font-mono text-[0.68rem] text-muted-foreground">
+          {t("settings.pngJpegWebpOrGif")}
+        </small>
       </div>
       <SoulPicker
         hint={t("settings.chooseAReadymadePersonalityOr")}
@@ -77,18 +95,17 @@ export function ProfileSettings({
         rows={4}
         value={profileSoul}
       />
-      <div className="settings-actions">
-        <button
-          className="button button-primary"
+      <div className="flex justify-end">
+        <Button
           disabled={isSavingProfile || !profileName.trim() || !profileSoul.trim()}
           type="submit"
         >
           {isSavingProfile ? t("settings.saving") : t("settings.saveProfile")}
-        </button>
+        </Button>
       </div>
-      {profileStatus && <p className="settings-status">{profileStatus}</p>}
+      {profileStatus && <p className="text-xs text-muted-foreground">{profileStatus}</p>}
       {profileError && (
-        <p className="form-error" role="alert">
+        <p className="text-sm text-destructive" role="alert">
           {profileError}
         </p>
       )}
