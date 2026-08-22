@@ -519,7 +519,7 @@ export default function WorkspaceShell({
     } catch (reason) {
       // Única ação de fluxo sem tratamento — falha aqui virava unhandled
       // rejection sem feedback nenhum para o usuário.
-      setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
+      setError(reason instanceof Error ? reason.message : t("errors.openWorkspace"));
     }
   }
 
@@ -544,7 +544,7 @@ export default function WorkspaceShell({
       );
       setSessionToRename(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível renomear a sessão.");
+      setError(reason instanceof Error ? reason.message : t("errors.renameSession"));
     }
   }
 
@@ -574,8 +574,7 @@ export default function WorkspaceShell({
           : current,
       );
     } catch (reason) {
-      const message =
-        reason instanceof Error ? reason.message : "Não foi possível salvar as permissões.";
+      const message = reason instanceof Error ? reason.message : t("errors.savePermissions");
       setPermissionError(message);
       setError(message);
     }
@@ -595,15 +594,15 @@ export default function WorkspaceShell({
 
   async function attachFile(file: File) {
     if (!workspace || !activeSession) return;
-    setAttachmentStatus(`Indexando ${file.name}…`);
+    setAttachmentStatus(t("chat.indexingAttachment", { name: file.name }));
     setError("");
     try {
       const attachment = await uploadAttachment(file, workspace.id, activeSession.id);
       setAttachments((current) => [...current, attachment]);
-      setAttachmentStatus(`${attachment.filename} indexado localmente.`);
+      setAttachmentStatus(t("chat.attachmentIndexed", { name: attachment.filename }));
     } catch (reason) {
       setAttachmentStatus("");
-      setError(reason instanceof Error ? reason.message : "Não foi possível indexar o anexo.");
+      setError(reason instanceof Error ? reason.message : t("errors.indexAttachment"));
     }
   }
 
@@ -611,9 +610,9 @@ export default function WorkspaceShell({
     try {
       await removeAttachment(attachment.id);
       setAttachments((current) => current.filter((item) => item.id !== attachment.id));
-      setAttachmentStatus(`${attachment.filename} removido.`);
+      setAttachmentStatus(t("chat.attachmentRemoved", { name: attachment.filename }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível remover o anexo.");
+      setError(reason instanceof Error ? reason.message : t("errors.removeAttachment"));
     }
   }
 

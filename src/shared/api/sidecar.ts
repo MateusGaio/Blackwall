@@ -1,4 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import i18n from "i18next";
+import "../../i18n";
 import { sidecarUrl } from "../../platform/runtime";
 
 export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
@@ -193,18 +195,16 @@ type AttachmentSearchResult = {
 async function request<T>(path: string, init: RequestInit): Promise<T> {
   const baseUrl = await sidecarUrl();
   if (!baseUrl) {
-    throw new Error("Abra o Blackwall pelo app desktop para conectar um provedor local.");
+    throw new Error(i18n.t("errors.sidecarDesktopOnly"));
   }
   let response: Response;
   try {
     response = await fetch(`${baseUrl}${path}`, init);
   } catch {
-    throw new Error(
-      "Não foi possível acessar o serviço local do Blackwall. Reinicie o app e tente novamente.",
-    );
+    throw new Error(i18n.t("errors.sidecarUnreachable"));
   }
   const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? "Não foi possível concluir a ação local.");
+  if (!response.ok) throw new Error(body.error ?? i18n.t("errors.localActionFailed"));
   return body;
 }
 
@@ -744,7 +744,7 @@ export async function streamMessage(
     }
     if (message.type === "chat.compacting") handlers.onCompacting?.();
     if (message.type === "chat.retrying")
-      handlers.onRetry?.(message.message ?? "Tentando novamente…");
+      handlers.onRetry?.(message.message ?? i18n.t("errors.retrying"));
     if (message.type === "usage.updated")
       handlers.onUsage?.({
         model: message.model,
@@ -804,7 +804,7 @@ export async function streamMessage(
     if (message.type === "chat.failed") {
       resolveDone({
         content: message.content ?? content,
-        error: message.message ?? "Não foi possível obter resposta.",
+        error: message.message ?? i18n.t("errors.noProviderResponse"),
         failed: true,
         persisted: message.persisted,
         provider: message.provider ?? null,
@@ -813,13 +813,13 @@ export async function streamMessage(
     }
   });
   socket.addEventListener("error", () =>
-    rejectDone(new Error("A conexão local foi interrompida.")),
+    rejectDone(new Error(i18n.t("errors.connectionInterrupted"))),
   );
   socket.addEventListener("close", () => {
     // Fechamento limpo sem evento terminal (completed/stopped/failed): sem
     // este guard a promise `done` fica pendurada e o store trava em
     // isRunning/runLocked para sempre. Se já resolveu, é no-op.
-    rejectDone(new Error("A conexão local foi encerrada antes do fim do turno."));
+    rejectDone(new Error(i18n.t("errors.connectionClosedEarly")));
   });
   return active;
 }

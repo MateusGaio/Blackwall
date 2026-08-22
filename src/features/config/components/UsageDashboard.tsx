@@ -121,7 +121,8 @@ function UsageDashboard({
         if (!cancelled) setSummary(next);
       })
       .catch((reason) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : "Usage unavailable.");
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : t("usage.usageUnavailable"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -129,7 +130,7 @@ function UsageDashboard({
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, period, profileId, providerId, sessionOnly]);
+  }, [activeSessionId, period, profileId, providerId, sessionOnly, t]);
 
   async function saveManualLimit() {
     const limits = manualLimits.flatMap((draft) => {
@@ -162,7 +163,7 @@ function UsageDashboard({
       );
       setManualLimits([{ id: "initial", metric: "tokens", value: "", window: "day" }]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save the manual limit.");
+      setError(reason instanceof Error ? reason.message : t("usage.saveManualLimitFailed"));
     } finally {
       setSavingLimit(false);
     }
@@ -178,7 +179,7 @@ function UsageDashboard({
       setClearPending(false);
       setSummary(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not clear usage history.");
+      setError(reason instanceof Error ? reason.message : t("usage.clearHistoryFailed"));
     }
   }
 

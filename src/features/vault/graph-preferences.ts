@@ -35,7 +35,11 @@ export function readGraphPreferences(workspaceId: string): GraphPreferences {
     ) {
       return defaultGraphPreferences;
     }
-    return { ...defaultGraphPreferences, ...value, colors: value.colors };
+    return {
+      ...defaultGraphPreferences,
+      ...value,
+      colors: migrateLegacyGroups(value.colors),
+    };
   } catch {
     return defaultGraphPreferences;
   }
@@ -50,12 +54,30 @@ export function writeGraphPreferences(workspaceId: string, preferences: GraphPre
   }
 }
 
+// Identificadores estáveis (persistidos no mapa de cores); o rótulo visível
+// é resolvido na camada de UI via groupLabel.
+const GROUP_UNGROUPED = "@ungrouped";
+const GROUP_ROOT = "@root";
+const GROUP_UNTAGGED = "@untagged";
+
+const LEGACY_GROUP_NAMES: Record<string, string> = {
+  "Sem grupo": GROUP_UNGROUPED,
+  Raiz: GROUP_ROOT,
+  "Sem tag": GROUP_UNTAGGED,
+};
+
+function migrateLegacyGroups(colors: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(colors).map(([group, color]) => [LEGACY_GROUP_NAMES[group] ?? group, color]),
+  );
+}
+
 export function graphGroupForFile(
   file: { content: string; path: string } | undefined,
   groupBy: GraphPreferences["groupBy"],
 ) {
-  if (!file) return "Sem grupo";
-  if (groupBy === "folder") return file.path.split("/").at(0) || "Raiz";
+  if (!file) return GROUP_UNGROUPED;
+  if (groupBy === "folder") return file.path.split("/").at(0) || GROUP_ROOT;
   const frontmatterTags = file.content.match(/^tags:\s*\[?([^\]\n]+)\]?/im)?.[1];
   const inlineTag = file.content.match(/(^|\s)#([\p{L}\p{N}_-]+)/u)?.[2];
   return (
@@ -65,7 +87,7 @@ export function graphGroupForFile(
       ?.trim()
       .replace(/^['"]|['"]$/g, "") ||
     inlineTag ||
-    "Sem tag"
+    GROUP_UNTAGGED
   );
 }
 
