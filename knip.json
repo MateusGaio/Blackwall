@@ -9,5 +9,5 @@
     "src/shared/api/sidecar.ts"
   ],
   "project": ["src/**/*.{ts,tsx}", "sidecar/src/**/*.ts"],
-  "ignoreDependencies": ["tailwindcss"]
+  "ignoreDependencies": ["tailwindcss", "tw-animate-css", "shadcn"]
 }
