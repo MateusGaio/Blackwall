@@ -1,7 +1,6 @@
 /* MIT License — Copyright (c) 2026 Mateus Gaio */
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_SOUL_ID,
   DEFAULT_SOUL_PROMPT,
   getSoulPreset,
   identifySoul,
@@ -10,7 +9,6 @@ import {
 
 describe("Soul presets", () => {
   it("uses the English Blackwall prompt as the default", () => {
-    expect(DEFAULT_SOUL_ID).toBe("blackwall");
     expect(DEFAULT_SOUL_PROMPT).toContain("You are Blackwall");
     expect(DEFAULT_SOUL_PROMPT).toContain("local-first");
   });

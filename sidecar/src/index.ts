@@ -14,7 +14,7 @@ import {
   saveAttachment,
   searchAttachments,
 } from "./attachments.js";
-import { type ChatMessage, completeChatMessage, sendChatMessage } from "./chat.js";
+import { type ChatMessage, completeChatMessage } from "./chat.js";
 import {
   availableContextTokens,
   CURRENT_TURN_TOOL_RESULTS_PROTECTED,
@@ -69,7 +69,6 @@ import {
   cancelPendingApprovals,
   executeTool,
   resolveApproval,
-  type ToolInput,
 } from "./tools.js";
 import {
   clearUsageHistory,
@@ -323,15 +322,6 @@ export function createSidecar(
         });
         return;
       }
-      if (request.method === "POST" && pathname === "/v1/profiles") {
-        const input = (await requestBody(request)) as {
-          locale: string;
-          name: string;
-          soul: string;
-        };
-        writeJson(response, 201, { profile: await store.createProfile(input) });
-        return;
-      }
       if (request.method === "PATCH" && /^\/v1\/profiles\/[^/]+$/.test(pathname)) {
         const input = (await requestBody(request)) as {
           avatarData?: string | null;
@@ -346,14 +336,6 @@ export function createSidecar(
       }
       if (request.method === "DELETE" && /^\/v1\/profiles\/[^/]+$/.test(pathname)) {
         writeJson(response, 200, await store.deleteProfile(pathname.split("/")[3]));
-        return;
-      }
-      if (request.method === "GET" && pathname === "/v1/workspaces") {
-        const profileId = new URL(request.url ?? "/", "http://blackwall.local").searchParams.get(
-          "profileId",
-        );
-        if (!profileId) throw new Error("Informe o perfil para listar os workspaces.");
-        writeJson(response, 200, { workspaces: store.listWorkspaces(profileId) });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/workspaces") {
@@ -393,11 +375,6 @@ export function createSidecar(
         writeJson(response, 200, {
           workspace: store.setWorkspaceSoul(pathname.split("/")[3], input.soul),
         });
-        return;
-      }
-      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/sessions$/.test(pathname)) {
-        const workspaceId = pathname.split("/")[3];
-        writeJson(response, 200, { sessions: store.listSessions(workspaceId) });
         return;
       }
       if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/sessions\/recent$/.test(pathname)) {
@@ -486,24 +463,6 @@ export function createSidecar(
       if (request.method === "GET" && /^\/v1\/providers\/[^/]+\/models$/.test(pathname)) {
         writeJson(response, 200, {
           models: await listStoredProviderModels(pathname.split("/")[3], storageDirectory),
-        });
-        return;
-      }
-      if (request.method === "POST" && /^\/v1\/providers\/[^/]+\/models\/sync$/.test(pathname)) {
-        const providerId = pathname.split("/")[3];
-        const provider = await getProvider(providerId, storageDirectory);
-        writeJson(response, 200, {
-          models: await syncProviderModels(
-            providerId,
-            {
-              apiKey: await providerApiKey(providerId, storageDirectory),
-              baseUrl: provider.baseUrl,
-              model: provider.model,
-              name: provider.name,
-              type: provider.type,
-            },
-            storageDirectory,
-          ),
         });
         return;
       }
@@ -645,19 +604,6 @@ export function createSidecar(
         writeJson(response, 200, {
           provider: await removeProvider(pathname.split("/")[3], storageDirectory),
         });
-        return;
-      }
-      if (request.method === "POST" && pathname === "/v1/chat/completions") {
-        const input = (await requestBody(request)) as {
-          messages: ChatMessage[];
-          model?: string;
-          providerId: string;
-        };
-        writeJson(
-          response,
-          200,
-          await sendChatMessage(input.providerId, input.messages, input.model),
-        );
         return;
       }
       writeJson(response, 404, { error: "Rota local não encontrada." });
@@ -1411,7 +1357,6 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       activeRequests.delete(input.requestId);
       if (queues.get(workspaceId) === current) queues.delete(workspaceId);
     });
-    socket.send(JSON.stringify({ requestId: input.requestId, type: "queue.updated", workspaceId }));
   }
 
   socketServer.on("connection", (socket) => {
@@ -1461,37 +1406,6 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
           );
         });
         return;
-      }
-      if (
-        input.type === "tool.execute" &&
-        input.requestId &&
-        typeof input.workspaceId === "string"
-      ) {
-        const toolInput = input as unknown as ToolInput;
-        void executeTool(toolInput, storageDirectory, {
-          onApproval: (approval) =>
-            socket.send(
-              JSON.stringify({
-                ...approval,
-                args: toolInput.args,
-                type: "approval.requested",
-              }),
-            ),
-        })
-          .then((result) =>
-            socket.send(
-              JSON.stringify({ requestId: input.requestId, result, type: "tool.completed" }),
-            ),
-          )
-          .catch((error) =>
-            socket.send(
-              JSON.stringify({
-                message: error instanceof Error ? error.message : "A ferramenta falhou.",
-                requestId: input.requestId,
-                type: "tool.failed",
-              }),
-            ),
-          );
       }
     });
     socket.on("close", () => {

@@ -19,13 +19,11 @@ describe("ConversationSummaryCard", () => {
     expect(markup).not.toContain("<h1>Resumo</h1>");
   });
 
-  it("renderiza o resumo expandido e a localização em inglês", async () => {
+  it("localiza o rótulo em inglês", async () => {
     await i18next.changeLanguage("en");
-    const markup = renderToStaticMarkup(
-      <ConversationSummaryCard content="# Summary" defaultExpanded />,
-    );
+    const markup = renderToStaticMarkup(<ConversationSummaryCard content="# Summary" />);
     expect(markup).toContain("Automatic conversation summary");
-    expect(markup).toContain('aria-expanded="true"');
-    expect(markup).toContain("<h1>Summary</h1>");
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain("<h1>Summary</h1>");
   });
 });

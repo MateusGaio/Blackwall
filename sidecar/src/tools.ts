@@ -71,7 +71,7 @@ export type ToolName =
   | "read_file"
   | "search_text";
 
-export type ToolInput = {
+type ToolInput = {
   args: Record<string, unknown>;
   requestId?: string;
   sessionId?: string | null;
