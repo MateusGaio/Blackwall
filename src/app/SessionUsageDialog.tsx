@@ -1,7 +1,9 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { ProgressIndicator } from "@/shared/components/motion/ProgressIndicator";
+import { Button } from "@/shared/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import type { ChatMessage, UsageSummary } from "../shared/api/sidecar";
 
 type SessionUsageDialogProps = {
@@ -19,9 +21,9 @@ function formatNumber(value: number) {
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="session-usage-field">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="grid gap-1">
+      <span className="font-mono text-[0.68rem] text-muted-foreground">{label}</span>
+      <strong className="text-sm font-medium">{value}</strong>
     </div>
   );
 }
@@ -40,16 +42,6 @@ function SessionUsageDialog({
   summary,
 }: SessionUsageDialogProps) {
   const { t } = useTranslation();
-  const closeRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
 
   const last = summary?.lastRequest;
   // The provider reports prompt_tokens as already including the cached portion,
@@ -64,24 +56,21 @@ function SessionUsageDialog({
   const unavailable = t("usage.notReported");
 
   return (
-    <div className="confirm-backdrop" role="presentation">
-      <section
-        aria-labelledby="session-usage-title"
-        aria-modal="true"
-        className="session-usage-dialog"
-        role="dialog"
-      >
-        <header>
-          <div>
-            <p className="eyebrow">{t("usage.usage")}</p>
-            <h2 id="session-usage-title">{t("usage.sessionUsage")}</h2>
-          </div>
-          <button className="text-button" onClick={onClose} ref={closeRef} type="button">
-            {t("usage.close")}
-          </button>
-        </header>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
+            {t("usage.usage")}
+          </p>
+          <DialogTitle>{t("usage.sessionUsage")}</DialogTitle>
+        </DialogHeader>
 
-        <div className="session-usage-grid">
+        <div className="grid grid-cols-2 gap-3">
           <Field label={t("usage.session")} value={sessionTitle} />
           <Field label={t("usage.messages")} value={formatNumber(messages.length)} />
           <Field label={t("usage.provider")} value={providerName} />
@@ -90,13 +79,13 @@ function SessionUsageDialog({
 
         {last ? (
           <>
-            <p className="eyebrow session-usage-section">{t("usage.currentContext")}</p>
+            <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
+              {t("usage.currentContext")}
+            </p>
             {usagePercent !== undefined && (
-              <div className="session-usage-meter">
-                <div style={{ width: `${Math.min(100, usagePercent)}%` }} />
-              </div>
+              <ProgressIndicator label={t("usage.usage")} value={Math.min(100, usagePercent)} />
             )}
-            <div className="session-usage-grid">
+            <div className="grid grid-cols-2 gap-3">
               <Field
                 label={t("usage.contextLimit")}
                 value={last.contextLimit ? formatNumber(last.contextLimit) : unavailable}
@@ -124,12 +113,16 @@ function SessionUsageDialog({
             </div>
           </>
         ) : (
-          <p className="settings-empty">{t("usage.noRequestRecordedForThis")}</p>
+          <p className="text-sm text-muted-foreground">{t("usage.noRequestRecordedForThis")}</p>
         )}
 
-        <p className="eyebrow session-usage-section">{t("usage.cumulativeBilling")}</p>
-        <p className="session-usage-note">{t("usage.everyRequestResendsTheWhole")}</p>
-        <div className="session-usage-grid">
+        <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
+          {t("usage.cumulativeBilling")}
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("usage.everyRequestResendsTheWhole")}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
           <Field label={t("usage.requests")} value={formatNumber(summary?.totals.requests ?? 0)} />
           <Field
             label={t("usage.totalTokens")}
@@ -144,8 +137,11 @@ function SessionUsageDialog({
             value={formatNumber(summary?.totals.outputTokens ?? 0)}
           />
         </div>
-      </section>
-    </div>
+        <Button onClick={onClose} size="sm" variant="secondary" className="w-fit">
+          {t("usage.close")}
+        </Button>
+      </DialogContent>
+    </Dialog>
   );
 }
 

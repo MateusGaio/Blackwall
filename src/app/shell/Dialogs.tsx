@@ -1,5 +1,22 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { useTranslation } from "react-i18next";
+import { Button } from "@/shared/components/ui/button";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/shared/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Input } from "@/shared/components/ui/input";
 import type { SessionSummary } from "../../shared/api/sidecar";
 
 type RenameSessionDialogProps = {
@@ -20,39 +37,47 @@ export function RenameSessionDialog({
   const { t } = useTranslation();
   if (!sessionToRename) return null;
   return (
-    <div className="confirm-backdrop" role="presentation">
-      <section
-        aria-labelledby="rename-session-title"
-        aria-modal="true"
-        className="confirm-dialog"
-        role="dialog"
-      >
-        <p className="eyebrow">{t("sessions.session")}</p>
-        <h2 id="rename-session-title">{t("sessions.renameConversation")}</h2>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent className="max-w-sm" showCloseButton={false}>
+        <DialogHeader>
+          <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
+            {t("sessions.session")}
+          </p>
+          <DialogTitle>{t("sessions.renameConversation")}</DialogTitle>
+        </DialogHeader>
         <form
           onSubmit={(event) => {
             event.preventDefault();
             onSubmit(sessionToRename.id, sessionToRename.title);
           }}
         >
-          <label className="settings-field">
-            <span>{t("sessions.newName")}</span>
-            <input
+          <label
+            className="grid gap-2 font-mono text-[0.72rem] text-muted-foreground"
+            htmlFor="rename-session-draft"
+          >
+            {t("sessions.newName")}
+            <Input
+              id="rename-session-draft"
               onChange={(event) => onRenameDraftChange(event.target.value)}
               value={renameDraft}
             />
           </label>
-          <footer className="confirm-dialog-actions">
-            <button className="button button-secondary" onClick={onCancel} type="button">
+          <DialogFooter className="mt-4 sm:justify-end">
+            <Button onClick={onCancel} type="button" variant="secondary">
               {t("sessions.cancel")}
-            </button>
-            <button className="button button-primary" disabled={!renameDraft.trim()} type="submit">
+            </Button>
+            <Button disabled={!renameDraft.trim()} type="submit">
               {t("sessions.save")}
-            </button>
-          </footer>
+            </Button>
+          </DialogFooter>
         </form>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -75,37 +100,50 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const { t } = useTranslation();
   return (
-    <div className="command-backdrop" role="presentation">
-      <section aria-label={t("sessions.commandPalette")} className="command-palette">
-        <input
-          aria-label={t("sessions.searchCommands")}
-          onChange={(event) => setPaletteQuery(event.target.value)}
-          placeholder={t("sessions.searchSessionsAndActions")}
-          value={paletteQuery}
-        />
-        <div className="command-list">
-          <button onClick={onOpenSettings} type="button">
+    <CommandDialog
+      description={t("sessions.searchCommands")}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      open
+      title={t("sessions.commandPalette")}
+    >
+      <CommandInput
+        aria-label={t("sessions.searchCommands")}
+        onValueChange={setPaletteQuery}
+        placeholder={t("sessions.searchSessionsAndActions")}
+        value={paletteQuery}
+      />
+      <CommandList>
+        <CommandEmpty>{t("sessions.nothingFoundInPalette")}</CommandEmpty>
+        <CommandGroup heading={t("sessions.actions")}>
+          <CommandItem
+            onSelect={() => {
+              onClose();
+              onOpenSettings();
+            }}
+          >
             {t("sessions.openSettings")}
-          </button>
-          {recentSessions
-            .filter((session) =>
-              session.title.toLocaleLowerCase().includes(paletteQuery.toLocaleLowerCase()),
-            )
-            .map((session) => (
-              <button
+          </CommandItem>
+        </CommandGroup>
+        {recentSessions.length > 0 && (
+          <CommandGroup heading={t("sessions.threads")}>
+            {recentSessions.map((session) => (
+              <CommandItem
                 key={session.id}
-                onClick={() => {
+                onSelect={() => {
                   onClose();
                   onOpenSession(session.id);
                 }}
-                type="button"
+                value={`${session.title}`}
               >
                 {t("sessions.openSession")}
                 {session.title}
-              </button>
+              </CommandItem>
             ))}
-        </div>
-      </section>
-    </div>
+          </CommandGroup>
+        )}
+      </CommandList>
+    </CommandDialog>
   );
 }

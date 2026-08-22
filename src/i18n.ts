@@ -179,6 +179,7 @@ void i18n.use(initReactI18next).init({
           writeAMessage: "Escreva uma mensagem…",
         },
         sessions: {
+          actions: "Ações",
           actionsFor: "Ações de",
           addWorkspace: "Adicionar workspace",
           cancel: "Cancelar",
@@ -189,6 +190,7 @@ void i18n.use(initReactI18next).init({
           delete: "Excluir",
           newName: "Novo nome",
           newThread: "Nova thread",
+          nothingFoundInPalette: "Nada encontrado.",
           noWorkspace: "Sem workspace",
           openSession: "Abrir sessão: ",
           openSettings: "Abrir configurações",
@@ -586,6 +588,7 @@ void i18n.use(initReactI18next).init({
           writeAMessage: "Write a message…",
         },
         sessions: {
+          actions: "Actions",
           actionsFor: "Actions for",
           addWorkspace: "Add workspace",
           cancel: "Cancel",
@@ -596,6 +599,7 @@ void i18n.use(initReactI18next).init({
           delete: "Delete",
           newName: "New name",
           newThread: "New thread",
+          nothingFoundInPalette: "No results found.",
           noWorkspace: "No workspace",
           openSession: "Open session: ",
           openSettings: "Open settings",

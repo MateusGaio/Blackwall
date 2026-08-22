@@ -1,5 +1,14 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { useEffect, useRef } from "react";
+
+import { Button } from "@/shared/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 
 type ConfirmDialogProps = {
   cancelLabel?: string;
@@ -11,6 +20,7 @@ type ConfirmDialogProps = {
   title: string;
 };
 
+/** Confirmação modal para ações destrutivas (UX_SPEC §9): sem desfazer após confirmar. */
 export function ConfirmDialog({
   cancelLabel = "Cancelar",
   confirmLabel = "Confirmar",
@@ -20,43 +30,32 @@ export function ConfirmDialog({
   onConfirm,
   title,
 }: ConfirmDialogProps) {
-  const cancelButton = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    cancelButton.current?.focus();
-    function closeWithEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", closeWithEscape);
-    return () => document.removeEventListener("keydown", closeWithEscape);
-  }, [onCancel]);
-
   return (
-    <div className="confirm-backdrop" role="presentation">
-      <section
-        aria-describedby="confirm-dialog-description"
-        aria-labelledby="confirm-dialog-title"
-        aria-modal="true"
-        className="confirm-dialog"
-        role="dialog"
-      >
-        <p className="eyebrow">{headingLabel}</p>
-        <h2 id="confirm-dialog-title">{title}</h2>
-        <p id="confirm-dialog-description">{description}</p>
-        <footer className="confirm-dialog-actions">
-          <button
-            className="button button-secondary"
-            onClick={onCancel}
-            ref={cancelButton}
-            type="button"
-          >
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
+      <DialogContent className="max-w-md" showCloseButton={false}>
+        <DialogHeader>
+          {headingLabel && (
+            <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
+              {headingLabel}
+            </p>
+          )}
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="sm:justify-end">
+          <Button autoFocus onClick={onCancel} variant="secondary">
             {cancelLabel}
-          </button>
-          <button className="button button-danger" onClick={onConfirm} type="button">
+          </Button>
+          <Button onClick={onConfirm} variant="destructive">
             {confirmLabel}
-          </button>
-        </footer>
-      </section>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
