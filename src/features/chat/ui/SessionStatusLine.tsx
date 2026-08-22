@@ -75,10 +75,8 @@ export function SessionStatusLine({
             title={t("chat.viewFullUsage")}
             type="button"
           >
-            {t("chat.ctx")}{" "}
-            {ctxPercent !== undefined
-              ? `${ctxPercent}% [${bar}] `
-              : ""}{compact.format(last.totalTokens)}
+            {t("chat.ctx")} {ctxPercent !== undefined ? `${ctxPercent}% [${bar}] ` : ""}
+            {compact.format(last.totalTokens)}
             {last.contextLimit ? `/${compact.format(last.contextLimit)}` : ""}
           </button>
         ) : null}

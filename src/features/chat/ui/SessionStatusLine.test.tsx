@@ -19,7 +19,10 @@ const provider: ConnectedProvider = {
   type: "openai-compatible",
 };
 
-function renderLine(summary: UsageSummary | null, props: Partial<Parameters<typeof SessionStatusLine>[0]> = {}) {
+function renderLine(
+  summary: UsageSummary | null,
+  props: Partial<Parameters<typeof SessionStatusLine>[0]> = {},
+) {
   return renderToStaticMarkup(
     <SessionStatusLine
       activeProvider={provider}
@@ -48,13 +51,26 @@ describe("SessionStatusLine", () => {
           summary={null}
         />,
       ),
-    ).not.toContain("data-testid=\"session-statusline\"");
+    ).not.toContain('data-testid="session-statusline"');
   });
 
   it("contexto consumido sem denominador (UX_SPEC §6): tokens sem barra", () => {
     const html = renderLine({
-      totals: { requests: 1, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 1200 },
-      lastRequest: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 1200 },
+      totals: {
+        requests: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 1200,
+      },
+      lastRequest: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 1200,
+      },
       windows: [],
       daily: [],
     });
@@ -66,8 +82,22 @@ describe("SessionStatusLine", () => {
 
   it("contexto com limite mostra porcentagem, barra de blocos e usado/limite", () => {
     const html = renderLine({
-      totals: { requests: 1, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 68000 },
-      lastRequest: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 68000, contextLimit: 200000 },
+      totals: {
+        requests: 1,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 68000,
+      },
+      lastRequest: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 68000,
+        contextLimit: 200000,
+      },
       windows: [],
       daily: [],
     });
@@ -79,7 +109,14 @@ describe("SessionStatusLine", () => {
   it("janela mais restritiva do roteador e fila FIFO aparecem quando existem", () => {
     const html = renderLine(
       {
-        totals: { requests: 0, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 0 },
+        totals: {
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+        },
         windows: [
           { label: "dia", metric: "requests", remainingPercent: 80, source: "manual" },
           { label: "hora", metric: "requests", remainingPercent: 25, source: "provider" },
