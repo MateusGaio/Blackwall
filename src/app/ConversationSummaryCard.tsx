@@ -6,7 +6,6 @@ import { SafeMarkdown } from "../shared/components/SafeMarkdown";
 
 type ConversationSummaryCardProps = {
   content: string;
-  defaultExpanded?: boolean;
 };
 
 function reducedMotionPreferred() {
@@ -15,13 +14,10 @@ function reducedMotionPreferred() {
   );
 }
 
-export function ConversationSummaryCard({
-  content,
-  defaultExpanded = false,
-}: ConversationSummaryCardProps) {
+export function ConversationSummaryCard({ content }: ConversationSummaryCardProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [bodyVisible, setBodyVisible] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(false);
+  const [bodyVisible, setBodyVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const timer = useRef<number | undefined>(undefined);
 

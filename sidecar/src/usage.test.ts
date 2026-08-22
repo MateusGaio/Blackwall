@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "./db/database.js";
 import {
   getUsageSummary,
-  mostRestrictiveWindow,
   normalizeTokenUsage,
   parseRateLimitHeaders,
   recordProviderUsage,
@@ -63,18 +62,6 @@ describe("provider rate limits", () => {
     expect(windows.find((window) => window.label === "retry-after")?.resetAt).toBeGreaterThan(
       Date.now(),
     );
-  });
-
-  it("selects the smallest known remaining percentage", () => {
-    expect(
-      mostRestrictiveWindow([
-        { label: "daily", metric: "requests", remainingPercent: 55, source: "provider" },
-        { label: "minute", metric: "requests", remainingPercent: 12, source: "provider" },
-      ])?.label,
-    ).toBe("minute");
-    expect(
-      mostRestrictiveWindow([{ label: "unknown", metric: "tokens", source: "provider" }]),
-    ).toBeNull();
   });
 });
 

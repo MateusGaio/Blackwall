@@ -7,12 +7,10 @@ type CompactIconKind =
   | "graph"
   | "new-thread"
   | "panel"
-  | "recent"
   | "refresh"
   | "send"
   | "settings"
   | "stop"
-  | "workspace"
   | "chevron";
 
 const paths = {

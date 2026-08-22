@@ -179,15 +179,6 @@ export function parseRateLimitHeaders(headers: Headers): UsageWindow[] {
   return windows;
 }
 
-export function mostRestrictiveWindow(windows: UsageWindow[]): UsageWindow | null {
-  return (
-    windows
-      .filter((window) => window.remainingPercent !== undefined)
-      .sort((left, right) => (left.remainingPercent ?? 101) - (right.remainingPercent ?? 101))[0] ??
-    null
-  );
-}
-
 // Statements preparados por conexão: recordProviderUsage roda ≥2× por turno
 // de chat e preparar INSERT a cada evento é desperdício evitável. WeakMap
 // para o cache morrer junto com a conexão.

@@ -95,7 +95,6 @@ function ToggleCard({ children, className, onClick, selected }: ToggleCardProps)
 
 type ProfileChooserProps = {
   isSelecting: boolean;
-  locale: "pt-BR" | "en";
   onCreate: () => void;
   onSelect: (profileId: string) => void;
   profiles: Profile[];
@@ -477,8 +476,7 @@ export function App() {
     detectInitialLocale(navigator.language),
   );
   const [profileName, setProfileName] = useState("");
-  const defaultProfileSoul = DEFAULT_SOUL_PROMPT;
-  const [soul, setSoul] = useState(defaultProfileSoul);
+  const [soul, setSoul] = useState(DEFAULT_SOUL_PROMPT);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [folderSelection, setFolderSelection] = useState<FolderSelection | null>(null);
@@ -506,25 +504,6 @@ export function App() {
           setShowProfileChooser(true);
           return;
         }
-        const profile = state.profiles.find((item) => item.id === state.activeProfileId);
-        const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
-        if (!profile) return;
-        setAppState(state);
-        setProfileName(profile.name);
-        setLocale(profile.locale === "en" ? "en" : "pt-BR");
-        setWorkspaceName(workspace?.name ?? "");
-        setWorkspaceRootPath(workspace?.rootPath ?? "");
-        setWorkspaceSoul(workspace?.soul ?? "");
-        setStartWithoutWorkspace(!workspace);
-        const providers = await listProviders();
-        const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
-        setProvider(
-          providers.find((item) => item.id === activeSession?.selectedProviderId) ??
-            providers[0] ??
-            null,
-        );
-        setShowProfileChooser(false);
-        setIsComplete(true);
       })
       .catch(() => undefined);
     return () => {
@@ -574,7 +553,7 @@ export function App() {
     setPendingStep(null);
     setCompletionError("");
     setProfileName("");
-    setSoul(defaultProfileSoul);
+    setSoul(DEFAULT_SOUL_PROMPT);
     setWorkspaceName("");
     setWorkspaceRootPath("");
     setFolderSelection(null);
@@ -731,7 +710,6 @@ export function App() {
     return (
       <ProfileChooser
         isSelecting={isSelectingProfile}
-        locale={locale}
         onCreate={startNewProfile}
         onSelect={(profileId) => void chooseProfile(profileId)}
         profiles={availableProfiles}
