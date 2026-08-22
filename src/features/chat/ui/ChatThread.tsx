@@ -29,15 +29,31 @@ type ChatThreadProps = {
 
 type GhostItem = { key: string; message: ChatMessage };
 
-/** Bolhas do §3: usuário à direita (sutil), assistente à esquerda sem bolha. */
+/** Mensagens flat do §3/U4: usuário à direita, agente à esquerda, sem bolha. */
 function messageClasses(role: ChatMessage["role"]) {
   return cn(
-    "max-w-[min(85%,640px)] whitespace-pre-wrap leading-relaxed",
-    role === "user" &&
-      "message-user self-end rounded-lg border border-border bg-accent px-4 py-3 text-accent-foreground",
-    role === "assistant" && "message-assistant self-start px-1 text-foreground/90",
+    "max-w-[min(85%,640px)] leading-relaxed",
+    role === "user" && "message-user flex flex-col items-end gap-1 self-end text-right",
+    role === "assistant" &&
+      "message-assistant flex flex-col items-start gap-1 self-start px-1 text-foreground/90",
     role === "system" &&
       "self-start border-l-2 border-border px-3 font-mono text-xs text-muted-foreground",
+  );
+}
+
+/** Marcador de papel em mono (U4): › você · ● agente. */
+function RoleMarker({ role }: { role: ChatMessage["role"] }) {
+  const { t } = useTranslation();
+  if (role !== "user" && role !== "assistant") return null;
+  return (
+    <p
+      aria-hidden="true"
+      className={`font-mono text-[0.68rem] tracking-[0.08em] text-muted-foreground uppercase ${
+        role === "user" ? "text-right" : ""
+      }`}
+    >
+      {role === "user" ? `› ${t("chat.you")}` : `● ${t("chat.assistantLabel")}`}
+    </p>
   );
 }
 
@@ -57,7 +73,10 @@ function ExitingMessage({ message, onExited }: { message: ChatMessage; onExited:
   }, [leaving]);
   return (
     <EnterExit as="li" onExited={onExited} show={!leaving}>
-      <div className={messageClasses(message.role)}>{message.content}</div>
+      <div className={messageClasses(message.role)}>
+        <RoleMarker role={message.role} />
+        <div className="whitespace-pre-wrap">{message.content}</div>
+      </div>
     </EnterExit>
   );
 }
@@ -168,17 +187,21 @@ export function ChatThread({
                 </form>
               ) : (
                 <>
+                  <RoleMarker role={message.role} />
                   {message.content.trim() ? (
                     <SafeMarkdown content={message.content} />
                   ) : (
                     message.id === streamingId && (
-                      <p className="font-mono text-xs text-muted-foreground">{streamingStatus}</p>
+                      <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                        <span aria-hidden="true">▸</span>
+                        {streamingStatus}
+                      </p>
                     )
                   )}
                   {message.id === streamingId && (
                     <span
                       aria-hidden="true"
-                      className="ml-1 inline-block h-[1em] w-[2px] translate-y-[2px] bg-foreground align-middle animate-[motion-caret-blink_900ms_steps(2,jump-none)_infinite]"
+                      className="ml-1 inline-block h-[1em] w-[0.6em] translate-y-[2px] bg-foreground align-middle animate-[motion-caret-blink_900ms_steps(2,jump-none)_infinite]"
                     />
                   )}
                   {message.id !== streamingId && (

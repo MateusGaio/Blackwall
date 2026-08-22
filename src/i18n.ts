@@ -167,6 +167,7 @@ void i18n.use(initReactI18next).init({
           clearHistoryFailed: "Não foi possível limpar o histórico de uso.",
           viewFullUsage: "Ver uso completo",
           whatWillWeBuildToday: "O que vamos construir hoje?",
+          assistantLabel: "Blackwall",
           you: "você",
         },
         composer: {
@@ -600,6 +601,7 @@ void i18n.use(initReactI18next).init({
           clearHistoryFailed: "Could not clear usage history.",
           viewFullUsage: "View full usage",
           whatWillWeBuildToday: "What will we build today?",
+          assistantLabel: "Blackwall",
           you: "you",
         },
         composer: {
