@@ -106,27 +106,36 @@ function GraphView({
     () => new Map(graph.files.map((file) => [file.path, file])),
     [graph.files],
   );
+  // Grupos em memo próprio: é aqui que o conteúdo das notas é escaneado por
+  // regex — não pode re-rodar quando só uma cor muda.
+  const groupByPath = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of graph.nodes)
+      map.set(node.path, graphGroupForFile(filesByPath.get(node.path), preferences.groupBy));
+    return map;
+  }, [filesByPath, graph.nodes, preferences.groupBy]);
   const groups = useMemo(
     () =>
-      Array.from(
-        new Set(
-          graph.nodes.map((node) =>
-            graphGroupForFile(filesByPath.get(node.path), preferences.groupBy),
-          ),
-        ),
-      ).sort((left, right) => left.localeCompare(right)),
-    [filesByPath, graph.nodes, preferences.groupBy],
+      Array.from(new Set(groupByPath.values())).sort((left, right) => left.localeCompare(right)),
+    [groupByPath],
   );
+  const colorByGroup = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const group of groups)
+      map.set(group, preferences.colors[group] ?? defaultColorForGroup(group));
+    return map;
+  }, [groups, preferences.colors]);
+  // Identidade dos nós NÃO depende de cores: trocar uma cor no painel não
+  // pode recriar nós (derrubaria a simulação d3 e o layout atual).
   const { links, nodes } = useMemo(() => {
     const nextNodes = graph.nodes.map((node) => {
-      const group = graphGroupForFile(filesByPath.get(node.path), preferences.groupBy);
+      const group = groupByPath.get(node.path) ?? "";
       return {
-        color: preferences.colors[group] ?? defaultColorForGroup(group),
         degree: 0,
         group,
         id: node.id,
         label: node.label,
-      } as GraphNode;
+      } as unknown as GraphNode;
     });
     const nodesById = new Map(nextNodes.map((node) => [node.id, node]));
     const nextLinks = graph.edges.flatMap((edge) => {
@@ -138,7 +147,7 @@ function GraphView({
       return [{ source, target } satisfies GraphLink];
     });
     return { links: nextLinks, nodes: nextNodes };
-  }, [filesByPath, graph.edges, graph.nodes, preferences.colors, preferences.groupBy]);
+  }, [graph.edges, graph.nodes, groupByPath]);
 
   useEffect(() => {
     setPreferences(readGraphPreferences(workspaceId));
@@ -147,6 +156,11 @@ function GraphView({
   useEffect(() => {
     writeGraphPreferences(workspaceId, preferences);
   }, [preferences, workspaceId]);
+
+  const colorByGroupRef = useRef(colorByGroup);
+  useEffect(() => {
+    colorByGroupRef.current = colorByGroup;
+  }, [colorByGroup]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -197,7 +211,8 @@ function GraphView({
         const radius = 3.6 + Math.min(3.8, node.degree / 10);
         drawingContext.beginPath();
         drawingContext.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        drawingContext.fillStyle = node.color;
+        drawingContext.fillStyle =
+          colorByGroupRef.current.get(node.group) ?? defaultColorForGroup(node.group);
         drawingContext.fill();
         drawingContext.lineWidth = Math.max(0.45, 0.75 / transform.scale);
         drawingContext.strokeStyle = "rgb(10 10 11 / 72%)";
@@ -269,6 +284,20 @@ function GraphView({
     return (
       <p className="p-4 text-sm text-muted-foreground">{t("vault.addLinksBetweenMarkdownNotes")}</p>
     );
+  }
+
+  // Identificadores @… são sentinels internas do grafo; o rótulo visível
+  // resolve pelas chaves de tradução correspondentes.
+  function groupLabel(group: string) {
+    const key =
+      group === "@ungrouped"
+        ? "vault.groupUngrouped"
+        : group === "@root"
+          ? "vault.groupRoot"
+          : group === "@untagged"
+            ? "vault.groupUntagged"
+            : null;
+    return key ? t(key) : group;
   }
 
   function updatePreferences(next: Partial<GraphPreferences>) {
@@ -456,9 +485,9 @@ function GraphView({
               </p>
               {groups.map((group) => (
                 <label className="flex items-center justify-between gap-2 text-xs" key={group}>
-                  <span className="truncate">{group}</span>
+                  <span className="truncate">{groupLabel(group)}</span>
                   <input
-                    aria-label={`${t("vault.colorFor")} ${group}`}
+                    aria-label={`${t("vault.colorFor")} ${groupLabel(group)}`}
                     className="size-6 cursor-pointer border border-border bg-transparent"
                     onChange={(event) =>
                       updatePreferences({
