@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { isValidElement, type ReactNode, useState } from "react";
+import { isValidElement, memo, type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
@@ -13,6 +13,9 @@ type SafeMarkdownProps = {
   files?: VaultFile[];
   onLocalLink?: (path: string) => void;
 };
+
+// Identidade estável: um `files = []` literal por render mataria o memo.
+const NO_FILES: VaultFile[] = [];
 
 function CodeBlock({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -40,9 +43,16 @@ function CodeBlock({ children }: { children: ReactNode }) {
   );
 }
 
-export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: SafeMarkdownProps) {
+function SafeMarkdownImpl({
+  content,
+  currentPath,
+  files = NO_FILES,
+  onLocalLink,
+}: SafeMarkdownProps) {
   const { t } = useTranslation();
-  const source = wikilinksToMarkdown(content);
+  // Durante o streaming cada delta re-renderiza a thread; sem este memo o
+  // wikilink parse rodaria de novo por mensagem mesmo com conteúdo igual.
+  const source = useMemo(() => wikilinksToMarkdown(content), [content]);
   return (
     <div className="safe-markdown">
       <ReactMarkdown
@@ -91,3 +101,10 @@ export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: 
     </div>
   );
 }
+
+/**
+ * Memoizado na borda de props: mensagens antigas da thread recebem sempre o
+ * mesmo `content`/refs e pulam o pipeline remark/rehype inteiro quando só o
+ * placeholder de streaming muda.
+ */
+export const SafeMarkdown = memo(SafeMarkdownImpl);
