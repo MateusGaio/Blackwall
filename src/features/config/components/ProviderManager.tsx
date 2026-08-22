@@ -91,7 +91,6 @@ export function ProviderManager({
 
   const workspaceSettings = useWorkspaceSettingsForm({
     activeWorkspace,
-    isEnglish,
     onWorkspaceChange,
     onWorkspaceSelected,
     profileId,
