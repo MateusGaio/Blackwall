@@ -1,20 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
-import {
-  browserFilesToFolderSelection,
-  currentRuntime,
-  type FolderSelection,
-  pickBrowserDirectory,
-  pickDirectory,
-} from "../../../platform/runtime";
+import { type FormEvent, useState } from "react";
+import { currentRuntime } from "../../../platform/runtime";
 import {
   type ConnectedProvider,
   connectProvider,
-  createWorkspace,
   deleteProvider,
   type Profile,
   type ProviderModel,
-  setWorkspaceSoul,
   testProvider,
   updateProvider,
   type Workspace,
@@ -24,6 +16,7 @@ import { SoulPicker } from "../../../shared/components/SoulPicker";
 import { emptyForm, type ProviderForm } from "./provider-manager/providerForm";
 import { useModelOptions } from "./provider-manager/useModelOptions";
 import { useProfileSettingsForm } from "./provider-manager/useProfileSettingsForm";
+import { useWorkspaceSettingsForm } from "./provider-manager/useWorkspaceSettingsForm";
 import { UsageDashboard } from "./UsageDashboard";
 
 type ProviderManagerProps = {
@@ -66,21 +59,13 @@ export function ProviderManager({
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
-  const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
-  const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
   const runtime = currentRuntime();
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const profileLocale = profile?.locale === "en" ? "en" : "pt-BR";
   const isEnglish = profileLocale === "en";
-
-  useEffect(() => {
-    setWorkspaceSoulDraft(activeWorkspace?.soul ?? "");
-  }, [activeWorkspace]);
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -100,6 +85,17 @@ export function ProviderManager({
     onDeleteProfile,
     onProfileChange,
     profile,
+  });
+
+  const workspaceSettings = useWorkspaceSettingsForm({
+    activeWorkspace,
+    isEnglish,
+    onWorkspaceChange,
+    onWorkspaceSelected,
+    profileId,
+    profileLocale,
+    setError,
+    setIsSaving,
   });
 
   function edit(provider: ConnectedProvider) {
@@ -122,33 +118,6 @@ export function ProviderManager({
     setError("");
     setStatus("");
     modelOptions.clearModels();
-  }
-
-  async function saveWorkspaceSoulDraft(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!activeWorkspace) return;
-    setIsSaving(true);
-    setError("");
-    setWorkspaceStatus("");
-    try {
-      const saved = await setWorkspaceSoul(activeWorkspace.id, workspaceSoul);
-      onWorkspaceChange(saved);
-      setWorkspaceStatus(
-        profileLocale === "en"
-          ? "Workspace context saved on this device."
-          : "Contexto do workspace salvo neste dispositivo.",
-      );
-    } catch (reason) {
-      setWorkspaceStatus(
-        reason instanceof Error
-          ? reason.message
-          : profileLocale === "en"
-            ? "Could not save workspace context."
-            : "Não foi possível salvar o contexto do workspace.",
-      );
-    } finally {
-      setIsSaving(false);
-    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -222,70 +191,6 @@ export function ProviderManager({
             ? "Could not remove the provider."
             : "Não foi possível remover o provedor.",
       );
-    }
-  }
-
-  async function chooseWorkspaceFolder() {
-    setWorkspaceStatus("");
-    try {
-      const selected =
-        currentRuntime() === "web"
-          ? await pickBrowserDirectory(profileLocale)
-          : await pickDirectory(profileLocale);
-      if (!selected) return;
-      setWorkspaceFolder(selected);
-      setWorkspaceName((current) => current || selected.name);
-    } catch (reason) {
-      setWorkspaceStatus(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not choose the folder."
-            : "Não foi possível escolher a pasta.",
-      );
-    }
-  }
-
-  function chooseBrowserWorkspaceFolder(event: ChangeEvent<HTMLInputElement>) {
-    void browserFilesToFolderSelection(event.target.files ?? []).then((selected) => {
-      event.target.value = "";
-      if (!selected) return;
-      setWorkspaceFolder(selected);
-      setWorkspaceName((current) => current || selected.name);
-      setWorkspaceStatus("");
-    });
-  }
-
-  async function submitWorkspace(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!profileId || !workspaceName.trim() || !workspaceFolder) return;
-    setIsSaving(true);
-    setWorkspaceStatus("");
-    setError("");
-    try {
-      const created = await createWorkspace({
-        name: workspaceName.trim(),
-        profileId,
-        rootPath: workspaceFolder.path ?? "",
-        soul: "",
-        workspaceFiles: workspaceFolder.files,
-      });
-      await onWorkspaceSelected(created);
-      setWorkspaceName("");
-      setWorkspaceFolder(null);
-      setWorkspaceStatus(
-        isEnglish ? `Workspace ${created.name} added.` : `Workspace ${created.name} adicionado.`,
-      );
-    } catch (reason) {
-      setWorkspaceStatus(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not create the workspace."
-            : "Não foi possível criar o workspace.",
-      );
-    } finally {
-      setIsSaving(false);
     }
   }
 
@@ -428,7 +333,7 @@ export function ProviderManager({
                 className={`settings-workspace-row ${workspace.id === activeWorkspaceId ? "is-active" : ""}`}
                 key={workspace.id}
                 onClick={() => {
-                  setWorkspaceSoulDraft(workspace.soul);
+                  workspaceSettings.setWorkspaceSoulDraft(workspace.soul);
                   void onWorkspaceSelected(workspace);
                 }}
                 type="button"
@@ -445,21 +350,21 @@ export function ProviderManager({
               </p>
             )}
           </div>
-          <form className="workspace-create-form" onSubmit={submitWorkspace}>
+          <form className="workspace-create-form" onSubmit={workspaceSettings.submitWorkspace}>
             <label className="field-label" htmlFor="settings-workspace-name">
               {isEnglish ? "Workspace name" : "Nome do workspace"}
               <input
                 id="settings-workspace-name"
-                onChange={(event) => setWorkspaceName(event.target.value)}
+                onChange={(event) => workspaceSettings.setWorkspaceName(event.target.value)}
                 placeholder={isEnglish ? "My project" : "Meu projeto"}
-                value={workspaceName}
+                value={workspaceSettings.workspaceName}
               />
             </label>
             {runtime === "web" ? (
               <label className="folder-select-button settings-folder-button">
                 <input
                   aria-label={isEnglish ? "Choose workspace folder" : "Escolher pasta do workspace"}
-                  onChange={chooseBrowserWorkspaceFolder}
+                  onChange={workspaceSettings.chooseBrowserWorkspaceFolder}
                   ref={(input) => {
                     input?.setAttribute("webkitdirectory", "");
                     input?.setAttribute("directory", "");
@@ -467,7 +372,8 @@ export function ProviderManager({
                   type="file"
                 />
                 <strong>
-                  {workspaceFolder?.name ?? (isEnglish ? "Choose folder" : "Escolher pasta")}
+                  {workspaceSettings.workspaceFolder?.name ??
+                    (isEnglish ? "Choose folder" : "Escolher pasta")}
                 </strong>
                 <small>
                   {isEnglish
@@ -478,11 +384,12 @@ export function ProviderManager({
             ) : (
               <button
                 className="folder-select-button settings-folder-button"
-                onClick={() => void chooseWorkspaceFolder()}
+                onClick={() => void workspaceSettings.chooseWorkspaceFolder()}
                 type="button"
               >
                 <strong>
-                  {workspaceFolder?.name ?? (isEnglish ? "Choose folder" : "Escolher pasta")}
+                  {workspaceSettings.workspaceFolder?.name ??
+                    (isEnglish ? "Choose folder" : "Escolher pasta")}
                 </strong>
                 <small>
                   {isEnglish
@@ -493,7 +400,11 @@ export function ProviderManager({
             )}
             <button
               className="button button-primary"
-              disabled={isSaving || !workspaceName.trim() || !workspaceFolder}
+              disabled={
+                isSaving ||
+                !workspaceSettings.workspaceName.trim() ||
+                !workspaceSettings.workspaceFolder
+              }
               type="submit"
             >
               {isSaving
@@ -506,19 +417,22 @@ export function ProviderManager({
             </button>
           </form>
           {activeWorkspace && (
-            <form className="workspace-soul-form" onSubmit={saveWorkspaceSoulDraft}>
+            <form
+              className="workspace-soul-form"
+              onSubmit={workspaceSettings.saveWorkspaceSoulDraft}
+            >
               <label className="field-label" htmlFor="settings-workspace-soul">
                 {profileLocale === "en" ? "Workspace context" : "Contexto do workspace"}
                 <textarea
                   id="settings-workspace-soul"
-                  onChange={(event) => setWorkspaceSoulDraft(event.target.value)}
+                  onChange={(event) => workspaceSettings.setWorkspaceSoulDraft(event.target.value)}
                   placeholder={
                     profileLocale === "en"
                       ? "Describe the project, conventions and goals…"
                       : "Descreva o projeto, as convenções e os objetivos…"
                   }
                   rows={6}
-                  value={workspaceSoul}
+                  value={workspaceSettings.workspaceSoul}
                 />
                 <span className="field-hint">
                   {profileLocale === "en"
@@ -531,7 +445,9 @@ export function ProviderManager({
               </button>
             </form>
           )}
-          {workspaceStatus && <p className="settings-status">{workspaceStatus}</p>}
+          {workspaceSettings.workspaceStatus && (
+            <p className="settings-status">{workspaceSettings.workspaceStatus}</p>
+          )}
         </section>
         <div className="provider-list">
           {providers.map((provider) => (
