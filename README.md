@@ -57,7 +57,9 @@ seu contexto + seus arquivos + seus provedores + suas regras
 
 ## Estado atual
 
-O projeto está em **private preview**. A base da Fase 1 está em conclusão, com os gates de qualidade, empacotamento e governança configurados. O repositório só poderá ser aberto após revisão de segurança, histórico, dependências, Actions, artefatos e proteção de branch.
+O projeto está em **private preview**. A **Fase 1 (MVP) está entregue** e estabilizada — pipeline de IA com poda e compactação de contexto alinhados ao OpenCode, UI reconstruída sobre primitivas shadcn/tokens OLED, robustez/performance auditadas e gates completos. O repositório só poderá ser aberto após revisão de segurança, histórico, dependências, Actions, artefatos e proteção de branch.
+
+> **Fonte viva do que vem depois:** [`ROADMAP.md`](./ROADMAP.md) — estado consolidado, trabalho em voo e próxima fase.
 
 ### Roadmap
 
