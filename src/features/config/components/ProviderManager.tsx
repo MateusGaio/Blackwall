@@ -77,7 +77,6 @@ export function ProviderManager({
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
-  const profileLocale = profile?.locale === "en" ? "en" : "pt-BR";
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -102,7 +101,6 @@ export function ProviderManager({
     onWorkspaceChange,
     onWorkspaceSelected,
     profileId,
-    profileLocale,
     setError,
     setIsSaving,
   });

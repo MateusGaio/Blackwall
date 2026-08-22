@@ -1,4 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import i18n from "i18next";
+import "../i18n";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -169,9 +171,7 @@ function readBrowserInput(input: HTMLInputElement): Promise<FolderSelection | nu
  * picker invocation synchronous preserves the browser's transient user
  * activation, including in localhost web-dev builds.
  */
-export function pickBrowserDirectory(
-  locale: "pt-BR" | "en" = "pt-BR",
-): Promise<FolderSelection | null> {
+export function pickBrowserDirectory(): Promise<FolderSelection | null> {
   const browserWindow = window as Window & {
     showDirectoryPicker?: () => Promise<BrowserDirectoryEntry>;
   };
@@ -200,10 +200,7 @@ export function pickBrowserDirectory(
           input.multiple = true;
           input.setAttribute("webkitdirectory", "");
           input.setAttribute("directory", "");
-          input.setAttribute(
-            "aria-label",
-            locale === "en" ? "Choose workspace folder" : "Escolher pasta do workspace",
-          );
+          input.setAttribute("aria-label", i18n.t("runtime.chooseFolderInput"));
           input.style.position = "fixed";
           input.style.left = "-10000px";
           input.style.top = "0";
@@ -220,10 +217,7 @@ export function pickBrowserDirectory(
   input.multiple = true;
   input.setAttribute("webkitdirectory", "");
   input.setAttribute("directory", "");
-  input.setAttribute(
-    "aria-label",
-    locale === "en" ? "Choose workspace folder" : "Escolher pasta do workspace",
-  );
+  input.setAttribute("aria-label", i18n.t("runtime.chooseFolderInput"));
   input.style.position = "fixed";
   input.style.left = "-10000px";
   input.style.top = "0";
@@ -243,24 +237,22 @@ export async function sidecarUrl(): Promise<string> {
   return import.meta.env.VITE_SIDECAR_URL ?? "";
 }
 
-export async function pickDirectory(
-  locale: "pt-BR" | "en" = "pt-BR",
-): Promise<FolderSelection | null> {
+export async function pickDirectory(): Promise<FolderSelection | null> {
   if (isTauri()) {
     let selected: string | string[] | null;
     try {
       selected = await open({
         directory: true,
         multiple: false,
-        title: locale === "en" ? "Choose the workspace folder" : "Escolha a pasta do workspace",
+        title: i18n.t("runtime.chooseFolderTitle"),
       });
     } catch {
-      throw new Error("Não foi possível abrir o seletor de pastas do desktop.");
+      throw new Error(i18n.t("errors.desktopFolderPicker"));
     }
     if (typeof selected !== "string") return null;
     const name = selected.split(/[\\/]/).filter(Boolean).at(-1) ?? selected;
     return { files: [], name, path: selected, source: "desktop" };
   }
 
-  return pickBrowserDirectory(locale);
+  return pickBrowserDirectory();
 }

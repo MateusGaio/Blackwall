@@ -15,7 +15,6 @@ type UseWorkspaceSettingsFormArgs = {
   onWorkspaceChange: (workspace: Workspace) => void;
   onWorkspaceSelected: (workspace: Workspace) => Promise<void>;
   profileId: string | null;
-  profileLocale: "en" | "pt-BR";
   setError: (error: string) => void;
   setIsSaving: (isSaving: boolean) => void;
 };
@@ -25,7 +24,6 @@ export function useWorkspaceSettingsForm({
   onWorkspaceChange,
   onWorkspaceSelected,
   profileId,
-  profileLocale,
   setError,
   setIsSaving,
 }: UseWorkspaceSettingsFormArgs) {
@@ -62,9 +60,7 @@ export function useWorkspaceSettingsForm({
     setWorkspaceStatus("");
     try {
       const selected =
-        currentRuntime() === "web"
-          ? await pickBrowserDirectory(profileLocale)
-          : await pickDirectory(profileLocale);
+        currentRuntime() === "web" ? await pickBrowserDirectory() : await pickDirectory();
       if (!selected) return;
       setWorkspaceFolder(selected);
       setWorkspaceName((current) => current || selected.name);

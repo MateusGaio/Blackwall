@@ -751,7 +751,7 @@ export function App() {
       onWorkspaceNameChange={setWorkspaceName}
       onWorkspaceSoulChange={setWorkspaceSoul}
       onPickFolder={() => {
-        void pickDirectory(locale).then((selection) => {
+        void pickDirectory().then((selection) => {
           if (!selection) return;
           setFolderSelection(selection);
           setStartWithoutWorkspace(false);
