@@ -124,9 +124,9 @@ Isso resolve três pontos ao mesmo tempo:
 
 ### ADR-12: Migração de schema do SQLite
 
-**Decisão:** usar **Drizzle ORM** com seu gerador de migrações (`drizzle-kit`). Cada mudança de schema gera um arquivo de migração numerado (`0001_init.sql`, `0002_add_soul_column.sql`, ...), e o sidecar roda as migrações pendentes automaticamente na inicialização, guardando o número da última aplicada numa tabela `_migrations`. Isso significa que quem já tem dados salvos nunca perde nada — a migração só adiciona/ajusta estrutura, os dados antigos continuam lá.
+**Decisão:** usar **Drizzle ORM** como query builder, com **migrações escritas à mão** em código (`sidecar/src/db/migrations.ts`). Cada mudança de schema é um passo numerado aplicado pelo sidecar na inicialização, guardando o número da última versão aplicada numa tabela `_migrations`. Isso significa que quem já tem dados salvos nunca perde nada — a migração só adiciona/ajusta estrutura, os dados antigos continuam lá.
 
-Isso é orquestrado pelo próprio código do sidecar (o agente que for implementar isso não precisa que você entenda SQL — só precisa rodar `drizzle-kit generate` sempre que o schema mudar).
+> **Atualização (2026-08-22):** a prática real do repositório divergiu deste ADR — as migrações são 100% manuais em `migrations.ts` e o fluxo `drizzle-kit generate` nunca foi adotado (o `schema.ts` serve de referência de tipos, não gera SQL; a toolchain `drizzle-kit`/`db:generate` existe no repo como resquício). Ao alterar o schema: escreva o passo novo em `migrations.ts`, atualize `schema.ts` em paralelo e cubra com teste em `store.test.ts`. Não rode `drizzle-kit generate`.
 
 ### ADR-13: Concorrência — janelas/painéis simultâneos sobre o mesmo Vault/SQLite
 
