@@ -404,6 +404,11 @@ void i18n.use(initReactI18next).init({
         },
         errors: {
           continuing: "Continuando…",
+          couldNotDeleteProfile: "Não foi possível excluir o perfil.",
+          couldNotOpenProfile: "Não foi possível abrir esse perfil.",
+          couldNotSaveSetup: "Não foi possível salvar a configuração.",
+          couldNotSignOut: "Não foi possível sair do perfil.",
+          profileDoesNotExist: "O perfil selecionado não existe.",
           running: "Executando",
           summarizingContext: "Resumindo contexto…",
           waitingForPermission: "Aguardando autorização…",
@@ -806,6 +811,11 @@ void i18n.use(initReactI18next).init({
         },
         errors: {
           continuing: "Continuing…",
+          couldNotDeleteProfile: "Could not delete the profile.",
+          couldNotOpenProfile: "Could not open that profile.",
+          couldNotSaveSetup: "Could not save the setup.",
+          couldNotSignOut: "Could not sign out of the profile.",
+          profileDoesNotExist: "The selected profile does not exist.",
           running: "Running",
           summarizingContext: "Summarizing context…",
           waitingForPermission: "Waiting for permission…",

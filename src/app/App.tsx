@@ -1,6 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { EnterExit } from "@/shared/components/motion/EnterExit";
+import { ProgressIndicator } from "@/shared/components/motion/ProgressIndicator";
+import { Skeleton } from "@/shared/components/motion/Skeleton";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
+import { Textarea } from "@/shared/components/ui/textarea";
 import { currentRuntime, type FolderSelection, pickDirectory } from "../platform/runtime";
 import {
   type AppState,
@@ -28,13 +34,62 @@ const ProviderSetup = lazy(async () => {
   return { default: module.ProviderSetup };
 });
 
+/* Tokens U1 em utilitários locais (nenhum CSS global novo para telas migradas). */
+const eyebrowClass = "font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground";
+const metaClass =
+  "whitespace-nowrap font-mono text-[0.7rem] tracking-[0.04em] text-muted-foreground";
+const cardShellClass =
+  "min-h-[340px] rounded-xl border border-border bg-card/30 p-[clamp(26px,5vw,48px)]";
+const cardTitleClass =
+  "mt-4 mb-10 max-w-[12ch] text-[clamp(2rem,5vw,3.75rem)] leading-[0.98] font-medium tracking-[-0.055em]";
+const choiceCardBase =
+  "flex items-center justify-between gap-3 border px-[18px] py-4 text-left transition-colors duration-150 focus-visible:border-ring focus-visible:outline-none";
+const fieldLabelClass = "grid gap-2.5 font-mono text-[0.72rem] text-muted-foreground";
+const fieldHintClass =
+  "text-[0.76rem] leading-snug font-sans tracking-normal text-muted-foreground";
+
 function LoadingSkeleton() {
   return (
-    <main aria-busy="true" className="app-shell loading-shell">
-      <div className="loading-mark skeleton" />
-      <div className="loading-line skeleton" />
-      <div className="loading-card skeleton" />
+    <main
+      aria-busy="true"
+      className="grid min-h-screen grid-cols-[minmax(180px,0.68fr)_minmax(0,1.32fr)]"
+    >
+      <div className="flex flex-col justify-between gap-8 border-r border-border p-8">
+        <Skeleton className="size-[34px]" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+      <div className="mx-auto flex w-full max-w-[620px] flex-col justify-center px-7 py-12">
+        <div aria-busy="true" role="status">
+          <Skeleton className="mb-[34px] h-0.5" />
+          <Skeleton className="h-[340px] rounded-xl" />
+        </div>
+      </div>
     </main>
+  );
+}
+
+type ToggleCardProps = {
+  children: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+  selected: boolean;
+};
+
+/** Card de escolha monocromático sobre tokens U1; seleção invertendo superfície/texto. */
+function ToggleCard({ children, className, onClick, selected }: ToggleCardProps) {
+  return (
+    <button
+      aria-pressed={selected}
+      className={`${choiceCardBase} ${
+        selected
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border hover:border-ring"
+      } ${className ?? ""}`}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -49,59 +104,76 @@ type ProfileChooserProps = {
 function ProfileChooser({ isSelecting, onCreate, onSelect, profiles }: ProfileChooserProps) {
   const { t } = useTranslation();
   return (
-    <main className="app-shell profile-chooser-shell">
-      <aside className="brand-column" aria-label="Blackwall">
+    <main className="grid min-h-screen grid-cols-[minmax(180px,0.68fr)_minmax(0,1.32fr)]">
+      <aside
+        aria-label="Blackwall"
+        className="flex flex-col justify-between border-r border-border p-8"
+      >
         <div>
-          <span className="brand-mark" aria-hidden="true">
+          <span
+            aria-hidden="true"
+            className="inline-flex size-[34px] items-center justify-center bg-primary font-mono text-[0.72rem] font-extrabold tracking-tighter text-primary-foreground"
+          >
             BW
           </span>
-          <p className="eyebrow">Blackwall / local-first</p>
+          <p className={`${eyebrowClass} mt-[18px]`}>Blackwall / local-first</p>
         </div>
-        <p className="brand-note">{t("onboarding.privateByDefaultYourContext")}</p>
+        <p className="max-w-[19ch] text-[0.82rem] leading-normal text-muted-foreground">
+          {t("onboarding.privateByDefaultYourContext")}
+        </p>
       </aside>
       <section
-        className="onboarding-area profile-chooser-area"
         aria-label={t("onboarding.chooseAProfile")}
+        className="mx-auto flex w-full max-w-[680px] flex-col justify-center px-7 py-12"
       >
-        <div className="profile-chooser-card">
-          <p className="eyebrow">{t("onboarding.profile")}</p>
-          <h1>{t("onboarding.whoIsUsingBlackwall")}</h1>
-          <p className="profile-chooser-intro">{t("onboarding.chooseASavedProfileOr")}</p>
-          <ul className="profile-choice-list">
-            {profiles.map((profile) => (
-              <li key={profile.id}>
-                <button
-                  className="profile-choice"
-                  disabled={isSelecting}
-                  onClick={() => onSelect(profile.id)}
-                  type="button"
-                >
-                  <span className="profile-choice-avatar" aria-hidden="true">
-                    {profile.avatarData ? (
-                      <img alt="" src={profile.avatarData} />
-                    ) : (
-                      profile.name.slice(0, 2).toUpperCase()
-                    )}
-                  </span>
-                  <span className="profile-choice-copy">
-                    <strong>{profile.name}</strong>
-                    <small>{profile.soul.split("\n")[0].slice(0, 80)}</small>
-                  </span>
-                  <span className="profile-choice-arrow" aria-hidden="true">
-                    →
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button
-            className="button button-primary profile-create-button"
-            onClick={onCreate}
-            type="button"
-          >
-            {t("onboarding.createNewProfile")}
-          </button>
-        </div>
+        <EnterExit duration="base" show>
+          <div className="rounded-xl border border-border p-[clamp(26px,5vw,48px)]">
+            <p className={eyebrowClass}>{t("onboarding.profile")}</p>
+            <h1 className="mt-4 mb-3.5 max-w-[14ch] text-[clamp(2rem,5vw,3.5rem)] leading-[0.98] font-medium tracking-[-0.055em]">
+              {t("onboarding.whoIsUsingBlackwall")}
+            </h1>
+            <p className="mb-6 max-w-[52ch] text-[0.88rem] leading-relaxed text-muted-foreground">
+              {t("onboarding.chooseASavedProfileOr")}
+            </p>
+            <ul className="m-0 grid list-none gap-2 p-0">
+              {profiles.map((profile) => (
+                <li key={profile.id} className="min-w-0">
+                  <button
+                    className={`${choiceCardBase} w-full rounded-lg py-3`}
+                    disabled={isSelecting}
+                    onClick={() => onSelect(profile.id)}
+                    type="button"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary font-mono text-[0.7rem] font-bold text-primary-foreground"
+                    >
+                      {profile.avatarData ? (
+                        <img alt="" className="size-full object-cover" src={profile.avatarData} />
+                      ) : (
+                        profile.name.slice(0, 2).toUpperCase()
+                      )}
+                    </span>
+                    <span className="grid min-w-0 gap-[3px]">
+                      <strong className="truncate text-[0.86rem] font-medium">
+                        {profile.name}
+                      </strong>
+                      <small className="truncate font-mono text-[0.7rem] text-muted-foreground">
+                        {profile.soul.split("\n")[0].slice(0, 80)}
+                      </small>
+                    </span>
+                    <span aria-hidden="true" className="ml-auto text-muted-foreground">
+                      →
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <Button className="mt-[18px] w-fit" onClick={onCreate} variant="default">
+              {t("onboarding.createNewProfile")}
+            </Button>
+          </div>
+        </EnterExit>
       </section>
     </main>
   );
@@ -118,7 +190,7 @@ type OnboardingPanelProps = {
   isCompleting: boolean;
   completionError: string;
   step: OnboardingStep;
-  isExiting: boolean;
+  pendingStep: number | null;
   runtime: "desktop" | "web";
   onLocaleChange: (locale: "pt-BR" | "en") => void;
   onProfileNameChange: (name: string) => void;
@@ -130,6 +202,7 @@ type OnboardingPanelProps = {
   onProviderConnected: (provider: ConnectedProvider) => void;
   onAdvance: (animate: boolean) => void;
   onBack: (animate: boolean) => void;
+  onStepExited: () => void;
 };
 
 function OnboardingPanel({
@@ -143,7 +216,7 @@ function OnboardingPanel({
   isCompleting,
   completionError,
   step,
-  isExiting,
+  pendingStep,
   runtime,
   onLocaleChange,
   onProfileNameChange,
@@ -155,83 +228,90 @@ function OnboardingPanel({
   onProviderConnected,
   onAdvance,
   onBack,
+  onStepExited,
 }: OnboardingPanelProps) {
   const { t } = useTranslation();
   const stepIndex = onboardingSteps.findIndex((item) => item.id === step.id);
   const isLastStep = stepIndex === onboardingSteps.length - 1;
-  const progress = `${((stepIndex + 1) / onboardingSteps.length) * 100}%`;
+  const progressValue = ((stepIndex + 1) / onboardingSteps.length) * 100;
+  const isTransitioning = pendingStep !== null;
   const stepKey = `onboarding.stepTitle.${step.id.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
   const labelKey = `onboarding.stepLabel.${step.id.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
   const title = t(stepKey);
   const label = t(labelKey);
-  const brandNote = t("brand.note");
 
   return (
-    <main className="app-shell">
-      <aside className="brand-column" aria-label="Blackwall">
+    <main className="grid min-h-screen grid-cols-[minmax(180px,0.68fr)_minmax(0,1.32fr)]">
+      <aside
+        aria-label="Blackwall"
+        className="flex flex-col justify-between border-r border-border p-8"
+      >
         <div>
-          <span className="brand-mark" aria-hidden="true">
+          <span
+            aria-hidden="true"
+            className="inline-flex size-[34px] items-center justify-center bg-primary font-mono text-[0.72rem] font-extrabold tracking-tighter text-primary-foreground"
+          >
             BW
           </span>
-          <p className="eyebrow">Blackwall / local-first</p>
+          <p className={`${eyebrowClass} mt-[18px]`}>Blackwall / local-first</p>
         </div>
-        <p className="brand-note">{brandNote}</p>
+        <p className="max-w-[19ch] text-[0.82rem] leading-normal text-muted-foreground">
+          {t("brand.note")}
+        </p>
       </aside>
 
-      <section className="onboarding-area" aria-label={t("onboarding.initialSetup")}>
-        <header className="progress-header">
-          <p>
+      <section
+        aria-label={t("onboarding.initialSetup")}
+        className="mx-auto flex w-full max-w-[620px] flex-col justify-center px-7 py-12"
+      >
+        <header className="mb-[34px] flex items-center gap-4">
+          <p className={metaClass}>
             {String(stepIndex + 1).padStart(2, "0")} /{" "}
             {String(onboardingSteps.length).padStart(2, "0")}
           </p>
-          <div
-            aria-label={t("onboarding.stepProgress", {
+          <ProgressIndicator
+            className="h-0.5 flex-1 rounded-none"
+            label={t("onboarding.stepProgress", {
               current: stepIndex + 1,
               total: onboardingSteps.length,
             })}
-            aria-valuemax={onboardingSteps.length}
-            aria-valuemin={1}
-            aria-valuenow={stepIndex + 1}
-            className="progress-track"
-            role="progressbar"
-          >
-            <span
-              className="progress-value"
-              style={{ transform: `scaleX(${(stepIndex + 1) / onboardingSteps.length})` }}
-            />
-          </div>
+            value={progressValue}
+          />
         </header>
 
-        <div className={`onboarding-card ${isExiting ? "is-leaving" : ""}`} key={step.id}>
-          <p className="eyebrow">{label}</p>
-          <h1>{title}</h1>
+        <EnterExit
+          className={cardShellClass}
+          duration="fast"
+          offsetPx={4}
+          show={!isTransitioning}
+          onExited={onStepExited}
+        >
+          <p className={eyebrowClass}>{label}</p>
+          <h1 className={cardTitleClass}>{title}</h1>
           {step.id === "language" && (
-            <div className="choice-list" role="radiogroup" aria-label={t("onboarding.language")}>
-              <button
-                className={locale === "pt-BR" ? "choice is-selected" : "choice"}
-                onClick={() => onLocaleChange("pt-BR")}
-                aria-pressed={locale === "pt-BR"}
-                type="button"
-              >
-                {t("onboarding.portugueseBrazil")}
-                <span>PT-BR</span>
-              </button>
-              <button
-                className={locale === "en" ? "choice is-selected" : "choice"}
-                onClick={() => onLocaleChange("en")}
-                aria-pressed={locale === "en"}
-                type="button"
-              >
-                English
-                <span>EN</span>
-              </button>
+            <div aria-label={t("onboarding.language")} className="grid gap-2.5" role="radiogroup">
+              <ToggleCard onClick={() => onLocaleChange("pt-BR")} selected={locale === "pt-BR"}>
+                <span className="grid gap-1">
+                  {t("onboarding.portugueseBrazil")}
+                  <small className="font-sans text-[0.68rem] text-muted-foreground">PT-BR</small>
+                </span>
+                <span className="font-mono text-xs">PT-BR</span>
+              </ToggleCard>
+              <ToggleCard onClick={() => onLocaleChange("en")} selected={locale === "en"}>
+                <span className="grid gap-1">
+                  English
+                  <small className="font-sans text-[0.68rem] text-muted-foreground">EN</small>
+                </span>
+                <span className="font-mono text-xs">EN</span>
+              </ToggleCard>
             </div>
           )}
           {step.id === "profile" && (
-            <label className="field-label" htmlFor="profile-name">
+            <label className={fieldLabelClass} htmlFor="profile-name">
               {t("onboarding.profileName")}
-              <input
+              <Input
                 autoComplete="name"
+                className="h-10"
                 id="profile-name"
                 onChange={(event) => onProfileNameChange(event.target.value)}
                 placeholder={t("onboarding.yourName")}
@@ -240,9 +320,10 @@ function OnboardingPanel({
             </label>
           )}
           {step.id === "workspace" && (
-            <label className="field-label" htmlFor="workspace-name">
+            <label className={fieldLabelClass} htmlFor="workspace-name">
               {t("onboarding.workspaceName")}
-              <input
+              <Input
+                className="h-10"
                 id="workspace-name"
                 onChange={(event) => onWorkspaceNameChange(event.target.value)}
                 placeholder={t("onboarding.myProject")}
@@ -251,43 +332,50 @@ function OnboardingPanel({
             </label>
           )}
           {step.id === "folder" && (
-            <div className="folder-picker">
-              <button className="folder-select-button" onClick={onPickFolder} type="button">
-                <span className="folder-select-icon" aria-hidden="true">
+            <div className="grid gap-3">
+              <button
+                className={`${choiceCardBase} rounded-lg`}
+                onClick={onPickFolder}
+                type="button"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-flex size-[30px] items-center justify-center border border-ring font-mono text-foreground/85"
+                >
                   ⌘
                 </span>
-                <span>
+                <span className="grid gap-1">
                   <strong>{t("onboarding.chooseFolder")}</strong>
-                  <small>
+                  <small className="font-mono text-[0.68rem] text-muted-foreground">
                     {runtime === "desktop"
                       ? t("onboarding.openTheSystemFileExplorer")
                       : t("onboarding.openTheBrowserFileExplorer")}
                   </small>
                 </span>
               </button>
-              <button
-                aria-pressed={startWithoutWorkspace}
-                className={startWithoutWorkspace ? "choice is-selected" : "choice"}
-                onClick={onStartWithoutWorkspace}
-                type="button"
-              >
-                <span>
+              <ToggleCard onClick={onStartWithoutWorkspace} selected={startWithoutWorkspace}>
+                <span className="grid gap-1">
                   {t("onboarding.startWithoutAWorkspace")}
-                  <small>{t("onboarding.addAProjectFolderLater")}</small>
+                  <small className="font-sans text-[0.68rem] text-muted-foreground">
+                    {t("onboarding.addAProjectFolderLater")}
+                  </small>
                 </span>
                 <span>{startWithoutWorkspace ? "✓" : ""}</span>
-              </button>
+              </ToggleCard>
               {folderSelection && (
-                <div className="folder-selected" role="status">
+                <div
+                  className="flex items-baseline justify-between gap-2.5 border-l-2 border-ring bg-muted px-3 py-2.5"
+                  role="status"
+                >
                   <strong>{folderSelection.name}</strong>
                   {folderSelection.source === "web" && (
-                    <span>
+                    <span className="font-mono text-[0.68rem] text-muted-foreground">
                       {folderSelection.files.length} {t("onboarding.markdownFilesSelected")}
                     </span>
                   )}
                 </div>
               )}
-              <span className="field-hint">{t("onboarding.chooseAFolderToUse")}</span>
+              <span className={fieldHintClass}>{t("onboarding.chooseAFolderToUse")}</span>
             </div>
           )}
           {step.id === "soul" && (
@@ -300,64 +388,72 @@ function OnboardingPanel({
             />
           )}
           {step.id === "workspace-soul" && (
-            <label className="field-label" htmlFor="workspace-soul-prompt">
+            <label className={fieldLabelClass} htmlFor="workspace-soul-prompt">
               {t("onboarding.workspaceContext")}
-              <textarea
+              <Textarea
+                className="min-h-[132px]"
                 id="workspace-soul-prompt"
                 onChange={(event) => onWorkspaceSoulChange(event.target.value)}
                 placeholder={t("onboarding.describeTheProjectConventionsAnd")}
                 rows={6}
                 value={workspaceSoul}
               />
-              <span className="field-hint">{t("onboarding.addContextThatShouldGuide")}</span>
+              <span className={fieldHintClass}>{t("onboarding.addContextThatShouldGuide")}</span>
             </label>
           )}
           {step.id === "provider" && (
-            <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
+            <Suspense fallback={<Skeleton aria-hidden className="h-40" />}>
               <ProviderSetup onConnected={onProviderConnected} />
             </Suspense>
           )}
           {step.id === "vault" && (
-            <div className="info-panel">
-              <strong>{t("onboarding.aRealVaultInMarkdown")}</strong>
-              <p>{t("onboarding.blackwallWillKeepNotesLinks")}</p>
+            <div className="border-l-2 border-ring pl-4 text-muted-foreground">
+              <strong className="block text-[0.95rem] font-medium text-foreground">
+                {t("onboarding.aRealVaultInMarkdown")}
+              </strong>
+              <p className="mt-2.5 max-w-[48ch] text-[0.9rem] leading-relaxed">
+                {t("onboarding.blackwallWillKeepNotesLinks")}
+              </p>
             </div>
           )}
 
-          <footer className="card-actions">
-            <button
-              className="button button-secondary"
-              disabled={stepIndex === 0 || isExiting}
+          <footer className="mt-10 flex items-center justify-between gap-3">
+            <Button
+              disabled={stepIndex === 0 || isTransitioning}
               onClick={(event) => onBack(event.detail !== 0)}
-              type="button"
+              variant="secondary"
             >
               {t("onboarding.back")}
-            </button>
+            </Button>
             {step.id !== "provider" && (
-              <button
-                className="button button-primary"
+              <Button
                 disabled={
-                  isExiting ||
+                  isTransitioning ||
                   isCompleting ||
                   (step.id === "profile" && profileName.trim().length === 0) ||
                   (step.id === "workspace" && workspaceName.trim().length === 0) ||
                   (step.id === "folder" && !folderSelection && !startWithoutWorkspace)
                 }
                 onClick={(event) => onAdvance(event.detail !== 0)}
-                type="button"
+                variant="default"
               >
                 {isCompleting
                   ? t("onboarding.saving")
                   : isLastStep
                     ? t("onboarding.enterBlackwall")
                     : t("onboarding.continue")}
-              </button>
+              </Button>
             )}
           </footer>
-          {completionError && <p className="form-error">{completionError}</p>}
-        </div>
-        <p className="stage-status">
-          {t("onboarding.localSetup")} · {runtime} · {progress} {t("onboarding.complete")}
+          {completionError && (
+            <p className="text-sm text-destructive" role="alert">
+              {completionError}
+            </p>
+          )}
+        </EnterExit>
+        <p className={`${metaClass} mt-4`}>
+          {t("onboarding.localSetup")} · {runtime} · {progressValue.toFixed(0)}%{" "}
+          {t("onboarding.complete")}
         </p>
       </section>
     </main>
@@ -365,10 +461,11 @@ function OnboardingPanel({
 }
 
 export function App() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
-  const [isExiting, setIsExiting] = useState(false);
+  const [pendingStep, setPendingStep] = useState<number | null>(null);
+  const pendingRef = useRef<number | null>(null);
   const [isComplete, setIsComplete] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [completionError, setCompletionError] = useState("");
@@ -440,20 +537,25 @@ export function App() {
 
   function navigate(nextStep: number, animate: boolean) {
     const safeStep = clampOnboardingStep(nextStep);
-    if (safeStep === stepIndex || isExiting) return;
+    if (safeStep === stepIndex || pendingRef.current !== null) return;
     if (!animate) {
       setStepIndex(safeStep);
       return;
     }
+    pendingRef.current = safeStep;
+    setPendingStep(safeStep);
+  }
 
-    setIsExiting(true);
-    window.setTimeout(() => {
-      setStepIndex(safeStep);
-      setIsExiting(false);
-    }, 150);
+  function commitPendingStep() {
+    const target = pendingRef.current;
+    if (target === null) return;
+    pendingRef.current = null;
+    setStepIndex(target);
+    setPendingStep(null);
   }
 
   function advance(animate: boolean) {
+    if (pendingRef.current !== null) return;
     if (stepIndex === onboardingSteps.length - 1) {
       void completeOnboarding();
       return;
@@ -467,8 +569,9 @@ export function App() {
   }
 
   function resetOnboarding() {
+    pendingRef.current = null;
     setStepIndex(0);
-    setIsExiting(false);
+    setPendingStep(null);
     setCompletionError("");
     setProfileName("");
     setSoul(defaultProfileSoul);
@@ -492,7 +595,7 @@ export function App() {
     try {
       const state = await selectProfile(profileId);
       const profile = state.profiles.find((item) => item.id === profileId);
-      if (!profile) throw new Error("O perfil selecionado não existe.");
+      if (!profile) throw new Error(t("errors.profileDoesNotExist"));
       const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId);
       const providers = await listProviders();
       const activeSession = state.sessions.find((item) => item.id === state.activeSessionId);
@@ -513,7 +616,7 @@ export function App() {
       setIsComplete(true);
     } catch (reason) {
       setCompletionError(
-        reason instanceof Error ? reason.message : "Não foi possível abrir esse perfil.",
+        reason instanceof Error ? reason.message : t("errors.couldNotOpenProfile"),
       );
     } finally {
       setIsSelectingProfile(false);
@@ -529,9 +632,7 @@ export function App() {
       setIsComplete(false);
       setShowProfileChooser(state.profiles.length > 0);
     } catch (reason) {
-      setCompletionError(
-        reason instanceof Error ? reason.message : "Não foi possível sair do perfil.",
-      );
+      setCompletionError(reason instanceof Error ? reason.message : t("errors.couldNotSignOut"));
     }
   }
 
@@ -545,7 +646,7 @@ export function App() {
       setShowProfileChooser(state.profiles.length > 0);
     } catch (reason) {
       setCompletionError(
-        reason instanceof Error ? reason.message : "Não foi possível excluir o perfil.",
+        reason instanceof Error ? reason.message : t("errors.couldNotDeleteProfile"),
       );
       throw reason;
     }
@@ -575,9 +676,7 @@ export function App() {
       setShowProfileChooser(false);
       setIsComplete(true);
     } catch (reason) {
-      setCompletionError(
-        reason instanceof Error ? reason.message : "Não foi possível salvar a configuração.",
-      );
+      setCompletionError(reason instanceof Error ? reason.message : t("errors.couldNotSaveSetup"));
     } finally {
       setIsCompleting(false);
     }
@@ -587,6 +686,7 @@ export function App() {
     profileName,
     soul,
     startWithoutWorkspace,
+    t,
     workspaceRootPath,
     workspaceName,
     workspaceSoul,
@@ -597,7 +697,7 @@ export function App() {
       if (
         event.key !== "Enter" ||
         isComplete ||
-        isExiting ||
+        pendingRef.current !== null ||
         onboardingSteps[stepIndex].id === "provider"
       )
         return;
@@ -620,7 +720,6 @@ export function App() {
     completeOnboarding,
     folderSelection,
     isComplete,
-    isExiting,
     profileName,
     startWithoutWorkspace,
     stepIndex,
@@ -655,19 +754,23 @@ export function App() {
 
   return (
     <OnboardingPanel
-      isExiting={isExiting}
+      isCompleting={isCompleting}
+      completionError={completionError}
+      folderSelection={folderSelection}
       locale={locale}
       onAdvance={advance}
       onBack={(animate) => navigate(stepIndex - 1, animate)}
       onLocaleChange={setLocale}
       onProfileNameChange={setProfileName}
+      onProviderConnected={providerConnected}
       onSoulChange={setSoul}
-      onWorkspaceNameChange={setWorkspaceName}
       onStartWithoutWorkspace={() => {
         setFolderSelection(null);
         setWorkspaceRootPath("");
         setStartWithoutWorkspace(true);
       }}
+      onStepExited={commitPendingStep}
+      onWorkspaceNameChange={setWorkspaceName}
       onWorkspaceSoulChange={setWorkspaceSoul}
       onPickFolder={() => {
         void pickDirectory(locale).then((selection) => {
@@ -677,17 +780,14 @@ export function App() {
           setWorkspaceRootPath(selection.path ?? "");
         });
       }}
-      onProviderConnected={providerConnected}
+      pendingStep={pendingStep}
       profileName={profileName}
-      soul={soul}
-      step={currentStep}
       runtime={runtime}
-      workspaceName={workspaceName}
-      folderSelection={folderSelection}
+      soul={soul}
       startWithoutWorkspace={startWithoutWorkspace}
+      step={currentStep}
+      workspaceName={workspaceName}
       workspaceSoul={workspaceSoul}
-      isCompleting={isCompleting}
-      completionError={completionError}
     />
   );
 }
