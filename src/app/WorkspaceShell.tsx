@@ -296,6 +296,7 @@ export default function WorkspaceShell({
     }
   }, [activeSession?.id]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: o corpo só usa refs de propósito — re-rolar deve acontecer apenas ao trocar de sessão ou mudar a contagem de mensagens; sem deps, o scroll roubava a posição do usuário a cada render.
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       messageListRef.current?.scrollTo({
@@ -304,7 +305,7 @@ export default function WorkspaceShell({
       });
     });
     return () => cancelAnimationFrame(frame);
-  });
+  }, [activeSession?.id, messages.length]);
 
   useEffect(() => {
     if (!activeProvider) return;
@@ -486,32 +487,40 @@ export default function WorkspaceShell({
       await openWorkspace(created.id);
       return;
     }
-    const session = await createSession(created.id);
-    const nextState = await selectSession(session.id);
-    const nextStateWithWorkspace: AppState = {
-      ...nextState,
-      activeSessionId: session.id,
-      activeWorkspaceId: created.id,
-      recentSessions: nextState.recentSessions.some((item) => item.id === session.id)
-        ? nextState.recentSessions
-        : [{ ...session, workspaceName: created.name }, ...nextState.recentSessions],
-      sessions: nextState.sessions.some((item) => item.id === session.id)
-        ? nextState.sessions
-        : [session, ...nextState.sessions],
-      workspaces: nextState.workspaces.some((item) => item.id === created.id)
-        ? nextState.workspaces
-        : [created, ...nextState.workspaces],
-    };
-    activeSessionIdRef.current = session.id;
-    setState(nextStateWithWorkspace);
-    setActiveProvider(
-      session.selectedProviderId
-        ? (providers.find((item) => item.id === session.selectedProviderId) ?? providers[0] ?? null)
-        : (providers[0] ?? null),
-    );
-    setShowVault(true);
-    setVaultCollapsed(false);
-    setResourceNotice("");
+    try {
+      const session = await createSession(created.id);
+      const nextState = await selectSession(session.id);
+      const nextStateWithWorkspace: AppState = {
+        ...nextState,
+        activeSessionId: session.id,
+        activeWorkspaceId: created.id,
+        recentSessions: nextState.recentSessions.some((item) => item.id === session.id)
+          ? nextState.recentSessions
+          : [{ ...session, workspaceName: created.name }, ...nextState.recentSessions],
+        sessions: nextState.sessions.some((item) => item.id === session.id)
+          ? nextState.sessions
+          : [session, ...nextState.sessions],
+        workspaces: nextState.workspaces.some((item) => item.id === created.id)
+          ? nextState.workspaces
+          : [created, ...nextState.workspaces],
+      };
+      activeSessionIdRef.current = session.id;
+      setState(nextStateWithWorkspace);
+      setActiveProvider(
+        session.selectedProviderId
+          ? (providers.find((item) => item.id === session.selectedProviderId) ??
+              providers[0] ??
+              null)
+          : (providers[0] ?? null),
+      );
+      setShowVault(true);
+      setVaultCollapsed(false);
+      setResourceNotice("");
+    } catch (reason) {
+      // Única ação de fluxo sem tratamento — falha aqui virava unhandled
+      // rejection sem feedback nenhum para o usuário.
+      setError(reason instanceof Error ? reason.message : "Não foi possível abrir o workspace.");
+    }
   }
 
   async function rename(sessionId: string, currentTitle: string) {

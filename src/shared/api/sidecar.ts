@@ -648,6 +648,7 @@ export type StreamHandlers = {
   ) => void;
   onToolCompleted?: (result: unknown, callId?: string) => void;
   onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
+  onToolFailed?: (message: string, callId?: string) => void;
   onRetry?: (message: string) => void;
   onUsage?: (usage: {
     providerId?: string;
@@ -693,7 +694,12 @@ export async function streamMessage(
   });
   const active: ActiveStream = {
     done,
-    stop: () => socket.send(JSON.stringify({ requestId, type: "chat.stop" })),
+    stop: () => {
+      // Em CONNECTING/CLOSED o send lança InvalidStateError síncrono; o
+      // fechamento do socket já resolve a promise por error/close.
+      if (socket.readyState === WebSocket.OPEN)
+        socket.send(JSON.stringify({ requestId, type: "chat.stop" }));
+    },
   };
   socket.addEventListener("open", () => {
     socket.send(
@@ -773,6 +779,9 @@ export async function streamMessage(
     if (message.type === "tool.completed") {
       handlers.onToolCompleted?.(message.result, message.callId);
     }
+    if (message.type === "tool.failed") {
+      handlers.onToolFailed?.(message.message ?? "A ferramenta falhou.", message.callId);
+    }
     if (message.type === "chat.completed") {
       resolveDone({
         content: message.content ?? content,
@@ -806,5 +815,11 @@ export async function streamMessage(
   socket.addEventListener("error", () =>
     rejectDone(new Error("A conexão local foi interrompida.")),
   );
+  socket.addEventListener("close", () => {
+    // Fechamento limpo sem evento terminal (completed/stopped/failed): sem
+    // este guard a promise `done` fica pendurada e o store trava em
+    // isRunning/runLocked para sempre. Se já resolveu, é no-op.
+    rejectDone(new Error("A conexão local foi encerrada antes do fim do turno."));
+  });
   return active;
 }

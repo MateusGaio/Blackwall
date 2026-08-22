@@ -8,7 +8,9 @@ import { approvals, workspaces } from "./db/schema.js";
 
 const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
+const maxCommandCaptureChars = 1_000_000;
 const commandTimeoutMs = 15_000;
+const commandKillGraceMs = 2_000;
 const ignoredDirectoryNames = new Set([
   ".cache",
   ".git",
@@ -348,8 +350,12 @@ export async function executeTool(
             const extension = entry.name.includes(".")
               ? `.${entry.name.split(".").at(-1)?.toLocaleLowerCase()}`
               : "";
-            if (binaryExtensions.has(extension) || (await stat(child)).size > maxReadBytes)
-              continue;
+            // Race: o arquivo pode sumir entre readdir e stat — trata como
+            // skip (tamanho infinito) em vez de abortar a busca inteira.
+            const size = await stat(child)
+              .then((info) => info.size)
+              .catch(() => Number.POSITIVE_INFINITY);
+            if (binaryExtensions.has(extension) || size > maxReadBytes) continue;
             const content = await readFile(child, "utf8").catch(() => "");
             content.split("\n").forEach((line, index) => {
               if (
@@ -400,18 +406,28 @@ export async function executeTool(
           const child = spawn(command, args, { cwd, env, shell: false });
           let stdout = "";
           let stderr = "";
+          let killTimer: NodeJS.Timeout | undefined;
           const timer = setTimeout(() => {
             child.kill("SIGTERM");
+            // Processo que ignora SIGTERM não emite close — sem o SIGKILL de
+            // escalão a promessa (e o turno inteiro) fica pendurada para sempre.
+            killTimer = setTimeout(() => child.kill("SIGKILL"), commandKillGraceMs);
             reject(new Error("O comando excedeu o limite de 15 segundos."));
           }, commandTimeoutMs);
-          child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
-          child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+          child.stdout.on("data", (chunk: Buffer) => {
+            if (stdout.length < maxCommandCaptureChars) stdout += chunk.toString();
+          });
+          child.stderr.on("data", (chunk: Buffer) => {
+            if (stderr.length < maxCommandCaptureChars) stderr += chunk.toString();
+          });
           child.on("error", (error) => {
             clearTimeout(timer);
+            if (killTimer) clearTimeout(killTimer);
             reject(error);
           });
           child.on("close", (code) => {
             clearTimeout(timer);
+            if (killTimer) clearTimeout(killTimer);
             resolveCommand({ code, stderr: clipped(stderr), stdout: clipped(stdout) });
           });
         },

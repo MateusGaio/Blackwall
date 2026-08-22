@@ -86,6 +86,7 @@ const allowedOrigins = new Set([
   "http://localhost:1420",
   "http://127.0.0.1:1420",
   "http://tauri.localhost",
+  "tauri://localhost",
 ]);
 if (process.env.BLACKWALL_E2E === "1") {
   allowedOrigins.add("http://localhost:1421");
@@ -667,7 +668,22 @@ export function createSidecar(
   });
   server.once("close", () => database.close());
 
-  const socketServer = new WebSocketServer({ server });
+  const socketServer = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const { origin } = request.headers;
+    // Clientes locais sem Origin (testes, harness, Tauri nativo) passam;
+    // navegadores sempre enviam Origin e precisam estar na allowlist — sem
+    // esse gate, qualquer página aberta no navegador fala com o sidecar.
+    if (origin && !allowedOrigins.has(origin)) {
+      // end() faz flush da resposta antes do FIN; destroy() descartaria o
+      // buffer e o cliente veria apenas um reset sem código HTTP.
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    socketServer.handleUpgrade(request, socket, head, (ws) =>
+      socketServer.emit("connection", ws, request),
+    );
+  });
   const activeRequests = new Map<
     string,
     { controller: AbortController; socket: import("ws").WebSocket }
@@ -686,9 +702,12 @@ export function createSidecar(
       toolBudget?: number;
       workspaceId?: string;
     },
+    controller: AbortController,
   ) {
-    const controller = new AbortController();
-    activeRequests.set(input.requestId, { controller, socket });
+    if (controller.signal.aborted) {
+      socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
+      return;
+    }
     const toolBudget = resolveToolCallBudget(input.toolBudget);
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
@@ -1372,9 +1391,24 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
   ) {
     const workspaceId = input.workspaceId ?? `session:${input.sessionId ?? "default"}`;
     const previous = queues.get(workspaceId) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => executeChat(socket, input));
+    // O controller nasce no enfileiramento para que chat.stop e o cleanup de
+    // socket alcancem também requests que ainda não começaram a executar.
+    const controller = new AbortController();
+    activeRequests.set(input.requestId, { controller, socket });
+    const current = previous
+      .catch(() => undefined)
+      .then(() => executeChat(socket, input, controller))
+      .catch((error) => {
+        // Última linha de defesa: uma rejeição que escapa de executeChat nunca
+        // pode virar unhandled rejection (derruba o processo) nem ficar muda.
+        const message = error instanceof Error ? error.message : "Falha no processamento do turno.";
+        socket.send(
+          JSON.stringify({ content: "", message, requestId: input.requestId, type: "chat.failed" }),
+        );
+      });
     queues.set(workspaceId, current);
     void current.finally(() => {
+      activeRequests.delete(input.requestId);
       if (queues.get(workspaceId) === current) queues.delete(workspaceId);
     });
     socket.send(JSON.stringify({ requestId: input.requestId, type: "queue.updated", workspaceId }));
@@ -1382,6 +1416,9 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
 
   socketServer.on("connection", (socket) => {
     socket.send(JSON.stringify({ topic: "system:ready", ...healthPayload() }));
+    // Sem este listener, erro de transporte (reset abrupto, frame inválido ou
+    // send após close) vira exceção não tratada e derruba o processo inteiro.
+    socket.on("error", () => undefined);
     socket.on("message", (raw) => {
       let input: { requestId?: string; type?: string; [key: string]: unknown };
       try {
