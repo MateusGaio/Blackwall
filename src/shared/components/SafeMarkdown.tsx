@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { isValidElement, type ReactNode, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -10,11 +11,11 @@ type SafeMarkdownProps = {
   content: string;
   currentPath?: string;
   files?: VaultFile[];
-  locale?: "pt-BR" | "en";
   onLocalLink?: (path: string) => void;
 };
 
-function CodeBlock({ children, locale }: { children: ReactNode; locale: "pt-BR" | "en" }) {
+function CodeBlock({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const textContent = (node: ReactNode): string => {
     if (typeof node === "string" || typeof node === "number") return String(node);
@@ -32,20 +33,15 @@ function CodeBlock({ children, locale }: { children: ReactNode; locale: "pt-BR" 
         }}
         type="button"
       >
-        {copied ? (locale === "en" ? "Copied" : "Copiado") : locale === "en" ? "Copy" : "Copiar"}
+        {copied ? t("chat.copied") : t("chat.copy")}
       </button>
       <pre>{children}</pre>
     </div>
   );
 }
 
-export function SafeMarkdown({
-  content,
-  currentPath,
-  files = [],
-  locale = "pt-BR",
-  onLocalLink,
-}: SafeMarkdownProps) {
+export function SafeMarkdown({ content, currentPath, files = [], onLocalLink }: SafeMarkdownProps) {
+  const { t } = useTranslation();
   const source = wikilinksToMarkdown(content);
   return (
     <div className="safe-markdown">
@@ -74,12 +70,7 @@ export function SafeMarkdown({
               !/^[a-z][a-z\d+.-]*:/i.test(href);
             if (isRelativeLink) {
               return (
-                <span
-                  className="markdown-broken-link"
-                  title={
-                    locale === "en" ? "Note not found in the Vault" : "Nota não encontrada no Vault"
-                  }
-                >
+                <span className="markdown-broken-link" title={t("vault.noteNotFound")}>
                   {children}
                 </span>
               );
@@ -90,7 +81,7 @@ export function SafeMarkdown({
               </a>
             );
           },
-          pre: ({ children }) => <CodeBlock locale={locale}>{children}</CodeBlock>,
+          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
         }}
         rehypePlugins={[rehypeSanitize]}
         remarkPlugins={[remarkGfm]}

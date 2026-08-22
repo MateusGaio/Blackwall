@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import { lazy, type PointerEvent as ReactPointerEvent, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import { CompactIcon } from "./CompactIcon";
 
 export type VaultTab = "files" | "graph";
@@ -13,7 +15,6 @@ const VaultPanel = lazy(async () => {
 });
 
 type VaultSlotProps = {
-  isEnglish: boolean;
   isResizingVault: boolean;
   onCollapse: () => void;
   onFinishResize: () => void;
@@ -31,7 +32,6 @@ type VaultSlotProps = {
 };
 
 export function VaultSlot({
-  isEnglish,
   isResizingVault,
   onCollapse,
   onFinishResize,
@@ -47,11 +47,12 @@ export function VaultSlot({
   vaultWidth,
   workspaceId,
 }: VaultSlotProps) {
+  const { t } = useTranslation();
   return (
     <div className={`vault-slot ${isResizingVault ? "is-resizing" : ""}`}>
       {!vaultCollapsed && (
         <hr
-          aria-label={isEnglish ? "Resize Vault panel" : "Redimensionar painel do Vault"}
+          aria-label={t("vault.resizeVaultPanel")}
           aria-orientation="vertical"
           aria-valuemax={maximumVaultWidth}
           aria-valuemin={minimumVaultWidth}
@@ -75,22 +76,19 @@ export function VaultSlot({
         />
       )}
       {vaultCollapsed ? (
-        <aside
-          aria-label={isEnglish ? "Collapsed Vault" : "Vault recolhido"}
-          className="vault-rail"
-        >
+        <aside aria-label={t("vault.collapsedVault")} className="vault-rail">
           <button
-            aria-label={isEnglish ? "Open Vault files" : "Abrir arquivos do Vault"}
+            aria-label={t("vault.openVaultFiles")}
             onClick={onOpenFiles}
-            title={isEnglish ? "Files" : "Arquivos"}
+            title={t("vault.files")}
             type="button"
           >
             <CompactIcon kind="files" />
           </button>
           <button
-            aria-label={isEnglish ? "Open Vault graph" : "Abrir grafo do Vault"}
+            aria-label={t("vault.openVaultGraph")}
             onClick={onOpenGraph}
-            title={isEnglish ? "Graph" : "Grafo"}
+            title={t("vault.graph")}
             type="button"
           >
             <CompactIcon kind="graph" />
@@ -99,7 +97,6 @@ export function VaultSlot({
       ) : (
         <Suspense fallback={<aside className="vault-panel vault-loading-panel" aria-busy="true" />}>
           <VaultPanel
-            locale={isEnglish ? "en" : "pt-BR"}
             onCollapse={onCollapse}
             onTabChange={onTabChange}
             refreshKey={refreshKey}

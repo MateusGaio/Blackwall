@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import type { TFunction } from "i18next";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   type ConnectedProvider,
   clearUsageHistory,
@@ -12,7 +14,6 @@ import {
 type UsageDashboardProps = {
   activeProviderId?: string | null;
   activeSessionId?: string | null;
-  isEnglish: boolean;
   profileId?: string | null;
   providers: ConnectedProvider[];
 };
@@ -31,40 +32,22 @@ const manualWindowSeconds: Record<ManualLimitDraft["window"], number> = {
   month: 30 * 24 * 60 * 60,
 };
 
-function manualLimitLabel(
-  metric: UsageMetric,
-  window: ManualLimitDraft["window"],
-  isEnglish: boolean,
-) {
+function manualLimitLabel(metric: UsageMetric, window: ManualLimitDraft["window"], t: TFunction) {
   const metricLabel =
     metric === "requests"
-      ? isEnglish
-        ? "requests"
-        : "requisições"
+      ? t("usage.requests")
       : metric === "tokens"
         ? "tokens"
-        : isEnglish
-          ? "credits"
-          : "créditos";
+        : t("usage.credits");
   const windowLabel =
     window === "minute"
-      ? isEnglish
-        ? "minute"
-        : "minuto"
+      ? t("usage.minute")
       : window === "hour"
-        ? isEnglish
-          ? "hour"
-          : "hora"
+        ? t("usage.hour")
         : window === "day"
-          ? isEnglish
-            ? "day"
-            : "dia"
-          : isEnglish
-            ? "month"
-            : "mês";
-  return isEnglish
-    ? `Manual ${metricLabel} per ${windowLabel}`
-    : `${metricLabel} manuais por ${windowLabel}`;
+          ? t("usage.day")
+          : t("usage.month");
+  return t("usage.manualLimit", { metric: metricLabel, window: windowLabel });
 }
 
 const periods = [
@@ -82,10 +65,10 @@ function formatNumber(value: number) {
 function UsageDashboard({
   activeProviderId,
   activeSessionId,
-  isEnglish,
   profileId,
   providers,
 }: UsageDashboardProps) {
+  const { t } = useTranslation();
   const [providerId, setProviderId] = useState(activeProviderId ?? providers[0]?.id ?? "");
   const [period, setPeriod] = useState<(typeof periods)[number]["key"]>("30d");
   const [sessionOnly, setSessionOnly] = useState(false);
@@ -132,7 +115,7 @@ function UsageDashboard({
       return Number.isFinite(value) && value > 0
         ? [
             {
-              label: manualLimitLabel(draft.metric, draft.window, isEnglish),
+              label: manualLimitLabel(draft.metric, draft.window, t),
               limit: value,
               metric: draft.metric,
               windowSeconds: manualWindowSeconds[draft.window],
@@ -181,15 +164,13 @@ function UsageDashboard({
     <section aria-labelledby="usage-dashboard-title" className="settings-section usage-dashboard">
       <div className="settings-section-heading">
         <div>
-          <p className="eyebrow">{isEnglish ? "Usage" : "Uso"}</p>
-          <h3 id="usage-dashboard-title">
-            {isEnglish ? "Provider usage and limits" : "Uso e limites dos provedores"}
-          </h3>
+          <p className="eyebrow">{t("usage.usage")}</p>
+          <h3 id="usage-dashboard-title">{t("usage.providerUsageAndLimits")}</h3>
         </div>
         <label className="usage-provider-select">
-          <span className="sr-only">{isEnglish ? "Provider" : "Provedor"}</span>
+          <span className="sr-only">{t("usage.provider")}</span>
           <select
-            aria-label={isEnglish ? "Usage provider" : "Provedor do uso"}
+            aria-label={t("usage.usageProvider")}
             onChange={(event) => setProviderId(event.target.value)}
             value={providerId}
           >
@@ -212,7 +193,7 @@ function UsageDashboard({
             role="tab"
             type="button"
           >
-            {item.key === "all" ? (isEnglish ? "All time" : "Todo período") : item.key}
+            {item.key === "all" ? t("usage.allTime") : item.key}
           </button>
         ))}
       </div>
@@ -223,42 +204,32 @@ function UsageDashboard({
             onChange={(event) => setSessionOnly(event.target.checked)}
             type="checkbox"
           />
-          {isEnglish
-            ? "Only this session (ignores the period above)"
-            : "Somente esta sessão (ignora o período acima)"}
+          {t("usage.onlyThisSessionIgnoresThe")}
         </label>
       )}
       {loading ? (
-        <div
-          aria-label={isEnglish ? "Loading usage" : "Carregando uso"}
-          className="usage-skeleton"
-          role="status"
-        />
+        <div aria-label={t("usage.loadingUsage")} className="usage-skeleton" role="status" />
       ) : summary ? (
         <>
           {summary.lastRequest && (
             <div className="usage-context-grid">
-              <p className="eyebrow">
-                {isEnglish
-                  ? "Current context (last request)"
-                  : "Contexto atual (última requisição)"}
-              </p>
+              <p className="eyebrow">{t("usage.currentContextLastRequest")}</p>
               <div>
-                <span>{isEnglish ? "Context tokens" : "Tokens de contexto"}</span>
+                <span>{t("usage.contextTokens")}</span>
                 <strong>{formatNumber(summary.lastRequest.totalTokens)}</strong>
               </div>
               <div>
-                <span>{isEnglish ? "Of which cached" : "Destes, em cache"}</span>
+                <span>{t("usage.ofWhichCached")}</span>
                 <strong>{formatNumber(summary.lastRequest.cachedInputTokens)}</strong>
               </div>
               {summary.lastRequest.contextLimit ? (
                 <>
                   <div>
-                    <span>{isEnglish ? "Context limit" : "Limite de contexto"}</span>
+                    <span>{t("usage.contextLimit")}</span>
                     <strong>{formatNumber(summary.lastRequest.contextLimit)}</strong>
                   </div>
                   <div>
-                    <span>{isEnglish ? "Usage" : "Uso"}</span>
+                    <span>{t("usage.usage")}</span>
                     <strong>
                       {Math.round(
                         (summary.lastRequest.totalTokens / summary.lastRequest.contextLimit) * 100,
@@ -271,33 +242,29 @@ function UsageDashboard({
             </div>
           )}
           <div className="usage-total-grid">
-            <p className="eyebrow">
-              {isEnglish
-                ? "Cumulative across all requests (billing)"
-                : "Acumulado de todas as requisições (cobrança)"}
-            </p>
+            <p className="eyebrow">{t("usage.cumulativeAcrossAllRequestsBilling")}</p>
             <div>
-              <span>{isEnglish ? "Requests" : "Requisições"}</span>
+              <span>{t("usage.requests")}</span>
               <strong>{formatNumber(summary.totals.requests)}</strong>
             </div>
             <div>
-              <span>{isEnglish ? "Input tokens" : "Tokens de entrada"}</span>
+              <span>{t("usage.inputTokens")}</span>
               <strong>{formatNumber(summary.totals.inputTokens)}</strong>
             </div>
             <div>
-              <span>{isEnglish ? "Output tokens" : "Tokens de saída"}</span>
+              <span>{t("usage.outputTokens")}</span>
               <strong>{formatNumber(summary.totals.outputTokens)}</strong>
             </div>
             <div>
-              <span>{isEnglish ? "Total tokens" : "Tokens totais"}</span>
+              <span>{t("usage.totalTokens")}</span>
               <strong>{formatNumber(summary.totals.totalTokens)}</strong>
             </div>
             <div>
-              <span>{isEnglish ? "Cached input tokens" : "Tokens de entrada em cache"}</span>
+              <span>{t("usage.cachedInputTokens")}</span>
               <strong>{formatNumber(summary.totals.cachedInputTokens)}</strong>
             </div>
             <div>
-              <span>{isEnglish ? "Reasoning tokens" : "Tokens de raciocínio"}</span>
+              <span>{t("usage.reasoningTokens")}</span>
               <strong>{formatNumber(summary.totals.reasoningTokens)}</strong>
             </div>
           </div>
@@ -312,23 +279,17 @@ function UsageDashboard({
                     <strong>{window.label}</strong>
                     <span>
                       {window.source === "manual"
-                        ? isEnglish
-                          ? "Manual estimate"
-                          : "Estimativa manual"
-                        : isEnglish
-                          ? "Reported by provider"
-                          : "Informado pelo provedor"}
+                        ? t("usage.manualEstimate")
+                        : t("usage.reportedByProvider")}
                     </span>
                   </div>
                   <span>
                     {window.remainingPercent === undefined
-                      ? isEnglish
-                        ? "Limit not reported"
-                        : "Limite não informado"
-                      : `${Math.round(window.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`}
+                      ? t("usage.limitNotReported")
+                      : `${Math.round(window.remainingPercent)}% ${t("usage.remaining")}`}
                     {window.resetAt && (
                       <small>
-                        {isEnglish ? " · resets " : " · renova "}
+                        {t("usage.resets")}
                         {new Intl.DateTimeFormat(undefined, {
                           dateStyle: "short",
                           timeStyle: "short",
@@ -339,22 +300,18 @@ function UsageDashboard({
                 </div>
               ))
             ) : (
-              <p className="settings-empty">
-                {isEnglish
-                  ? "No provider limit was reported."
-                  : "Nenhum limite foi informado pelo provedor."}
-              </p>
+              <p className="settings-empty">{t("usage.noProviderLimitWasReported")}</p>
             )}
           </div>
           {summary.daily.length > 0 && (
             <div className="usage-daily-table-wrap">
-              <p className="eyebrow">{isEnglish ? "Daily history" : "Histórico diário"}</p>
+              <p className="eyebrow">{t("usage.dailyHistory")}</p>
               <table className="usage-daily-table">
                 <thead>
                   <tr>
-                    <th>{isEnglish ? "Date" : "Data"}</th>
-                    <th>{isEnglish ? "Requests" : "Requisições"}</th>
-                    <th>{isEnglish ? "Tokens" : "Tokens"}</th>
+                    <th>{t("usage.date")}</th>
+                    <th>{t("usage.requests")}</th>
+                    <th>{t("usage.tokens")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -370,24 +327,18 @@ function UsageDashboard({
             </div>
           )}
           <button className="text-button danger" onClick={() => void eraseHistory()} type="button">
-            {clearPending
-              ? isEnglish
-                ? "Click again to confirm"
-                : "Clique novamente para confirmar"
-              : isEnglish
-                ? "Delete usage history"
-                : "Apagar histórico de uso"}
+            {clearPending ? t("usage.clickAgainToConfirm") : t("usage.deleteUsageHistory")}
           </button>
         </>
       ) : null}
       <section aria-labelledby="usage-manual-limits-title" className="usage-manual-limit">
         <p className="eyebrow" id="usage-manual-limits-title">
-          {isEnglish ? "Manual limits (estimates)" : "Limites manuais (estimativas)"}
+          {t("usage.manualLimitsEstimates")}
         </p>
         {manualLimits.map((draft) => (
           <div className="usage-manual-limit-row" key={draft.id}>
             <select
-              aria-label={isEnglish ? "Manual limit metric" : "Métrica do limite manual"}
+              aria-label={t("usage.manualLimitMetric")}
               onChange={(event) =>
                 setManualLimits((current) =>
                   current.map((item) =>
@@ -399,12 +350,12 @@ function UsageDashboard({
               }
               value={draft.metric}
             >
-              <option value="requests">{isEnglish ? "Requests" : "Requisições"}</option>
-              <option value="tokens">{isEnglish ? "Tokens" : "Tokens"}</option>
-              <option value="credits">{isEnglish ? "Credits" : "Créditos"}</option>
+              <option value="requests">{t("usage.requests")}</option>
+              <option value="tokens">{t("usage.tokens")}</option>
+              <option value="credits">{t("usage.credits2")}</option>
             </select>
             <input
-              aria-label={isEnglish ? "Manual limit value" : "Valor do limite manual"}
+              aria-label={t("usage.manualLimitValue")}
               inputMode="numeric"
               min="1"
               onChange={(event) =>
@@ -414,12 +365,12 @@ function UsageDashboard({
                   ),
                 )
               }
-              placeholder={isEnglish ? "Limit" : "Limite"}
+              placeholder={t("usage.limit")}
               type="number"
               value={draft.value}
             />
             <select
-              aria-label={isEnglish ? "Manual limit window" : "Janela do limite manual"}
+              aria-label={t("usage.manualLimitWindow")}
               onChange={(event) =>
                 setManualLimits((current) =>
                   current.map((item) =>
@@ -431,14 +382,14 @@ function UsageDashboard({
               }
               value={draft.window}
             >
-              <option value="minute">{isEnglish ? "Minute" : "Minuto"}</option>
-              <option value="hour">{isEnglish ? "Hour" : "Hora"}</option>
-              <option value="day">{isEnglish ? "Day" : "Dia"}</option>
-              <option value="month">{isEnglish ? "Month" : "Mês"}</option>
+              <option value="minute">{t("usage.minute")}</option>
+              <option value="hour">{t("usage.hour")}</option>
+              <option value="day">{t("usage.day")}</option>
+              <option value="month">{t("usage.month2")}</option>
             </select>
             {manualLimits.length > 1 && (
               <button
-                aria-label={isEnglish ? "Remove manual limit" : "Remover limite manual"}
+                aria-label={t("usage.removeManualLimit")}
                 className="text-button danger"
                 onClick={() =>
                   setManualLimits((current) => current.filter((item) => item.id !== draft.id))
@@ -461,7 +412,7 @@ function UsageDashboard({
             }
             type="button"
           >
-            {isEnglish ? "Add limit" : "Adicionar limite"}
+            {t("usage.addLimit")}
           </button>
           <button
             className="button button-primary"
@@ -469,7 +420,7 @@ function UsageDashboard({
             onClick={() => void saveManualLimit()}
             type="button"
           >
-            {savingLimit ? "…" : isEnglish ? "Save estimates" : "Salvar estimativas"}
+            {savingLimit ? "…" : t("usage.saveEstimates")}
           </button>
         </div>
       </section>

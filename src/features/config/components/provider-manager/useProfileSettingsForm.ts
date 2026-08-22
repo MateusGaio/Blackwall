@@ -1,20 +1,21 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { type Profile, updateProfile } from "../../../../shared/api/sidecar";
 
 type UseProfileSettingsFormArgs = {
-  isEnglish: boolean;
   onDeleteProfile: (profileId: string) => Promise<void>;
   onProfileChange: (profile: Profile) => void;
   profile: Profile | null;
 };
 
 export function useProfileSettingsForm({
-  isEnglish,
   onDeleteProfile,
   onProfileChange,
   profile,
 }: UseProfileSettingsFormArgs) {
+  const { t } = useTranslation();
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<Profile | null>(null);
   const [profileName, setProfileName] = useState(profile?.name ?? "");
@@ -43,16 +44,10 @@ export function useProfileSettingsForm({
         soul: profileSoul,
       });
       onProfileChange(saved);
-      setProfileStatus(
-        isEnglish ? "Profile saved on this device." : "Perfil salvo neste dispositivo.",
-      );
+      setProfileStatus(t("settings.profileSavedOnThisDevice"));
     } catch (reason) {
       setProfileError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save the profile."
-            : "Não foi possível salvar o perfil.",
+        reason instanceof Error ? reason.message : t("settings.couldNotSaveTheProfile"),
       );
     } finally {
       setIsSavingProfile(false);
@@ -64,11 +59,7 @@ export function useProfileSettingsForm({
     event.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
-      setProfileError(
-        isEnglish
-          ? "Choose a PNG, JPEG, WebP or GIF image up to 2 MB."
-          : "Escolha uma imagem PNG, JPEG, WebP ou GIF de até 2 MB.",
-      );
+      setProfileError(t("settings.chooseAPngJpegWebp"));
       return;
     }
     const reader = new FileReader();
@@ -77,13 +68,10 @@ export function useProfileSettingsForm({
       if (typeof result === "string") {
         setProfileAvatar(result);
         setProfileError("");
-        setProfileStatus(isEnglish ? "Photo ready to save." : "Foto pronta para salvar.");
+        setProfileStatus(t("settings.photoReadyToSave"));
       }
     };
-    reader.onerror = () =>
-      setProfileError(
-        isEnglish ? "Could not read this image." : "Não foi possível ler essa imagem.",
-      );
+    reader.onerror = () => setProfileError(t("settings.couldNotReadThisImage"));
     reader.readAsDataURL(file);
   }
 
@@ -95,11 +83,7 @@ export function useProfileSettingsForm({
       await onDeleteProfile(profile.id);
     } catch (reason) {
       setProfileError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not delete the profile."
-            : "Não foi possível excluir o perfil.",
+        reason instanceof Error ? reason.message : t("settings.couldNotDeleteTheProfile"),
       );
     } finally {
       setIsDeletingProfile(false);

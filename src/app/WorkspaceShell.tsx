@@ -1,4 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -6,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { ProviderManager } from "../features/config/components/ProviderManager";
 import {
   type AppState,
@@ -65,6 +67,7 @@ export default function WorkspaceShell({
   profileName,
   provider,
 }: WorkspaceShellProps) {
+  const { t } = useTranslation();
   const [state, setState] = useState(appState);
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
@@ -132,11 +135,7 @@ export default function WorkspaceShell({
   const vaultResizeRef = useRef<{ startWidth: number; startX: number } | null>(null);
 
   const activeProfile = state?.profiles.find((profile) => profile.id === state.activeProfileId);
-  const profileLocale = state?.profiles.find(
-    (profile) => profile.id === state.activeProfileId,
-  )?.locale;
-  const isEnglish = profileLocale === "en";
-  const name = activeProfile?.name.trim() || profileName.trim() || (isEnglish ? "you" : "você");
+  const name = activeProfile?.name.trim() || profileName.trim() || t("chat.you");
   // The UI follows the profile locale, while the greeting intentionally
   // rotates through the 25-language catalogue by time period and day.
   const greeting = greetingForTime(new Date(), "mixed");
@@ -149,7 +148,7 @@ export default function WorkspaceShell({
     activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
   const modelName =
     (models.find((model) => model.id === selectedModel)?.name ?? selectedModel) ||
-    (isEnglish ? "Select model" : "Selecionar modelo");
+    t("chat.selectModel");
 
   const {
     editMessage,
@@ -166,7 +165,6 @@ export default function WorkspaceShell({
     activeSessionIdRef,
     composerRef,
     draft,
-    isEnglish,
     messages,
     selectedModel,
     setActiveSessionId: (sessionId) => {
@@ -354,13 +352,7 @@ export default function WorkspaceShell({
           : current,
       );
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not change the model."
-            : "Não foi possível trocar o modelo.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotChangeTheModel"));
     }
   }
 
@@ -382,13 +374,7 @@ export default function WorkspaceShell({
           : current,
       );
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not change the provider."
-            : "Não foi possível trocar o provedor.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotChangeTheProvider"));
     }
   }
 
@@ -409,13 +395,7 @@ export default function WorkspaceShell({
           : (providers[0] ?? null),
       );
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not open the session."
-            : "Não foi possível abrir a sessão.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheSession"));
     }
   }
 
@@ -438,13 +418,7 @@ export default function WorkspaceShell({
       );
       if (wasWithoutWorkspace) setShowVault(true);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not open the workspace."
-            : "Não foi possível abrir o workspace.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheWorkspace"));
     }
   }
 
@@ -456,13 +430,7 @@ export default function WorkspaceShell({
       const session = await createSession(workspace?.id ?? null, undefined, state.activeProfileId);
       await openSession(session.id);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not create the session."
-            : "Não foi possível criar a sessão.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotCreateTheSession"));
     } finally {
       setIsCreatingSession(false);
     }
@@ -576,13 +544,7 @@ export default function WorkspaceShell({
       setState(refreshed);
       setMessages(refreshed.messages);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not delete the session."
-            : "Não foi possível excluir a sessão.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotDeleteTheSession"));
     }
   }
 
@@ -617,13 +579,7 @@ export default function WorkspaceShell({
         setCopiedMessageId((current) => (current === message.id ? null : current));
       }, 1600);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Unable to copy the message."
-            : "Não foi possível copiar a mensagem.",
-      );
+      setError(reason instanceof Error ? reason.message : t("chat.unableToCopyTheMessage"));
     }
   }
 
@@ -669,7 +625,6 @@ export default function WorkspaceShell({
         expandSidebar={expandSidebar}
         hasActiveProfile={Boolean(state?.activeProfileId)}
         isCreatingSession={isCreatingSession}
-        isEnglish={isEnglish}
         name={name}
         newSession={() => void newSession()}
         newWorkspace={() => void newWorkspace()}
@@ -702,7 +657,6 @@ export default function WorkspaceShell({
       <section className="workspace-main">
         <ChatHeader
           activeProvider={activeProvider}
-          isEnglish={isEnglish}
           onOpenUsageDetails={() => {
             setUsageOpen(false);
             setShowUsageDetails(true);
@@ -711,11 +665,7 @@ export default function WorkspaceShell({
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
           onVaultClick={() => {
             if (!workspace) {
-              setResourceNotice(
-                isEnglish
-                  ? "Select a folder to configure your workspace and use the Vault and graph."
-                  : "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
-              );
+              setResourceNotice(t("chat.selectAFolderToConfigure"));
               return;
             }
             setResourceNotice("");
@@ -735,22 +685,14 @@ export default function WorkspaceShell({
         />
         <section
           className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
-          aria-label={isEnglish ? "Conversation" : "Conversa"}
+          aria-label={t("chat.conversation")}
         >
           {visibleMessages.length === 0 ? (
             <div className="empty-state">
               <h1>
                 {greeting}, {name}
               </h1>
-              <p>
-                {workspace
-                  ? isEnglish
-                    ? "What will we build today?"
-                    : "O que vamos construir hoje?"
-                  : isEnglish
-                    ? "Chat freely. Add a folder whenever you want to use files and the Vault."
-                    : "Converse livremente. Adicione uma pasta quando quiser usar arquivos e o Vault."}
-              </p>
+              <p>{workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}</p>
             </div>
           ) : (
             <MessageList
@@ -758,7 +700,6 @@ export default function WorkspaceShell({
               copyMessage={(message) => void copyMessage(message)}
               editingMessageDraft={editingMessageDraft}
               editingMessageId={editingMessageId}
-              isEnglish={isEnglish}
               isSending={isSending}
               listRef={messageListRef}
               onEditCancel={() => setEditingMessageId(null)}
@@ -778,15 +719,12 @@ export default function WorkspaceShell({
             />
           )}
           {attachments.length > 0 && (
-            <ul
-              className="attachment-list"
-              aria-label={isEnglish ? "Indexed attachments" : "Anexos indexados"}
-            >
+            <ul className="attachment-list" aria-label={t("chat.indexedAttachments")}>
               {attachments.map((attachment) => (
                 <li className="attachment-chip" key={attachment.id}>
                   <span>{attachment.filename}</span>
                   <button
-                    aria-label={`${isEnglish ? "Remove" : "Remover"} ${attachment.filename}`}
+                    aria-label={`${t("chat.remove")} ${attachment.filename}`}
                     onClick={() => setAttachmentToRemove(attachment)}
                     type="button"
                   >
@@ -798,9 +736,7 @@ export default function WorkspaceShell({
           )}
           {toolApproval && (
             <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
-              <p className="eyebrow">
-                {isEnglish ? "Permission requested" : "Autorização solicitada"}
-              </p>
+              <p className="eyebrow">{t("chat.permissionRequested")}</p>
               <strong>{toolApproval.tool}</strong>
               <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
               <div className="workspace-access-actions">
@@ -809,7 +745,7 @@ export default function WorkspaceShell({
                   onClick={() => resolveToolDecision("allow_once")}
                   type="button"
                 >
-                  {isEnglish ? "Allow once" : "Permitir uma vez"}
+                  {t("chat.allowOnce")}
                 </button>
                 {!["apply_patch", "create_or_update_file", "execute_command"].includes(
                   toolApproval.tool,
@@ -819,7 +755,7 @@ export default function WorkspaceShell({
                     onClick={() => resolveToolDecision("allow_session")}
                     type="button"
                   >
-                    {isEnglish ? "Allow this session" : "Permitir nesta sessão"}
+                    {t("chat.allowThisSession")}
                   </button>
                 )}
                 <button
@@ -827,7 +763,7 @@ export default function WorkspaceShell({
                   onClick={() => resolveToolDecision("deny")}
                   type="button"
                 >
-                  {isEnglish ? "Deny" : "Negar"}
+                  {t("chat.deny")}
                 </button>
               </div>
             </section>
@@ -839,7 +775,6 @@ export default function WorkspaceShell({
             changePermissionMode={(mode) => void changePermissionMode(mode)}
             composerRef={composerRef}
             draft={draft}
-            isEnglish={isEnglish}
             isSending={isSending}
             modelName={modelName}
             models={models}
@@ -860,9 +795,7 @@ export default function WorkspaceShell({
             <div className="resource-gate" role="alert">
               <span>{resourceNotice}</span>
               <button className="text-button" onClick={newWorkspace} type="button">
-                {isEnglish
-                  ? "Add a workspace in settings"
-                  : "Adicionar workspace nas configurações"}
+                {t("chat.addAWorkspaceInSettings")}
               </button>
             </div>
           )}
@@ -875,7 +808,6 @@ export default function WorkspaceShell({
       </section>
       {showVault && workspace && (
         <VaultSlot
-          isEnglish={isEnglish}
           isResizingVault={isResizingVault}
           onCollapse={() => setVaultCollapsed(true)}
           onFinishResize={finishVaultResize}
@@ -948,53 +880,43 @@ export default function WorkspaceShell({
       )}
       {showUsageDetails && (
         <SessionUsageDialog
-          isEnglish={isEnglish}
           messages={messages}
-          modelName={selectedModel || (isEnglish ? "not selected" : "não selecionado")}
+          modelName={selectedModel || t("chat.notSelected")}
           onClose={() => setShowUsageDetails(false)}
           providerName={activeProvider?.name ?? "—"}
-          sessionTitle={activeSession?.title ?? (isEnglish ? "New session" : "Nova sessão")}
+          sessionTitle={activeSession?.title ?? t("chat.newSession")}
           summary={usageSummary}
         />
       )}
       {sessionToDelete && (
         <ConfirmDialog
-          confirmLabel={isEnglish ? "Delete session" : "Excluir sessão"}
-          description={
-            isEnglish
-              ? "The messages in this conversation will be removed from this device."
-              : "As mensagens desta conversa serão removidas deste dispositivo."
-          }
+          confirmLabel={t("chat.deleteSession")}
+          description={t("chat.theMessagesInThisConversation")}
           onCancel={() => setSessionToDelete(null)}
           onConfirm={() => {
             const session = sessionToDelete;
             setSessionToDelete(null);
             void remove(session.id);
           }}
-          headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
-          title={`${isEnglish ? "Delete" : "Excluir"} ${sessionToDelete.title}?`}
+          headingLabel={t("chat.confirmation")}
+          title={`${t("chat.delete")} ${sessionToDelete.title}?`}
         />
       )}
       {attachmentToRemove && (
         <ConfirmDialog
-          confirmLabel={isEnglish ? "Remove attachment" : "Remover anexo"}
-          description={
-            isEnglish
-              ? "The file and its local index will be removed from this device."
-              : "O arquivo e seu índice local serão removidos deste dispositivo."
-          }
+          confirmLabel={t("chat.removeAttachment")}
+          description={t("chat.theFileAndItsLocal")}
           onCancel={() => setAttachmentToRemove(null)}
           onConfirm={() => {
             const attachment = attachmentToRemove;
             setAttachmentToRemove(null);
             void detachFile(attachment);
           }}
-          headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
-          title={`${isEnglish ? "Remove" : "Remover"} ${attachmentToRemove.filename}?`}
+          headingLabel={t("chat.confirmation")}
+          title={`${t("chat.remove")} ${attachmentToRemove.filename}?`}
         />
       )}
       <RenameSessionDialog
-        isEnglish={isEnglish}
         onCancel={() => setSessionToRename(null)}
         onRenameDraftChange={setRenameDraft}
         onSubmit={(sessionId) => void rename(sessionId, sessionToRename?.title ?? "")}
@@ -1003,7 +925,6 @@ export default function WorkspaceShell({
       />
       {paletteOpen && (
         <CommandPalette
-          isEnglish={isEnglish}
           onClose={() => setPaletteOpen(false)}
           onOpenSession={(sessionId) => void openSession(sessionId)}
           onOpenSettings={() => setShowSettings(true)}

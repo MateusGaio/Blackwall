@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import type { TFunction } from "i18next";
 import type { Dispatch, SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
 import type { ConnectedProvider, UsageSummary, Workspace } from "../../shared/api/sidecar";
 import { CompactIcon } from "./CompactIcon";
 
@@ -8,7 +10,7 @@ import { CompactIcon } from "./CompactIcon";
  * recent request), never the cumulative sum — the same measure other harnesses
  * report, and the only one that answers "how full is this conversation?".
  */
-function usageBadgeLabel(summary: UsageSummary | null, isEnglish: boolean) {
+function usageBadgeLabel(summary: UsageSummary | null, t: TFunction) {
   const last = summary?.lastRequest;
   if (last && last.totalTokens > 0) {
     const tokens = new Intl.NumberFormat(undefined, {
@@ -17,19 +19,18 @@ function usageBadgeLabel(summary: UsageSummary | null, isEnglish: boolean) {
     }).format(last.totalTokens);
     return last.contextLimit && last.contextLimit > 0
       ? `${tokens} · ${Math.round((last.totalTokens / last.contextLimit) * 100)}%`
-      : `${tokens} ${isEnglish ? "in context" : "no contexto"}`;
+      : `${tokens} ${t("chat.inContext")}`;
   }
   const restrictive = summary?.windows
     .filter((window) => window.remainingPercent !== undefined)
     .sort((left, right) => (left.remainingPercent ?? 101) - (right.remainingPercent ?? 101))[0];
   if (restrictive?.remainingPercent !== undefined)
-    return `${Math.round(restrictive.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`;
-  return isEnglish ? "Usage unavailable" : "Uso indisponível";
+    return `${Math.round(restrictive.remainingPercent)}% ${t("chat.remaining")}`;
+  return t("chat.usageUnavailable");
 }
 
 type ChatHeaderProps = {
   activeProvider: ConnectedProvider | null;
-  isEnglish: boolean;
   onOpenUsageDetails: () => void;
   onSelectProvider: (provider: ConnectedProvider) => void;
   onToggleSidebar: () => void;
@@ -46,7 +47,6 @@ type ChatHeaderProps = {
 
 export function ChatHeader({
   activeProvider,
-  isEnglish,
   onOpenUsageDetails,
   onSelectProvider,
   onToggleSidebar,
@@ -60,41 +60,24 @@ export function ChatHeader({
   vaultActive,
   workspace,
 }: ChatHeaderProps) {
+  const { t } = useTranslation();
   return (
     <header className="workspace-header">
       <div className="workspace-header-primary">
         <button
           aria-expanded={!sidebarCollapsed}
-          aria-label={
-            sidebarCollapsed
-              ? isEnglish
-                ? "Show sidebar"
-                : "Mostrar sidebar"
-              : isEnglish
-                ? "Hide sidebar"
-                : "Esconder sidebar"
-          }
+          aria-label={sidebarCollapsed ? t("chat.showSidebar") : t("chat.hideSidebar")}
           className="workspace-header-trigger"
           onClick={onToggleSidebar}
-          title={
-            sidebarCollapsed
-              ? isEnglish
-                ? "Show sidebar"
-                : "Mostrar sidebar"
-              : isEnglish
-                ? "Hide sidebar"
-                : "Esconder sidebar"
-          }
+          title={sidebarCollapsed ? t("chat.showSidebar") : t("chat.hideSidebar")}
           type="button"
         >
           <CompactIcon kind="panel" />
         </button>
-        <nav aria-label={isEnglish ? "Breadcrumb" : "Trilha de navegação"} className="breadcrumb">
+        <nav aria-label={t("chat.breadcrumb")} className="breadcrumb">
           <ol className="breadcrumb-list">
             <li className="breadcrumb-item">
-              <span className="breadcrumb-link">
-                {workspace?.name ?? (isEnglish ? "No workspace" : "Sem workspace")}
-              </span>
+              <span className="breadcrumb-link">{workspace?.name ?? t("chat.noWorkspace")}</span>
             </li>
             {workspace?.rootPath && (
               <>
@@ -110,21 +93,19 @@ export function ChatHeader({
             )}
           </ol>
         </nav>
-        <h1 className="thread-title">
-          {sessionTitle ?? (isEnglish ? "New conversation" : "Nova conversa")}
-        </h1>
+        <h1 className="thread-title">{sessionTitle ?? t("chat.newConversation")}</h1>
       </div>
       <div className="chat-controls">
         {providers.length > 0 ? (
           <label className="provider-selector">
-            <span className="sr-only">{isEnglish ? "Provider" : "Provedor"}</span>
+            <span className="sr-only">{t("chat.provider")}</span>
             <select
-              aria-label={isEnglish ? "Select provider" : "Selecionar provedor"}
+              aria-label={t("chat.selectProvider")}
               onChange={(event) => {
                 const nextProvider = providers.find((item) => item.id === event.target.value);
                 if (nextProvider) onSelectProvider(nextProvider);
               }}
-              title={isEnglish ? "Select provider" : "Selecionar provedor"}
+              title={t("chat.selectProvider")}
               value={activeProvider?.id ?? ""}
             >
               {providers.map((item) => (
@@ -135,7 +116,7 @@ export function ChatHeader({
             </select>
           </label>
         ) : (
-          <p className="eyebrow">{isEnglish ? "no provider" : "sem provedor"}</p>
+          <p className="eyebrow">{t("chat.noProvider")}</p>
         )}
         {activeProvider && (
           <div className="usage-indicator-wrap">
@@ -143,41 +124,38 @@ export function ChatHeader({
               aria-expanded={usageOpen}
               className="usage-indicator"
               onClick={() => setUsageOpen((current) => !current)}
-              title={isEnglish ? "Provider usage" : "Uso do provedor"}
+              title={t("chat.providerUsage")}
               type="button"
             >
-              {usageBadgeLabel(usageSummary, isEnglish)}
+              {usageBadgeLabel(usageSummary, t)}
             </button>
             {usageOpen && (
               <div className="usage-popover" role="dialog">
-                <strong>{isEnglish ? "Current context" : "Contexto atual"}</strong>
+                <strong>{t("chat.currentContext")}</strong>
                 <span>
-                  {isEnglish ? "Tokens" : "Tokens"}:{" "}
+                  {t("chat.tokens")}:{" "}
                   {(usageSummary?.lastRequest?.totalTokens ?? 0).toLocaleString()}
                   {usageSummary?.lastRequest?.contextLimit
                     ? ` / ${usageSummary.lastRequest.contextLimit.toLocaleString()}`
                     : ""}
                 </span>
                 <span>
-                  {isEnglish ? "Cached" : "Em cache"}:{" "}
+                  {t("chat.cached")}:{" "}
                   {(usageSummary?.lastRequest?.cachedInputTokens ?? 0).toLocaleString()}
                 </span>
                 <span>
-                  {isEnglish ? "Requests (cumulative)" : "Requisições (acumulado)"}:{" "}
-                  {usageSummary?.totals.requests ?? 0}
+                  {t("chat.requestsCumulative")}: {usageSummary?.totals.requests ?? 0}
                 </span>
                 {usageSummary?.windows.map((window) => (
                   <span key={`${window.metric}-${window.label}`}>
                     {window.label}:{" "}
                     {window.remainingPercent === undefined
-                      ? isEnglish
-                        ? "limit unavailable"
-                        : "limite indisponível"
-                      : `${Math.round(window.remainingPercent)}% ${isEnglish ? "remaining" : "restante"}`}
+                      ? t("chat.limitUnavailable")
+                      : `${Math.round(window.remainingPercent)}% ${t("chat.remaining")}`}
                   </span>
                 ))}
                 <button className="text-button" onClick={onOpenUsageDetails} type="button">
-                  {isEnglish ? "View full usage" : "Ver uso completo"}
+                  {t("chat.viewFullUsage")}
                 </button>
               </div>
             )}

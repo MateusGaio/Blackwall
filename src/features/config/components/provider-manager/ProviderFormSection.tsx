@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { Profile, ProviderModel } from "../../../../shared/api/sidecar";
 import type { ProviderForm } from "./providerForm";
 import type { useModelOptions } from "./useModelOptions";
@@ -9,7 +11,6 @@ type ProviderFormSectionProps = {
   error: string;
   form: ProviderForm;
   isDeletingProfile: boolean;
-  isEnglish: boolean;
   isSaving: boolean;
   modelOptions: ReturnType<typeof useModelOptions>;
   onSignOut: () => Promise<void>;
@@ -27,7 +28,6 @@ export function ProviderFormSection({
   error,
   form,
   isDeletingProfile,
-  isEnglish,
   isSaving,
   modelOptions,
   onSignOut,
@@ -39,19 +39,14 @@ export function ProviderFormSection({
   setFormField,
   status,
 }: ProviderFormSectionProps) {
+  const { t } = useTranslation();
   return (
     <form className="provider-form settings-form" onSubmit={onSubmit}>
       <p className="eyebrow">
-        {editingId
-          ? isEnglish
-            ? "Edit provider"
-            : "Editar provedor"
-          : isEnglish
-            ? "Add provider"
-            : "Adicionar provedor"}
+        {editingId ? t("settings.editProvider") : t("settings.addProvider")}
       </p>
       <label className="field-label" htmlFor="settings-provider-type">
-        {isEnglish ? "Type" : "Tipo"}
+        {t("settings.type")}
         <select
           id="settings-provider-type"
           onChange={(event) => setFormField("type", event.target.value)}
@@ -62,7 +57,7 @@ export function ProviderFormSection({
         </select>
       </label>
       <label className="field-label" htmlFor="settings-provider-name">
-        {isEnglish ? "Name" : "Nome"}
+        {t("settings.name")}
         <input
           id="settings-provider-name"
           onChange={(event) => setFormField("name", event.target.value)}
@@ -78,7 +73,7 @@ export function ProviderFormSection({
         />
       </label>
       <label className="field-label" htmlFor="settings-provider-model">
-        {isEnglish ? "Default model" : "Modelo padrão"}
+        {t("settings.defaultModel")}
         <div className="model-input-row">
           <input
             id="settings-provider-model"
@@ -94,18 +89,12 @@ export function ProviderFormSection({
             onClick={() => void modelOptions.listModels()}
             type="button"
           >
-            {modelOptions.isListingModels
-              ? isEnglish
-                ? "Listing…"
-                : "Listando…"
-              : isEnglish
-                ? "List models"
-                : "Listar modelos"}
+            {modelOptions.isListingModels ? t("settings.listing") : t("settings.listModels")}
           </button>
         </div>
         {modelOptions.providerModels.length > 0 && (
           <select
-            aria-label={isEnglish ? "Available models" : "Modelos disponíveis"}
+            aria-label={t("settings.availableModels")}
             onChange={(event) => setFormField("model", event.target.value)}
             value={form.model}
           >
@@ -119,22 +108,18 @@ export function ProviderFormSection({
         {editingId && modelOptions.providerModels.length > 0 && (
           <>
             <select
-              aria-label={isEnglish ? "Tool calling mode" : "Modo de ferramentas"}
+              aria-label={t("settings.toolCallingMode")}
               onChange={(event) =>
                 void modelOptions.changeToolMode(event.target.value as ProviderModel["toolMode"])
               }
               value={modelOptions.toolMode}
             >
-              <option value="auto">
-                {isEnglish ? "Native tools (automatic)" : "Ferramentas nativas (automático)"}
-              </option>
-              <option value="compatibility">
-                {isEnglish ? "Compatibility JSON (opt-in)" : "JSON de compatibilidade (opt-in)"}
-              </option>
-              <option value="disabled">{isEnglish ? "Disabled" : "Desativado"}</option>
+              <option value="auto">{t("settings.nativeToolsAutomatic")}</option>
+              <option value="compatibility">{t("settings.compatibilityJsonOptin")}</option>
+              <option value="disabled">{t("settings.disabled")}</option>
             </select>
             <select
-              aria-label={isEnglish ? "Protocol preference" : "Preferência de protocolo"}
+              aria-label={t("settings.protocolPreference")}
               onChange={(event) =>
                 void modelOptions.changeProtocol(
                   event.target.value as NonNullable<ProviderModel["protocolPreference"]>,
@@ -142,14 +127,12 @@ export function ProviderFormSection({
               }
               value={modelOptions.protocolPreference}
             >
-              <option value="auto">
-                {isEnglish ? "Protocol: automatic" : "Protocolo: automático"}
-              </option>
+              <option value="auto">{t("settings.protocolAutomatic")}</option>
               <option value="openai-chat">OpenAI Chat Completions</option>
               <option value="openai-responses">OpenAI Responses</option>
             </select>
             <select
-              aria-label={isEnglish ? "Parallel tool calls" : "Chamadas de ferramenta paralelas"}
+              aria-label={t("settings.parallelToolCalls")}
               onChange={(event) =>
                 void modelOptions.changeParallelToolCalls(
                   event.target.value as ProviderModel["parallelToolCalls"],
@@ -157,17 +140,9 @@ export function ProviderFormSection({
               }
               value={modelOptions.parallelToolCalls}
             >
-              <option value="auto">
-                {isEnglish
-                  ? "Parallel calls: automatic (on for OpenRouter only)"
-                  : "Chamadas paralelas: automático (ligado só na OpenRouter)"}
-              </option>
-              <option value="enabled">
-                {isEnglish ? "Parallel calls: force on" : "Chamadas paralelas: forçar ligado"}
-              </option>
-              <option value="disabled">
-                {isEnglish ? "Parallel calls: force off" : "Chamadas paralelas: forçar desligado"}
-              </option>
+              <option value="auto">{t("settings.parallelCallsAutomaticOnFor")}</option>
+              <option value="enabled">{t("settings.parallelCallsForceOn")}</option>
+              <option value="disabled">{t("settings.parallelCallsForceOff")}</option>
             </select>
             <div className="provider-model-capability" aria-live="polite">
               {(() => {
@@ -176,20 +151,12 @@ export function ProviderFormSection({
                 );
                 const support = selected?.toolSupport ?? "unknown";
                 return support === "native"
-                  ? isEnglish
-                    ? "Native tools · verified"
-                    : "Ferramentas nativas · verificado"
+                  ? t("settings.nativeToolsVerified")
                   : support === "unsupported"
-                    ? isEnglish
-                      ? "This model does not advertise tools"
-                      : "Este modelo não anuncia ferramentas"
+                    ? t("settings.modelNoTools")
                     : support === "probe-error"
-                      ? isEnglish
-                        ? "Tool probe failed"
-                        : "O teste de ferramentas falhou"
-                      : isEnglish
-                        ? "Tool support not tested"
-                        : "Suporte a ferramentas não testado";
+                      ? t("settings.toolProbeFailed")
+                      : t("settings.toolSupportNotTested");
               })()}
             </div>
             <button
@@ -198,27 +165,19 @@ export function ProviderFormSection({
               onClick={() => void modelOptions.probeTools()}
               type="button"
             >
-              {modelOptions.isProbingTools
-                ? isEnglish
-                  ? "Testing…"
-                  : "Testando…"
-                : isEnglish
-                  ? "Test tools"
-                  : "Testar ferramentas"}
+              {modelOptions.isProbingTools ? t("settings.testing") : t("settings.testTools")}
             </button>
           </>
         )}
       </label>
       {form.type === "openai-compatible" && (
         <label className="field-label" htmlFor="settings-provider-key">
-          {isEnglish ? "API key" : "Chave de API"}
+          {t("settings.apiKey")}
           <input
             autoComplete="off"
             id="settings-provider-key"
             onChange={(event) => setFormField("apiKey", event.target.value)}
-            placeholder={
-              editingId ? (isEnglish ? "Keep current key" : "Manter chave atual") : "sk-…"
-            }
+            placeholder={editingId ? t("settings.keepCurrentKey") : "sk-…"}
             type="password"
             value={form.apiKey}
           />
@@ -231,18 +190,18 @@ export function ProviderFormSection({
           onClick={() => void onTest()}
           type="button"
         >
-          {isEnglish ? "Test" : "Testar"}
+          {t("settings.test")}
         </button>
         <button
           className="button button-primary"
           disabled={isSaving || !form.name.trim() || !form.baseUrl.trim() || !form.model.trim()}
           type="submit"
         >
-          {isSaving ? (isEnglish ? "Saving…" : "Salvando…") : isEnglish ? "Save" : "Salvar"}
+          {isSaving ? t("settings.saving") : t("settings.save")}
         </button>
         {editingId && (
           <button className="text-button" onClick={reset} type="button">
-            {isEnglish ? "Cancel" : "Cancelar"}
+            {t("settings.cancel")}
           </button>
         )}
         <button
@@ -250,7 +209,7 @@ export function ProviderFormSection({
           onClick={() => void onSignOut()}
           type="button"
         >
-          {isEnglish ? "Sign out" : "Sair do perfil"}
+          {t("settings.signOut")}
         </button>
         {profile && (
           <button
@@ -259,7 +218,7 @@ export function ProviderFormSection({
             onClick={requestDeleteProfile}
             type="button"
           >
-            {isEnglish ? "Delete profile" : "Excluir perfil"}
+            {t("settings.deleteProfile")}
           </button>
         )}
       </div>

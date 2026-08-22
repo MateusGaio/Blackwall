@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import type { RefObject } from "react";
+import { useTranslation } from "react-i18next";
 import type { ChatMessage } from "../../shared/api/sidecar";
 import { SafeMarkdown } from "../../shared/components/SafeMarkdown";
 import { ConversationSummaryCard } from "../ConversationSummaryCard";
@@ -10,7 +12,6 @@ type MessageListProps = {
   copyMessage: (message: ChatMessage) => void;
   editingMessageDraft: string;
   editingMessageId: string | null;
-  isEnglish: boolean;
   isSending: boolean;
   listRef: RefObject<HTMLOListElement | null>;
   onEditCancel: () => void;
@@ -28,7 +29,6 @@ export function MessageList({
   copyMessage,
   editingMessageDraft,
   editingMessageId,
-  isEnglish,
   isSending,
   listRef,
   onEditCancel,
@@ -40,15 +40,12 @@ export function MessageList({
   streamingStatus,
   visibleMessages,
 }: MessageListProps) {
+  const { t } = useTranslation();
   return (
     <ol className="message-list" ref={listRef}>
       {visibleMessages.map((message) =>
         message.isSummary ? (
-          <ConversationSummaryCard
-            content={message.content}
-            isEnglish={isEnglish}
-            key={message.id}
-          />
+          <ConversationSummaryCard content={message.content} key={message.id} />
         ) : (
           <li className={`message message-${message.role}`} key={message.id}>
             {editingMessageId === message.id ? (
@@ -60,29 +57,29 @@ export function MessageList({
                 }}
               >
                 <textarea
-                  aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
+                  aria-label={t("chat.editMessage")}
                   onChange={(event) => onEditChange(event.target.value)}
                   value={editingMessageDraft}
                 />
                 <div className="message-actions">
                   <button className="button button-secondary" onClick={onEditCancel} type="button">
-                    {isEnglish ? "Cancel" : "Cancelar"}
+                    {t("chat.cancel")}
                   </button>
                   <button className="button button-primary" type="submit">
-                    {isEnglish ? "Save and regenerate" : "Salvar e regenerar"}
+                    {t("chat.saveAndRegenerate")}
                   </button>
                 </div>
               </form>
             ) : (
               <>
-                <SafeMarkdown content={message.content} locale={isEnglish ? "en" : "pt-BR"} />
+                <SafeMarkdown content={message.content} />
                 <div className="action-bar" data-action-bar>
                   {message.role === "user" && (
                     <button
-                      aria-label={isEnglish ? "Edit message" : "Editar mensagem"}
+                      aria-label={t("chat.editMessage")}
                       className="action-bar-button"
                       onClick={() => onEditingStart(message)}
-                      title={isEnglish ? "Edit" : "Editar"}
+                      title={t("chat.edit")}
                       type="button"
                     >
                       <CompactIcon kind="edit" />
@@ -91,18 +88,10 @@ export function MessageList({
                   {message.role === "assistant" && message.id === visibleMessages.at(-1)?.id && (
                     <>
                       <button
-                        aria-label={isEnglish ? "Copy message" : "Copiar mensagem"}
+                        aria-label={t("chat.copyMessage")}
                         className="action-bar-button"
                         onClick={() => copyMessage(message)}
-                        title={
-                          copiedMessageId === message.id
-                            ? isEnglish
-                              ? "Copied"
-                              : "Copiado"
-                            : isEnglish
-                              ? "Copy"
-                              : "Copiar"
-                        }
+                        title={copiedMessageId === message.id ? t("chat.copied") : t("chat.copy")}
                         type="button"
                       >
                         {copiedMessageId === message.id ? (
@@ -112,10 +101,10 @@ export function MessageList({
                         )}
                       </button>
                       <button
-                        aria-label={isEnglish ? "Regenerate response" : "Regenerar resposta"}
+                        aria-label={t("chat.regenerateResponse")}
                         className="action-bar-button"
                         onClick={regenerate}
-                        title={isEnglish ? "Regenerate" : "Regenerar"}
+                        title={t("chat.regenerate")}
                         type="button"
                       >
                         <CompactIcon kind="refresh" />
@@ -130,11 +119,7 @@ export function MessageList({
       )}
       {isSending && (
         <li className="message message-assistant message-streaming">
-          {streamingContent ? (
-            <SafeMarkdown content={streamingContent} locale={isEnglish ? "en" : "pt-BR"} />
-          ) : (
-            streamingStatus
-          )}
+          {streamingContent ? <SafeMarkdown content={streamingContent} /> : streamingStatus}
           <span aria-hidden="true" className="streaming-cursor" />
         </li>
       )}

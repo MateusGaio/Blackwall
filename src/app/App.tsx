@@ -46,14 +46,8 @@ type ProfileChooserProps = {
   profiles: Profile[];
 };
 
-function ProfileChooser({
-  isSelecting,
-  locale,
-  onCreate,
-  onSelect,
-  profiles,
-}: ProfileChooserProps) {
-  const isEnglish = locale === "en";
+function ProfileChooser({ isSelecting, onCreate, onSelect, profiles }: ProfileChooserProps) {
+  const { t } = useTranslation();
   return (
     <main className="app-shell profile-chooser-shell">
       <aside className="brand-column" aria-label="Blackwall">
@@ -63,24 +57,16 @@ function ProfileChooser({
           </span>
           <p className="eyebrow">Blackwall / local-first</p>
         </div>
-        <p className="brand-note">
-          {isEnglish
-            ? "Private by default. Your context stays on your computer."
-            : "Privado por padrão. Seu contexto continua no seu computador."}
-        </p>
+        <p className="brand-note">{t("onboarding.privateByDefaultYourContext")}</p>
       </aside>
       <section
         className="onboarding-area profile-chooser-area"
-        aria-label={isEnglish ? "Choose a profile" : "Escolha de perfil"}
+        aria-label={t("onboarding.chooseAProfile")}
       >
         <div className="profile-chooser-card">
-          <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
-          <h1>{isEnglish ? "Who is using Blackwall?" : "Quem está usando o Blackwall?"}</h1>
-          <p className="profile-chooser-intro">
-            {isEnglish
-              ? "Choose a saved profile or create a new one. Your conversations remain local."
-              : "Escolha um perfil salvo ou crie um novo. Suas conversas permanecem locais."}
-          </p>
+          <p className="eyebrow">{t("onboarding.profile")}</p>
+          <h1>{t("onboarding.whoIsUsingBlackwall")}</h1>
+          <p className="profile-chooser-intro">{t("onboarding.chooseASavedProfileOr")}</p>
           <ul className="profile-choice-list">
             {profiles.map((profile) => (
               <li key={profile.id}>
@@ -113,7 +99,7 @@ function ProfileChooser({
             onClick={onCreate}
             type="button"
           >
-            {isEnglish ? "Create new profile" : "Criar novo perfil"}
+            {t("onboarding.createNewProfile")}
           </button>
         </div>
       </section>
@@ -174,31 +160,10 @@ function OnboardingPanel({
   const stepIndex = onboardingSteps.findIndex((item) => item.id === step.id);
   const isLastStep = stepIndex === onboardingSteps.length - 1;
   const progress = `${((stepIndex + 1) / onboardingSteps.length) * 100}%`;
-  const isEnglish = locale === "en";
-  const title = isEnglish
-    ? {
-        language: "Your local space to think and build.",
-        profile: "What should we call you?",
-        workspace: "Where will we work?",
-        folder: "Choose the project folder.",
-        "workspace-soul": "Give your workspace context.",
-        provider: "Connect your first intelligence.",
-        soul: "Start with a ready-made Soul.",
-        vault: "Knowledge that stays with you.",
-      }[step.id]
-    : step.title;
-  const label = isEnglish
-    ? {
-        language: "Language",
-        profile: "Profile",
-        workspace: "Workspace",
-        folder: "Folder",
-        "workspace-soul": "Workspace context",
-        provider: "Provider",
-        soul: "Soul",
-        vault: "Vault",
-      }[step.id]
-    : step.label;
+  const stepKey = `onboarding.stepTitle.${step.id.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
+  const labelKey = `onboarding.stepLabel.${step.id.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
+  const title = t(stepKey);
+  const label = t(labelKey);
   const brandNote = t("brand.note");
 
   return (
@@ -213,21 +178,17 @@ function OnboardingPanel({
         <p className="brand-note">{brandNote}</p>
       </aside>
 
-      <section
-        className="onboarding-area"
-        aria-label={isEnglish ? "Initial setup" : "Configuração inicial"}
-      >
+      <section className="onboarding-area" aria-label={t("onboarding.initialSetup")}>
         <header className="progress-header">
           <p>
             {String(stepIndex + 1).padStart(2, "0")} /{" "}
             {String(onboardingSteps.length).padStart(2, "0")}
           </p>
           <div
-            aria-label={
-              isEnglish
-                ? `Step ${stepIndex + 1} of ${onboardingSteps.length}`
-                : `Etapa ${stepIndex + 1} de ${onboardingSteps.length}`
-            }
+            aria-label={t("onboarding.stepProgress", {
+              current: stepIndex + 1,
+              total: onboardingSteps.length,
+            })}
             aria-valuemax={onboardingSteps.length}
             aria-valuemin={1}
             aria-valuenow={stepIndex + 1}
@@ -245,18 +206,14 @@ function OnboardingPanel({
           <p className="eyebrow">{label}</p>
           <h1>{title}</h1>
           {step.id === "language" && (
-            <div
-              className="choice-list"
-              role="radiogroup"
-              aria-label={isEnglish ? "Language" : "Idioma"}
-            >
+            <div className="choice-list" role="radiogroup" aria-label={t("onboarding.language")}>
               <button
                 className={locale === "pt-BR" ? "choice is-selected" : "choice"}
                 onClick={() => onLocaleChange("pt-BR")}
                 aria-pressed={locale === "pt-BR"}
                 type="button"
               >
-                {isEnglish ? "Portuguese (Brazil)" : "Português do Brasil"}
+                {t("onboarding.portugueseBrazil")}
                 <span>PT-BR</span>
               </button>
               <button
@@ -272,23 +229,23 @@ function OnboardingPanel({
           )}
           {step.id === "profile" && (
             <label className="field-label" htmlFor="profile-name">
-              {isEnglish ? "Profile name" : "Nome do perfil"}
+              {t("onboarding.profileName")}
               <input
                 autoComplete="name"
                 id="profile-name"
                 onChange={(event) => onProfileNameChange(event.target.value)}
-                placeholder={isEnglish ? "Your name" : "Seu nome"}
+                placeholder={t("onboarding.yourName")}
                 value={profileName}
               />
             </label>
           )}
           {step.id === "workspace" && (
             <label className="field-label" htmlFor="workspace-name">
-              {isEnglish ? "Workspace name" : "Nome do workspace"}
+              {t("onboarding.workspaceName")}
               <input
                 id="workspace-name"
                 onChange={(event) => onWorkspaceNameChange(event.target.value)}
-                placeholder={isEnglish ? "My project" : "Meu projeto"}
+                placeholder={t("onboarding.myProject")}
                 value={workspaceName}
               />
             </label>
@@ -300,15 +257,11 @@ function OnboardingPanel({
                   ⌘
                 </span>
                 <span>
-                  <strong>{isEnglish ? "Choose folder" : "Escolher pasta"}</strong>
+                  <strong>{t("onboarding.chooseFolder")}</strong>
                   <small>
                     {runtime === "desktop"
-                      ? isEnglish
-                        ? "Open the system file explorer"
-                        : "Abrir o explorador de arquivos"
-                      : isEnglish
-                        ? "Open the browser file explorer"
-                        : "Abrir o explorador do navegador"}
+                      ? t("onboarding.openTheSystemFileExplorer")
+                      : t("onboarding.openTheBrowserFileExplorer")}
                   </small>
                 </span>
               </button>
@@ -319,12 +272,8 @@ function OnboardingPanel({
                 type="button"
               >
                 <span>
-                  {isEnglish ? "Start without a workspace" : "Começar sem um workspace"}
-                  <small>
-                    {isEnglish
-                      ? "Add a project folder later"
-                      : "Adicione uma pasta de projeto depois"}
-                  </small>
+                  {t("onboarding.startWithoutAWorkspace")}
+                  <small>{t("onboarding.addAProjectFolderLater")}</small>
                 </span>
                 <span>{startWithoutWorkspace ? "✓" : ""}</span>
               </button>
@@ -333,69 +282,45 @@ function OnboardingPanel({
                   <strong>{folderSelection.name}</strong>
                   {folderSelection.source === "web" && (
                     <span>
-                      {folderSelection.files.length}{" "}
-                      {isEnglish ? "Markdown files selected" : "arquivos Markdown selecionados"}
+                      {folderSelection.files.length} {t("onboarding.markdownFilesSelected")}
                     </span>
                   )}
                 </div>
               )}
-              <span className="field-hint">
-                {isEnglish
-                  ? "Choose a folder to use files and the Vault, or start without a workspace."
-                  : "Escolha uma pasta para usar arquivos e o Vault, ou inicie sem workspace."}
-              </span>
+              <span className="field-hint">{t("onboarding.chooseAFolderToUse")}</span>
             </div>
           )}
           {step.id === "soul" && (
             <SoulPicker
-              hint={
-                isEnglish
-                  ? "This Soul guides your profile in every workspace. You can edit any preset."
-                  : "Esta Soul orienta seu perfil em todos os workspaces. Você pode editar qualquer preset."
-              }
+              hint={t("onboarding.thisSoulGuidesYourProfile")}
               id="soul-prompt"
-              label={isEnglish ? "Profile Soul" : "Soul do perfil"}
-              locale={locale}
+              label={t("onboarding.profileSoul")}
               onChange={onSoulChange}
               value={soul}
             />
           )}
           {step.id === "workspace-soul" && (
             <label className="field-label" htmlFor="workspace-soul-prompt">
-              {isEnglish ? "Workspace context" : "Contexto do workspace"}
+              {t("onboarding.workspaceContext")}
               <textarea
                 id="workspace-soul-prompt"
                 onChange={(event) => onWorkspaceSoulChange(event.target.value)}
-                placeholder={
-                  isEnglish
-                    ? "Describe the project, conventions and goals…"
-                    : "Descreva o projeto, as convenções e os objetivos…"
-                }
+                placeholder={t("onboarding.describeTheProjectConventionsAnd")}
                 rows={6}
                 value={workspaceSoul}
               />
-              <span className="field-hint">
-                {isEnglish
-                  ? "Add context that should guide conversations in this workspace."
-                  : "Adicione o contexto que deve orientar as conversas neste workspace."}
-              </span>
+              <span className="field-hint">{t("onboarding.addContextThatShouldGuide")}</span>
             </label>
           )}
           {step.id === "provider" && (
             <Suspense fallback={<div className="provider-skeleton skeleton" aria-busy="true" />}>
-              <ProviderSetup locale={locale} onConnected={onProviderConnected} />
+              <ProviderSetup onConnected={onProviderConnected} />
             </Suspense>
           )}
           {step.id === "vault" && (
             <div className="info-panel">
-              <strong>
-                {isEnglish ? "A real Vault, in Markdown." : "Um Vault real, em Markdown."}
-              </strong>
-              <p>
-                {isEnglish
-                  ? "Blackwall will keep notes, links, and context in files you can also open in Obsidian."
-                  : "O Blackwall manterá notas, links e contexto em arquivos que você também pode abrir no Obsidian."}
-              </p>
+              <strong>{t("onboarding.aRealVaultInMarkdown")}</strong>
+              <p>{t("onboarding.blackwallWillKeepNotesLinks")}</p>
             </div>
           )}
 
@@ -406,7 +331,7 @@ function OnboardingPanel({
               onClick={(event) => onBack(event.detail !== 0)}
               type="button"
             >
-              {isEnglish ? "Back" : "Voltar"}
+              {t("onboarding.back")}
             </button>
             {step.id !== "provider" && (
               <button
@@ -422,24 +347,17 @@ function OnboardingPanel({
                 type="button"
               >
                 {isCompleting
-                  ? isEnglish
-                    ? "Saving…"
-                    : "Salvando…"
+                  ? t("onboarding.saving")
                   : isLastStep
-                    ? isEnglish
-                      ? "Enter Blackwall"
-                      : "Entrar no Blackwall"
-                    : isEnglish
-                      ? "Continue"
-                      : "Continuar"}
+                    ? t("onboarding.enterBlackwall")
+                    : t("onboarding.continue")}
               </button>
             )}
           </footer>
           {completionError && <p className="form-error">{completionError}</p>}
         </div>
         <p className="stage-status">
-          {isEnglish ? "Local setup" : "Configuração local"} · {runtime} · {progress}{" "}
-          {isEnglish ? "complete" : "concluída"}
+          {t("onboarding.localSetup")} · {runtime} · {progress} {t("onboarding.complete")}
         </p>
       </section>
     </main>

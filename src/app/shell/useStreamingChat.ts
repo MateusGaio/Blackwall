@@ -1,4 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import {
   type Dispatch,
   type FormEvent,
@@ -7,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import {
   type AppState,
   type ChatMessage,
@@ -29,7 +31,6 @@ type UseStreamingChatOptions = {
   activeSessionIdRef: RefObject<string | null>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
-  isEnglish: boolean;
   messages: ChatMessage[];
   selectedModel: string;
   setActiveSessionId: (sessionId: string) => void;
@@ -56,7 +57,6 @@ export function useStreamingChat({
   activeSessionIdRef,
   composerRef,
   draft,
-  isEnglish,
   messages,
   selectedModel,
   setActiveSessionId,
@@ -70,6 +70,7 @@ export function useStreamingChat({
   state,
   workspaceId,
 }: UseStreamingChatOptions) {
+  const { t } = useTranslation();
   const [isSending, setIsSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingStatus, setStreamingStatus] = useState("");
@@ -112,7 +113,7 @@ export function useStreamingChat({
           },
           onCompacting: () => {
             if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(isEnglish ? "Summarizing context…" : "Resumindo contexto…");
+              setStreamingStatus(t("errors.summarizingContext"));
           },
           onUsage: () => {
             void getProviderUsage(requestProvider.id, {
@@ -133,19 +134,19 @@ export function useStreamingChat({
             }
             pendingToolDecision.current = resolveDecision;
             setToolApproval(approval);
-            setStreamingStatus(isEnglish ? "Waiting for permission…" : "Aguardando autorização…");
+            setStreamingStatus(t("errors.waitingForPermission"));
           },
           onToolStarted: (tool) => {
             runningToolRef.current = tool;
             if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(`${isEnglish ? "Running" : "Executando"} ${tool}…`);
+              setStreamingStatus(`${t("errors.running")} ${tool}…`);
           },
           onToolCompleted: () => {
             if (runningToolRef.current === "create_or_update_file")
               setVaultRefreshKey((key) => key + 1);
             runningToolRef.current = null;
             if (activeSessionIdRef.current === sessionId)
-              setStreamingStatus(isEnglish ? "Continuing…" : "Continuando…");
+              setStreamingStatus(t("errors.continuing"));
           },
         },
         requestProfileId ?? undefined,

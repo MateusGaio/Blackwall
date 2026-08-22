@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import { type FormEvent, type KeyboardEvent, type RefObject, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { ConnectedProvider, ProviderModel, Workspace } from "../../shared/api/sidecar";
 import { isSubmitShortcut } from "../composer";
 import { CompactIcon } from "./CompactIcon";
@@ -11,7 +13,6 @@ type ComposerProps = {
   changePermissionMode: (mode: Workspace["permissionMode"]) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
-  isEnglish: boolean;
   isSending: boolean;
   modelName: string;
   models: ProviderModel[];
@@ -42,7 +43,6 @@ export function Composer({
   changePermissionMode,
   composerRef,
   draft,
-  isEnglish,
   isSending,
   modelName,
   models,
@@ -58,6 +58,7 @@ export function Composer({
   stopGeneration,
   workspace,
 }: ComposerProps) {
+  const { t } = useTranslation();
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -89,7 +90,7 @@ export function Composer({
         type="file"
       />
       <button
-        aria-label={isEnglish ? "Attach file" : "Anexar arquivo"}
+        aria-label={t("composer.attachFile")}
         className="composer-attach"
         disabled={!activeSessionId || !workspace || isSending}
         onClick={() => fileInput.current?.click()}
@@ -102,21 +103,15 @@ export function Composer({
           <button
             aria-expanded={permissionOpen}
             aria-haspopup="menu"
-            aria-label={isEnglish ? "Permission mode" : "Modo de permissões"}
+            aria-label={t("composer.permissionMode")}
             className="composer-permission"
             onClick={() => setPermissionOpen((current) => !current)}
-            title={`Permissões: ${
+            title={`${t("composer.permissions")}: ${
               workspace.permissionMode === "ask"
-                ? isEnglish
-                  ? "Ask every time"
-                  : "Perguntar sempre"
+                ? t("composer.askEveryTime")
                 : workspace.permissionMode === "automatic"
-                  ? isEnglish
-                    ? "Automatic"
-                    : "Automático"
-                  : isEnglish
-                    ? "Read-only"
-                    : "Somente leitura"
+                  ? t("composer.automaticMode")
+                  : t("composer.readonly")
             }`}
             type="button"
           >
@@ -127,12 +122,12 @@ export function Composer({
           </button>
           {permissionOpen && (
             <div className="permission-popover" role="menu">
-              <p>{isEnglish ? "Permissions" : "Permissões"}</p>
+              <p>{t("composer.permissions")}</p>
               {(
                 [
-                  ["ask", isEnglish ? "Ask every time" : "Perguntar sempre"],
-                  ["automatic", isEnglish ? "Automatic" : "Automático"],
-                  ["read-only", isEnglish ? "Read-only" : "Somente leitura"],
+                  ["ask", t("composer.askEveryTime")],
+                  ["automatic", t("composer.automatic")],
+                  ["read-only", t("composer.readonly")],
                 ] as const
               ).map(([mode, label]) => (
                 <button
@@ -156,7 +151,7 @@ export function Composer({
         </div>
       )}
       <textarea
-        aria-label={isEnglish ? "Message" : "Mensagem"}
+        aria-label={t("composer.message")}
         data-testid="chat-composer"
         disabled={!activeProvider || !activeSessionId || isSending}
         onChange={(event) => {
@@ -164,7 +159,7 @@ export function Composer({
           resizeComposer(event.target);
         }}
         onKeyDown={handleKeyDown}
-        placeholder={isEnglish ? "Write a message…" : "Escreva uma mensagem…"}
+        placeholder={t("composer.writeAMessage")}
         ref={composerRef}
         rows={1}
         value={draft}
@@ -207,20 +202,20 @@ export function Composer({
       )}
       {isSending ? (
         <button
-          aria-label={isEnglish ? "Stop generating" : "Parar geração"}
+          aria-label={t("composer.stopGenerating")}
           className="composer-stop"
           onClick={stopGeneration}
-          title={isEnglish ? "Stop" : "Parar"}
+          title={t("composer.stop")}
           type="button"
         >
           <CompactIcon kind="stop" />
         </button>
       ) : (
         <button
-          aria-label={isEnglish ? "Send message" : "Enviar mensagem"}
+          aria-label={t("composer.sendMessage")}
           className="composer-send"
           disabled={!draft.trim() || !activeProvider || !activeSessionId}
-          title={isEnglish ? "Send message" : "Enviar mensagem"}
+          title={t("composer.sendMessage")}
           type="submit"
         >
           <CompactIcon kind="send" />

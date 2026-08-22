@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   discoverProviderModels,
   type ProviderModel,
@@ -13,7 +15,6 @@ import type { ProviderForm } from "./providerForm";
 type UseModelOptionsArgs = {
   editingId: string | null;
   form: ProviderForm;
-  isEnglish: boolean;
   onFieldChange: (field: keyof ProviderForm, value: string) => void;
   setError: (error: string) => void;
   setStatus: (status: string) => void;
@@ -22,11 +23,11 @@ type UseModelOptionsArgs = {
 export function useModelOptions({
   editingId,
   form,
-  isEnglish,
   onFieldChange,
   setError,
   setStatus,
 }: UseModelOptionsArgs) {
+  const { t } = useTranslation();
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [isListingModels, setIsListingModels] = useState(false);
   const [toolMode, setToolMode] = useState<ProviderModel["toolMode"]>("auto");
@@ -64,20 +65,9 @@ export function useModelOptions({
           "auto",
       );
       if (!form.model && listed[0]) onFieldChange("model", listed[0].id);
-      if (!listed.length)
-        setStatus(
-          isEnglish
-            ? "This provider returned no models."
-            : "Nenhum modelo foi retornado por este provedor.",
-        );
+      if (!listed.length) setStatus(t("settings.thisProviderReturnedNoModels"));
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not list models."
-            : "Não foi possível listar os modelos.",
-      );
+      setError(reason instanceof Error ? reason.message : t("settings.couldNotListModels"));
     } finally {
       setIsListingModels(false);
     }
@@ -88,15 +78,9 @@ export function useModelOptions({
     if (!editingId || !form.model) return;
     try {
       await setProviderModelProtocol(editingId, form.model, next);
-      setStatus(isEnglish ? "Protocol preference saved." : "Preferência de protocolo salva.");
+      setStatus(t("settings.protocolPreferenceSaved"));
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save protocol."
-            : "Não foi possível salvar o protocolo.",
-      );
+      setError(reason instanceof Error ? reason.message : t("settings.couldNotSaveProtocol"));
     }
   }
 
@@ -117,15 +101,9 @@ export function useModelOptions({
       setProviderModels((current) =>
         current.map((model) => (model.id === probed.id ? { ...model, ...probed } : model)),
       );
-      setStatus(isEnglish ? "Tool support checked." : "Suporte a ferramentas verificado.");
+      setStatus(t("settings.toolSupportChecked"));
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not test tools."
-            : "Não foi possível testar as ferramentas.",
-      );
+      setError(reason instanceof Error ? reason.message : t("settings.couldNotTestTools"));
     } finally {
       setIsProbingTools(false);
     }
@@ -136,15 +114,9 @@ export function useModelOptions({
     if (!editingId || !form.model || !next) return;
     try {
       await setProviderModelToolMode(editingId, form.model, next);
-      setStatus(isEnglish ? "Tool mode saved." : "Modo de ferramentas salvo.");
+      setStatus(t("settings.toolModeSaved"));
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save tool mode."
-            : "Não foi possível salvar o modo de ferramentas.",
-      );
+      setError(reason instanceof Error ? reason.message : t("settings.couldNotSaveToolMode"));
     }
   }
 
@@ -153,19 +125,9 @@ export function useModelOptions({
     if (!editingId || !form.model || !next) return;
     try {
       await setProviderModelParallelToolCalls(editingId, form.model, next);
-      setStatus(
-        isEnglish
-          ? "Parallel tool calls setting saved."
-          : "Preferência de chamadas paralelas salva.",
-      );
+      setStatus(t("settings.parallelToolCallsSettingSaved"));
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save the parallel tool calls setting."
-            : "Não foi possível salvar a preferência de chamadas paralelas.",
-      );
+      setError(reason instanceof Error ? reason.message : t("settings.couldNotSaveTheParallel"));
     }
   }
 

@@ -1,8 +1,8 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import { useTranslation } from "react-i18next";
 import type { SessionSummary } from "../../shared/api/sidecar";
 
 type RenameSessionDialogProps = {
-  isEnglish: boolean;
   onCancel: () => void;
   onRenameDraftChange: (draft: string) => void;
   onSubmit: (sessionId: string, currentTitle: string) => void;
@@ -11,13 +11,13 @@ type RenameSessionDialogProps = {
 };
 
 export function RenameSessionDialog({
-  isEnglish,
   onCancel,
   onRenameDraftChange,
   onSubmit,
   renameDraft,
   sessionToRename,
 }: RenameSessionDialogProps) {
+  const { t } = useTranslation();
   if (!sessionToRename) return null;
   return (
     <div className="confirm-backdrop" role="presentation">
@@ -27,8 +27,8 @@ export function RenameSessionDialog({
         className="confirm-dialog"
         role="dialog"
       >
-        <p className="eyebrow">{isEnglish ? "Session" : "Sessão"}</p>
-        <h2 id="rename-session-title">{isEnglish ? "Rename conversation" : "Renomear conversa"}</h2>
+        <p className="eyebrow">{t("sessions.session")}</p>
+        <h2 id="rename-session-title">{t("sessions.renameConversation")}</h2>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -36,7 +36,7 @@ export function RenameSessionDialog({
           }}
         >
           <label className="settings-field">
-            <span>{isEnglish ? "New name" : "Novo nome"}</span>
+            <span>{t("sessions.newName")}</span>
             <input
               onChange={(event) => onRenameDraftChange(event.target.value)}
               value={renameDraft}
@@ -44,10 +44,10 @@ export function RenameSessionDialog({
           </label>
           <footer className="confirm-dialog-actions">
             <button className="button button-secondary" onClick={onCancel} type="button">
-              {isEnglish ? "Cancel" : "Cancelar"}
+              {t("sessions.cancel")}
             </button>
             <button className="button button-primary" disabled={!renameDraft.trim()} type="submit">
-              {isEnglish ? "Save" : "Salvar"}
+              {t("sessions.save")}
             </button>
           </footer>
         </form>
@@ -57,7 +57,6 @@ export function RenameSessionDialog({
 }
 
 type CommandPaletteProps = {
-  isEnglish: boolean;
   onClose: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSettings: () => void;
@@ -67,7 +66,6 @@ type CommandPaletteProps = {
 };
 
 export function CommandPalette({
-  isEnglish,
   onClose,
   onOpenSession,
   onOpenSettings,
@@ -75,21 +73,19 @@ export function CommandPalette({
   recentSessions,
   setPaletteQuery,
 }: CommandPaletteProps) {
+  const { t } = useTranslation();
   return (
     <div className="command-backdrop" role="presentation">
-      <section
-        aria-label={isEnglish ? "Command palette" : "Paleta de comandos"}
-        className="command-palette"
-      >
+      <section aria-label={t("sessions.commandPalette")} className="command-palette">
         <input
-          aria-label={isEnglish ? "Search commands" : "Pesquisar comandos"}
+          aria-label={t("sessions.searchCommands")}
           onChange={(event) => setPaletteQuery(event.target.value)}
-          placeholder={isEnglish ? "Search sessions and actions…" : "Pesquisar sessões e ações…"}
+          placeholder={t("sessions.searchSessionsAndActions")}
           value={paletteQuery}
         />
         <div className="command-list">
           <button onClick={onOpenSettings} type="button">
-            {isEnglish ? "Open settings" : "Abrir configurações"}
+            {t("sessions.openSettings")}
           </button>
           {recentSessions
             .filter((session) =>
@@ -104,7 +100,7 @@ export function CommandPalette({
                 }}
                 type="button"
               >
-                {isEnglish ? "Open session: " : "Abrir sessão: "}
+                {t("sessions.openSession")}
                 {session.title}
               </button>
             ))}

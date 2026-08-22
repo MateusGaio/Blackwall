@@ -1,5 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
 import { type FormEvent, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   type ConnectedProvider,
   connectProvider,
@@ -8,12 +10,11 @@ import {
 } from "../../../shared/api/sidecar";
 
 type ProviderSetupProps = {
-  locale: "pt-BR" | "en";
   onConnected: (provider: ConnectedProvider) => void;
 };
 
-export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
-  const isEnglish = locale === "en";
+export function ProviderSetup({ onConnected }: ProviderSetupProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState("OpenRouter");
   const [baseUrl, setBaseUrl] = useState("https://openrouter.ai/api/v1");
   const [model, setModel] = useState("openai/gpt-4o-mini");
@@ -55,13 +56,7 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
       setModels(discovered);
       if (!model && discovered[0]) setModel(discovered[0].id);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not list models."
-            : "Não foi possível listar os modelos.",
-      );
+      setError(reason instanceof Error ? reason.message : t("onboarding.couldNotListModels"));
     } finally {
       setIsDiscovering(false);
     }
@@ -83,11 +78,7 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
       );
     } catch (reason) {
       setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not connect the provider."
-            : "Não foi possível conectar o provedor.",
+        reason instanceof Error ? reason.message : t("onboarding.couldNotConnectTheProvider"),
       );
     } finally {
       setIsConnecting(false);
@@ -96,13 +87,9 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
 
   return (
     <form className="provider-form" onSubmit={submit}>
-      <p className="provider-notice">
-        {isEnglish
-          ? "The key is validated once and remains encrypted on this device only."
-          : "A chave é validada uma vez e permanece criptografada apenas neste dispositivo."}
-      </p>
+      <p className="provider-notice">{t("onboarding.theKeyIsValidatedOnce")}</p>
       <fieldset className="field-label provider-type-fieldset">
-        <legend>{isEnglish ? "Provider type" : "Tipo de provedor"}</legend>
+        <legend>{t("onboarding.providerType")}</legend>
         <div className="provider-type-picker">
           <button
             aria-pressed={providerType === "openai-compatible"}
@@ -110,12 +97,8 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
             onClick={() => changeProviderType("openai-compatible")}
             type="button"
           >
-            <strong>{isEnglish ? "Compatible API" : "API compatível"}</strong>
-            <span>
-              {isEnglish
-                ? "OpenRouter, OpenCode Zen and compatible endpoints."
-                : "OpenRouter, OpenCode Zen e endpoints compatíveis."}
-            </span>
+            <strong>{t("onboarding.compatibleApi")}</strong>
+            <span>{t("onboarding.openrouterOpencodeZenAndCompatible")}</span>
           </button>
           <button
             aria-pressed={providerType === "ollama"}
@@ -124,16 +107,12 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
             type="button"
           >
             <strong>Ollama local</strong>
-            <span>
-              {isEnglish
-                ? "Models installed on your computer."
-                : "Modelos instalados no seu computador."}
-            </span>
+            <span>{t("onboarding.modelsInstalledOnYourComputer")}</span>
           </button>
         </div>
       </fieldset>
       <label className="field-label" htmlFor="provider-name">
-        {isEnglish ? "Provider name" : "Nome do provedor"}
+        {t("onboarding.providerName")}
         <input id="provider-name" onChange={(event) => setName(event.target.value)} value={name} />
       </label>
       <label className="field-label" htmlFor="provider-url">
@@ -145,7 +124,7 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
         />
       </label>
       <label className="field-label" htmlFor="provider-model">
-        {isEnglish ? "Model" : "Modelo"}
+        {t("onboarding.model")}
         <div className="model-input-row">
           <input
             id="provider-model"
@@ -158,12 +137,12 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
             onClick={() => void discoverModels()}
             type="button"
           >
-            {isDiscovering ? (isEnglish ? "Listing…" : "Listando…") : isEnglish ? "List" : "Listar"}
+            {isDiscovering ? t("onboarding.listing") : t("onboarding.list")}
           </button>
         </div>
         {models.length > 0 && (
           <select
-            aria-label={isEnglish ? "Available model" : "Modelo disponível"}
+            aria-label={t("onboarding.availableModel")}
             onChange={(event) => setModel(event.target.value)}
             value={model}
           >
@@ -177,7 +156,7 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
       </label>
       {providerType === "openai-compatible" && (
         <label className="field-label" htmlFor="provider-key">
-          {isEnglish ? "API key" : "Chave de API"}
+          {t("onboarding.apiKey")}
           <input
             autoComplete="off"
             id="provider-key"
@@ -199,13 +178,7 @@ export function ProviderSetup({ locale, onConnected }: ProviderSetupProps) {
         }
         type="submit"
       >
-        {isConnecting
-          ? isEnglish
-            ? "Checking connection…"
-            : "Verificando conexão…"
-          : isEnglish
-            ? "Connect and continue"
-            : "Conectar e continuar"}
+        {isConnecting ? t("onboarding.checkingConnection") : t("onboarding.connectAndContinue")}
       </button>
     </form>
   );

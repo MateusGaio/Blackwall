@@ -1,7 +1,14 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
+import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import "../../i18n";
 import { SafeMarkdown } from "./SafeMarkdown";
+
+beforeAll(async () => {
+  await i18next.init();
+});
 
 describe("SafeMarkdown", () => {
   it("renderiza hierarquia Markdown e reserva a caixa apenas para código", () => {
@@ -31,13 +38,13 @@ describe("SafeMarkdown", () => {
     expect(markup).not.toContain('target="_blank"');
   });
 
-  it("localiza ações do Markdown quando o perfil está em inglês", () => {
+  it("localiza ações do Markdown quando o perfil está em inglês", async () => {
+    await i18next.changeLanguage("en");
     const markup = renderToStaticMarkup(
       <SafeMarkdown
         content={"[Missing note](missing.md)\n\n```ts\nconst value = 1;\n```"}
         currentPath="index.md"
         files={[{ content: "# Index", headings: ["Index"], path: "index.md", title: "Index" }]}
-        locale="en"
         onLocalLink={() => undefined}
       />,
     );
