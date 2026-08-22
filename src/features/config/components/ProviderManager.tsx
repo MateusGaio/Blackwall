@@ -12,7 +12,7 @@ import {
   type Workspace,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
-import { SoulPicker } from "../../../shared/components/SoulPicker";
+import { ProfileSettings } from "./provider-manager/ProfileSettings";
 import { ProviderList } from "./provider-manager/ProviderList";
 import { emptyForm, type ProviderForm } from "./provider-manager/providerForm";
 import { useModelOptions } from "./provider-manager/useModelOptions";
@@ -235,95 +235,21 @@ export function ProviderManager({
           profileId={profileId}
           providers={providers}
         />
-        <form className="settings-section profile-settings" onSubmit={profileSettings.saveProfile}>
-          <div className="settings-section-heading">
-            <div>
-              <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
-              <h3>{isEnglish ? "What should we call you?" : "Como você quer ser chamado?"}</h3>
-            </div>
-            <div className="profile-avatar-preview" aria-hidden="true">
-              {profileSettings.profileAvatar ? (
-                <img alt="" src={profileSettings.profileAvatar} />
-              ) : (
-                <span>BW</span>
-              )}
-            </div>
-          </div>
-          <label className="field-label" htmlFor="settings-profile-name">
-            {isEnglish ? "Name" : "Nome"}
-            <input
-              id="settings-profile-name"
-              onChange={(event) => profileSettings.setProfileName(event.target.value)}
-              value={profileSettings.profileName}
-            />
-          </label>
-          <div className="profile-avatar-actions">
-            <label className="button button-secondary" htmlFor="settings-profile-avatar">
-              {isEnglish ? "Change photo" : "Alterar foto"}
-              <input
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="sr-only"
-                id="settings-profile-avatar"
-                onChange={profileSettings.chooseProfileAvatar}
-                type="file"
-              />
-            </label>
-            {profileSettings.profileAvatar && (
-              <button
-                className="text-button"
-                onClick={() => profileSettings.setProfileAvatar(null)}
-                type="button"
-              >
-                {isEnglish ? "Remove photo" : "Remover foto"}
-              </button>
-            )}
-            <small>
-              {isEnglish
-                ? "PNG, JPEG, WebP or GIF · up to 2 MB · stays on this device"
-                : "PNG, JPEG, WebP ou GIF · até 2 MB · fica somente neste dispositivo"}
-            </small>
-          </div>
-          <SoulPicker
-            hint={
-              isEnglish
-                ? "Choose a ready-made personality or write your own prompt."
-                : "Escolha uma personalidade pronta ou escreva seu próprio prompt."
-            }
-            id="settings-profile-soul"
-            label={isEnglish ? "Profile Soul" : "Soul do perfil"}
-            locale={profileLocale}
-            onChange={profileSettings.setProfileSoul}
-            rows={4}
-            value={profileSettings.profileSoul}
-          />
-          <div className="settings-actions">
-            <button
-              className="button button-primary"
-              disabled={
-                profileSettings.isSavingProfile ||
-                !profileSettings.profileName.trim() ||
-                !profileSettings.profileSoul.trim()
-              }
-              type="submit"
-            >
-              {profileSettings.isSavingProfile
-                ? isEnglish
-                  ? "Saving…"
-                  : "Salvando…"
-                : isEnglish
-                  ? "Save profile"
-                  : "Salvar perfil"}
-            </button>
-          </div>
-          {profileSettings.profileStatus && (
-            <p className="settings-status">{profileSettings.profileStatus}</p>
-          )}
-          {profileSettings.profileError && (
-            <p className="form-error" role="alert">
-              {profileSettings.profileError}
-            </p>
-          )}
-        </form>
+        <ProfileSettings
+          isEnglish={isEnglish}
+          isSavingProfile={profileSettings.isSavingProfile}
+          onAvatarChange={profileSettings.chooseProfileAvatar}
+          onSave={profileSettings.saveProfile}
+          profileAvatar={profileSettings.profileAvatar}
+          profileError={profileSettings.profileError}
+          profileLocale={profileLocale}
+          profileName={profileSettings.profileName}
+          profileSoul={profileSettings.profileSoul}
+          profileStatus={profileSettings.profileStatus}
+          setProfileAvatar={profileSettings.setProfileAvatar}
+          setProfileName={profileSettings.setProfileName}
+          setProfileSoul={profileSettings.setProfileSoul}
+        />
         <section aria-labelledby="workspace-settings-title" className="settings-section">
           <p className="eyebrow" id="workspace-settings-title">
             {isEnglish ? "Workspaces" : "Workspaces"}
