@@ -12,13 +12,8 @@ import {
   connectProvider,
   createWorkspace,
   deleteProvider,
-  discoverProviderModels,
   type Profile,
   type ProviderModel,
-  probeProviderModel,
-  setProviderModelParallelToolCalls,
-  setProviderModelProtocol,
-  setProviderModelToolMode,
   setWorkspaceSoul,
   testProvider,
   updateProfile,
@@ -27,6 +22,8 @@ import {
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 import { SoulPicker } from "../../../shared/components/SoulPicker";
+import { emptyForm, type ProviderForm } from "./provider-manager/providerForm";
+import { useModelOptions } from "./provider-manager/useModelOptions";
 import { UsageDashboard } from "./UsageDashboard";
 
 type ProviderManagerProps = {
@@ -45,22 +42,6 @@ type ProviderManagerProps = {
   profileId: string | null;
   providers: ConnectedProvider[];
   workspaces: Workspace[];
-};
-
-type ProviderForm = {
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-  name: string;
-  type: ConnectedProvider["type"];
-};
-
-const emptyForm: ProviderForm = {
-  apiKey: "",
-  baseUrl: "http://127.0.0.1:11434",
-  model: "",
-  name: "Ollama local",
-  type: "ollama",
 };
 
 export function ProviderManager({
@@ -98,14 +79,6 @@ export function ProviderManager({
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
-  const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
-  const [isListingModels, setIsListingModels] = useState(false);
-  const [toolMode, setToolMode] = useState<ProviderModel["toolMode"]>("auto");
-  const [parallelToolCalls, setParallelToolCalls] =
-    useState<ProviderModel["parallelToolCalls"]>("auto");
-  const [protocolPreference, setProtocolPreference] =
-    useState<ProviderModel["protocolPreference"]>("auto");
-  const [isProbingTools, setIsProbingTools] = useState(false);
   const runtime = currentRuntime();
 
   const activeWorkspace =
@@ -127,6 +100,15 @@ export function ProviderManager({
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  const modelOptions = useModelOptions({
+    editingId,
+    form,
+    isEnglish,
+    onFieldChange: updateForm,
+    setError,
+    setStatus,
+  });
+
   function edit(provider: ConnectedProvider) {
     setEditingId(provider.id);
     setForm({
@@ -138,7 +120,7 @@ export function ProviderManager({
     });
     setError("");
     setStatus("");
-    setProviderModels([]);
+    modelOptions.clearModels();
   }
 
   function reset() {
@@ -146,136 +128,7 @@ export function ProviderManager({
     setForm(emptyForm);
     setError("");
     setStatus("");
-    setProviderModels([]);
-  }
-
-  async function listModels() {
-    setError("");
-    setIsListingModels(true);
-    try {
-      const listed = await discoverProviderModels({
-        apiKey: form.apiKey || undefined,
-        baseUrl: form.baseUrl,
-        id: editingId ?? undefined,
-        name: form.name,
-        type: form.type,
-      });
-      setProviderModels(listed);
-      setToolMode(
-        listed.find((model) => model.id === (form.model || listed[0]?.id))?.toolMode ?? "auto",
-      );
-      setParallelToolCalls(
-        listed.find((model) => model.id === (form.model || listed[0]?.id))?.parallelToolCalls ??
-          "auto",
-      );
-      setProtocolPreference(
-        listed.find((model) => model.id === (form.model || listed[0]?.id))?.protocolPreference ??
-          "auto",
-      );
-      if (!form.model && listed[0]) updateForm("model", listed[0].id);
-      if (!listed.length)
-        setStatus(
-          isEnglish
-            ? "This provider returned no models."
-            : "Nenhum modelo foi retornado por este provedor.",
-        );
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not list models."
-            : "Não foi possível listar os modelos.",
-      );
-    } finally {
-      setIsListingModels(false);
-    }
-  }
-
-  async function changeProtocol(next: NonNullable<ProviderModel["protocolPreference"]>) {
-    setProtocolPreference(next);
-    if (!editingId || !form.model) return;
-    try {
-      await setProviderModelProtocol(editingId, form.model, next);
-      setStatus(isEnglish ? "Protocol preference saved." : "Preferência de protocolo salva.");
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save protocol."
-            : "Não foi possível salvar o protocolo.",
-      );
-    }
-  }
-
-  async function probeTools() {
-    if (!editingId || !form.model) return;
-    setIsProbingTools(true);
-    setError("");
-    try {
-      const probed = await probeProviderModel(
-        editingId,
-        form.model,
-        protocolPreference === "auto"
-          ? undefined
-          : protocolPreference === "openai-responses"
-            ? "openai-responses"
-            : "openai-chat",
-      );
-      setProviderModels((current) =>
-        current.map((model) => (model.id === probed.id ? { ...model, ...probed } : model)),
-      );
-      setStatus(isEnglish ? "Tool support checked." : "Suporte a ferramentas verificado.");
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not test tools."
-            : "Não foi possível testar as ferramentas.",
-      );
-    } finally {
-      setIsProbingTools(false);
-    }
-  }
-
-  async function changeToolMode(next: ProviderModel["toolMode"]) {
-    setToolMode(next);
-    if (!editingId || !form.model || !next) return;
-    try {
-      await setProviderModelToolMode(editingId, form.model, next);
-      setStatus(isEnglish ? "Tool mode saved." : "Modo de ferramentas salvo.");
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save tool mode."
-            : "Não foi possível salvar o modo de ferramentas.",
-      );
-    }
-  }
-
-  async function changeParallelToolCalls(next: ProviderModel["parallelToolCalls"]) {
-    setParallelToolCalls(next);
-    if (!editingId || !form.model || !next) return;
-    try {
-      await setProviderModelParallelToolCalls(editingId, form.model, next);
-      setStatus(
-        isEnglish
-          ? "Parallel tool calls setting saved."
-          : "Preferência de chamadas paralelas salva.",
-      );
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save the parallel tool calls setting."
-            : "Não foi possível salvar a preferência de chamadas paralelas.",
-      );
-    }
+    modelOptions.clearModels();
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -826,13 +679,13 @@ export function ProviderManager({
               <button
                 className="button button-secondary"
                 disabled={
-                  isListingModels ||
+                  modelOptions.isListingModels ||
                   (!editingId && form.type === "openai-compatible" && !form.apiKey.trim())
                 }
-                onClick={() => void listModels()}
+                onClick={() => void modelOptions.listModels()}
                 type="button"
               >
-                {isListingModels
+                {modelOptions.isListingModels
                   ? isEnglish
                     ? "Listing…"
                     : "Listando…"
@@ -841,27 +694,29 @@ export function ProviderManager({
                     : "Listar modelos"}
               </button>
             </div>
-            {providerModels.length > 0 && (
+            {modelOptions.providerModels.length > 0 && (
               <select
                 aria-label={isEnglish ? "Available models" : "Modelos disponíveis"}
                 onChange={(event) => updateForm("model", event.target.value)}
                 value={form.model}
               >
-                {providerModels.map((model) => (
+                {modelOptions.providerModels.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
                   </option>
                 ))}
               </select>
             )}
-            {editingId && providerModels.length > 0 && (
+            {editingId && modelOptions.providerModels.length > 0 && (
               <>
                 <select
                   aria-label={isEnglish ? "Tool calling mode" : "Modo de ferramentas"}
                   onChange={(event) =>
-                    void changeToolMode(event.target.value as ProviderModel["toolMode"])
+                    void modelOptions.changeToolMode(
+                      event.target.value as ProviderModel["toolMode"],
+                    )
                   }
-                  value={toolMode}
+                  value={modelOptions.toolMode}
                 >
                   <option value="auto">
                     {isEnglish ? "Native tools (automatic)" : "Ferramentas nativas (automático)"}
@@ -874,11 +729,11 @@ export function ProviderManager({
                 <select
                   aria-label={isEnglish ? "Protocol preference" : "Preferência de protocolo"}
                   onChange={(event) =>
-                    void changeProtocol(
+                    void modelOptions.changeProtocol(
                       event.target.value as NonNullable<ProviderModel["protocolPreference"]>,
                     )
                   }
-                  value={protocolPreference}
+                  value={modelOptions.protocolPreference}
                 >
                   <option value="auto">
                     {isEnglish ? "Protocol: automatic" : "Protocolo: automático"}
@@ -891,11 +746,11 @@ export function ProviderManager({
                     isEnglish ? "Parallel tool calls" : "Chamadas de ferramenta paralelas"
                   }
                   onChange={(event) =>
-                    void changeParallelToolCalls(
+                    void modelOptions.changeParallelToolCalls(
                       event.target.value as ProviderModel["parallelToolCalls"],
                     )
                   }
-                  value={parallelToolCalls}
+                  value={modelOptions.parallelToolCalls}
                 >
                   <option value="auto">
                     {isEnglish
@@ -913,7 +768,9 @@ export function ProviderManager({
                 </select>
                 <div className="provider-model-capability" aria-live="polite">
                   {(() => {
-                    const selected = providerModels.find((model) => model.id === form.model);
+                    const selected = modelOptions.providerModels.find(
+                      (model) => model.id === form.model,
+                    );
                     const support = selected?.toolSupport ?? "unknown";
                     return support === "native"
                       ? isEnglish
@@ -934,11 +791,11 @@ export function ProviderManager({
                 </div>
                 <button
                   className="button button-secondary"
-                  disabled={isProbingTools}
-                  onClick={() => void probeTools()}
+                  disabled={modelOptions.isProbingTools}
+                  onClick={() => void modelOptions.probeTools()}
                   type="button"
                 >
-                  {isProbingTools
+                  {modelOptions.isProbingTools
                     ? isEnglish
                       ? "Testing…"
                       : "Testando…"
