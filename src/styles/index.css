@@ -55,6 +55,15 @@
   --sidebar-accent-foreground: #f2f2f3;
   --sidebar-border: #252527;
   --sidebar-ring: #77777c;
+
+  /*
+    Motion tokens (ADR-09): durações curtas, easing ease-out-quart como padrão.
+    Animações monocromáticas — apenas opacity/transform/blur; nenhuma cor nova.
+  */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 /* Ponte Tailwind v4 → tokens acima. rounded-md/control, rounded-lg/surface e
@@ -102,6 +111,43 @@
   --radius-md: var(--radius-control);
   --radius-lg: var(--radius-surface);
   --radius-xl: var(--radius-panel);
+}
+
+/* Motion utilities — consumidas por src/shared/components/motion/.
+   Indeterminado: apenas transform (monocromático, sem cor nova).
+   A animação prevalece sobre o transform inline do indicador do shadcn. */
+@keyframes motion-indeterminate-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+
+.progress-indeterminate > [data-slot="progress-indicator"] {
+  width: 40%;
+  animation: motion-indeterminate-slide 1.1s var(--ease-out-quart) infinite;
+}
+
+/* Handler global prefers-reduced-motion (ADR-09, item não-negociável):
+   desliga transformações/transições/animações; as trocas de estado
+   (incluindo opacidade) passam a acontecer de forma instantânea. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: precisa vencer utilitários e estilos inline */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: precisa vencer utilitários e estilos inline */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: precisa vencer utilitários e estilos inline */
+    transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: precisa vencer utilitários e estilos inline */
+    transition-delay: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: precisa vencer utilitários e estilos inline */
+    scroll-behavior: auto !important;
+  }
 }
 
 :root {
