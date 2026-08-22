@@ -13,6 +13,7 @@ import {
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 import { SoulPicker } from "../../../shared/components/SoulPicker";
+import { ProviderList } from "./provider-manager/ProviderList";
 import { emptyForm, type ProviderForm } from "./provider-manager/providerForm";
 import { useModelOptions } from "./provider-manager/useModelOptions";
 import { useProfileSettingsForm } from "./provider-manager/useProfileSettingsForm";
@@ -449,35 +450,13 @@ export function ProviderManager({
             <p className="settings-status">{workspaceSettings.workspaceStatus}</p>
           )}
         </section>
-        <div className="provider-list">
-          {providers.map((provider) => (
-            <article className="provider-row" key={provider.id}>
-              <button onClick={() => onSelect(provider)} type="button">
-                <strong>{provider.name}</strong>
-                <span>
-                  {provider.type} · {provider.model || (isEnglish ? "no model" : "sem modelo")}
-                </span>
-              </button>
-              <div>
-                <button className="text-button" onClick={() => edit(provider)} type="button">
-                  {isEnglish ? "Edit" : "Editar"}
-                </button>
-                <button
-                  className="text-button danger"
-                  onClick={() => setProviderToRemove(provider)}
-                  type="button"
-                >
-                  {isEnglish ? "Remove" : "Remover"}
-                </button>
-              </div>
-            </article>
-          ))}
-          {providers.length === 0 && (
-            <p className="settings-empty">
-              {isEnglish ? "No providers configured." : "Nenhum provedor configurado."}
-            </p>
-          )}
-        </div>
+        <ProviderList
+          isEnglish={isEnglish}
+          onEdit={edit}
+          onRemoveRequest={setProviderToRemove}
+          onSelect={onSelect}
+          providers={providers}
+        />
         <form className="provider-form settings-form" onSubmit={submit}>
           <p className="eyebrow">
             {editingId
