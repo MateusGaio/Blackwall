@@ -16,7 +16,6 @@ import {
   type ProviderModel,
   setWorkspaceSoul,
   testProvider,
-  updateProfile,
   updateProvider,
   type Workspace,
 } from "../../../shared/api/sidecar";
@@ -24,6 +23,7 @@ import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
 import { SoulPicker } from "../../../shared/components/SoulPicker";
 import { emptyForm, type ProviderForm } from "./provider-manager/providerForm";
 import { useModelOptions } from "./provider-manager/useModelOptions";
+import { useProfileSettingsForm } from "./provider-manager/useProfileSettingsForm";
 import { UsageDashboard } from "./UsageDashboard";
 
 type ProviderManagerProps = {
@@ -70,14 +70,6 @@ export function ProviderManager({
   const [workspaceFolder, setWorkspaceFolder] = useState<FolderSelection | null>(null);
   const [workspaceStatus, setWorkspaceStatus] = useState("");
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
-  const [isDeletingProfile, setIsDeletingProfile] = useState(false);
-  const [profileToDelete, setProfileToDelete] = useState<Profile | null>(null);
-  const [profileName, setProfileName] = useState(profile?.name ?? "");
-  const [profileSoul, setProfileSoul] = useState(profile?.soul ?? "");
-  const [profileAvatar, setProfileAvatar] = useState<string | null>(profile?.avatarData ?? null);
-  const [profileStatus, setProfileStatus] = useState("");
-  const [profileError, setProfileError] = useState("");
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [workspaceSoul, setWorkspaceSoulDraft] = useState("");
   const runtime = currentRuntime();
 
@@ -85,12 +77,6 @@ export function ProviderManager({
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const profileLocale = profile?.locale === "en" ? "en" : "pt-BR";
   const isEnglish = profileLocale === "en";
-
-  useEffect(() => {
-    setProfileName(profile?.name ?? "");
-    setProfileSoul(profile?.soul ?? "");
-    setProfileAvatar(profile?.avatarData ?? null);
-  }, [profile]);
 
   useEffect(() => {
     setWorkspaceSoulDraft(activeWorkspace?.soul ?? "");
@@ -107,6 +93,13 @@ export function ProviderManager({
     onFieldChange: updateForm,
     setError,
     setStatus,
+  });
+
+  const profileSettings = useProfileSettingsForm({
+    isEnglish,
+    onDeleteProfile,
+    onProfileChange,
+    profile,
   });
 
   function edit(provider: ConnectedProvider) {
@@ -129,63 +122,6 @@ export function ProviderManager({
     setError("");
     setStatus("");
     modelOptions.clearModels();
-  }
-
-  async function saveProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!profile) return;
-    setIsSavingProfile(true);
-    setProfileError("");
-    setProfileStatus("");
-    try {
-      const saved = await updateProfile(profile.id, {
-        avatarData: profileAvatar,
-        name: profileName,
-        soul: profileSoul,
-      });
-      onProfileChange(saved);
-      setProfileStatus(
-        isEnglish ? "Profile saved on this device." : "Perfil salvo neste dispositivo.",
-      );
-    } catch (reason) {
-      setProfileError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not save the profile."
-            : "Não foi possível salvar o perfil.",
-      );
-    } finally {
-      setIsSavingProfile(false);
-    }
-  }
-
-  function chooseProfileAvatar(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/") || file.size > 2 * 1024 * 1024) {
-      setProfileError(
-        isEnglish
-          ? "Choose a PNG, JPEG, WebP or GIF image up to 2 MB."
-          : "Escolha uma imagem PNG, JPEG, WebP ou GIF de até 2 MB.",
-      );
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        setProfileAvatar(result);
-        setProfileError("");
-        setProfileStatus(isEnglish ? "Photo ready to save." : "Foto pronta para salvar.");
-      }
-    };
-    reader.onerror = () =>
-      setProfileError(
-        isEnglish ? "Could not read this image." : "Não foi possível ler essa imagem.",
-      );
-    reader.readAsDataURL(file);
   }
 
   async function saveWorkspaceSoulDraft(event: FormEvent<HTMLFormElement>) {
@@ -289,25 +225,6 @@ export function ProviderManager({
     }
   }
 
-  async function removeProfile() {
-    if (!profile) return;
-    setIsDeletingProfile(true);
-    setProfileError("");
-    try {
-      await onDeleteProfile(profile.id);
-    } catch (reason) {
-      setProfileError(
-        reason instanceof Error
-          ? reason.message
-          : isEnglish
-            ? "Could not delete the profile."
-            : "Não foi possível excluir o perfil.",
-      );
-    } finally {
-      setIsDeletingProfile(false);
-    }
-  }
-
   async function chooseWorkspaceFolder() {
     setWorkspaceStatus("");
     try {
@@ -381,7 +298,7 @@ export function ProviderManager({
         type="button"
       />
       <section
-        aria-busy={isSaving || isSavingProfile}
+        aria-busy={isSaving || profileSettings.isSavingProfile}
         aria-label={isEnglish ? "Provider settings" : "Configurações de provedores"}
         className="settings-panel"
         onKeyDown={(event) => {
@@ -412,22 +329,26 @@ export function ProviderManager({
           profileId={profileId}
           providers={providers}
         />
-        <form className="settings-section profile-settings" onSubmit={saveProfile}>
+        <form className="settings-section profile-settings" onSubmit={profileSettings.saveProfile}>
           <div className="settings-section-heading">
             <div>
               <p className="eyebrow">{isEnglish ? "Profile" : "Perfil"}</p>
               <h3>{isEnglish ? "What should we call you?" : "Como você quer ser chamado?"}</h3>
             </div>
             <div className="profile-avatar-preview" aria-hidden="true">
-              {profileAvatar ? <img alt="" src={profileAvatar} /> : <span>BW</span>}
+              {profileSettings.profileAvatar ? (
+                <img alt="" src={profileSettings.profileAvatar} />
+              ) : (
+                <span>BW</span>
+              )}
             </div>
           </div>
           <label className="field-label" htmlFor="settings-profile-name">
             {isEnglish ? "Name" : "Nome"}
             <input
               id="settings-profile-name"
-              onChange={(event) => setProfileName(event.target.value)}
-              value={profileName}
+              onChange={(event) => profileSettings.setProfileName(event.target.value)}
+              value={profileSettings.profileName}
             />
           </label>
           <div className="profile-avatar-actions">
@@ -437,12 +358,16 @@ export function ProviderManager({
                 accept="image/png,image/jpeg,image/webp,image/gif"
                 className="sr-only"
                 id="settings-profile-avatar"
-                onChange={chooseProfileAvatar}
+                onChange={profileSettings.chooseProfileAvatar}
                 type="file"
               />
             </label>
-            {profileAvatar && (
-              <button className="text-button" onClick={() => setProfileAvatar(null)} type="button">
+            {profileSettings.profileAvatar && (
+              <button
+                className="text-button"
+                onClick={() => profileSettings.setProfileAvatar(null)}
+                type="button"
+              >
                 {isEnglish ? "Remove photo" : "Remover foto"}
               </button>
             )}
@@ -461,17 +386,21 @@ export function ProviderManager({
             id="settings-profile-soul"
             label={isEnglish ? "Profile Soul" : "Soul do perfil"}
             locale={profileLocale}
-            onChange={setProfileSoul}
+            onChange={profileSettings.setProfileSoul}
             rows={4}
-            value={profileSoul}
+            value={profileSettings.profileSoul}
           />
           <div className="settings-actions">
             <button
               className="button button-primary"
-              disabled={isSavingProfile || !profileName.trim() || !profileSoul.trim()}
+              disabled={
+                profileSettings.isSavingProfile ||
+                !profileSettings.profileName.trim() ||
+                !profileSettings.profileSoul.trim()
+              }
               type="submit"
             >
-              {isSavingProfile
+              {profileSettings.isSavingProfile
                 ? isEnglish
                   ? "Saving…"
                   : "Salvando…"
@@ -480,10 +409,12 @@ export function ProviderManager({
                   : "Salvar perfil"}
             </button>
           </div>
-          {profileStatus && <p className="settings-status">{profileStatus}</p>}
-          {profileError && (
+          {profileSettings.profileStatus && (
+            <p className="settings-status">{profileSettings.profileStatus}</p>
+          )}
+          {profileSettings.profileError && (
             <p className="form-error" role="alert">
-              {profileError}
+              {profileSettings.profileError}
             </p>
           )}
         </form>
@@ -852,8 +783,8 @@ export function ProviderManager({
             {profile && (
               <button
                 className="text-button danger settings-delete-profile"
-                disabled={isDeletingProfile}
-                onClick={() => setProfileToDelete(profile)}
+                disabled={profileSettings.isDeletingProfile}
+                onClick={() => profileSettings.setProfileToDelete(profile)}
                 type="button"
               >
                 {isEnglish ? "Delete profile" : "Excluir perfil"}
@@ -886,7 +817,7 @@ export function ProviderManager({
           title={`${isEnglish ? "Remove" : "Remover"} ${providerToRemove.name}?`}
         />
       )}
-      {profileToDelete && (
+      {profileSettings.profileToDelete && (
         <ConfirmDialog
           cancelLabel={isEnglish ? "Cancel" : "Cancelar"}
           confirmLabel={isEnglish ? "Delete profile" : "Excluir perfil"}
@@ -895,13 +826,13 @@ export function ProviderManager({
               ? "All sessions, workspaces, messages and attachments from this profile will be removed from this device. This cannot be undone."
               : "Todas as sessões, workspaces, mensagens e anexos deste perfil serão removidos deste dispositivo. Essa ação é definitiva."
           }
-          onCancel={() => setProfileToDelete(null)}
+          onCancel={() => profileSettings.setProfileToDelete(null)}
           onConfirm={() => {
-            setProfileToDelete(null);
-            void removeProfile();
+            profileSettings.setProfileToDelete(null);
+            void profileSettings.removeProfile();
           }}
           headingLabel={isEnglish ? "Confirmation" : "Confirmação"}
-          title={`${isEnglish ? "Delete" : "Excluir"} ${profileToDelete.name}?`}
+          title={`${isEnglish ? "Delete" : "Excluir"} ${profileSettings.profileToDelete.name}?`}
         />
       )}
     </div>
