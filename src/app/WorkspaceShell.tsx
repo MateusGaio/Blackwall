@@ -696,16 +696,23 @@ export default function WorkspaceShell({
           />
         )}
         {attachments.length > 0 && (
-          <ul className="attachment-list" aria-label={t("chat.indexedAttachments")}>
+          <ul
+            className="m-0 flex list-none flex-wrap items-center gap-1.5 p-0"
+            aria-label={t("chat.indexedAttachments")}
+          >
             {attachments.map((attachment) => (
-              <li className="attachment-chip" key={attachment.id}>
-                <span>{attachment.filename}</span>
+              <li
+                className="flex items-center gap-0.5 font-mono text-xs text-muted-foreground"
+                key={attachment.id}
+              >
+                <span>[{attachment.filename}</span>
                 <button
                   aria-label={`${t("chat.remove")} ${attachment.filename}`}
+                  className="transition-colors duration-[120ms] hover:text-destructive focus-visible:outline-none"
                   onClick={() => setAttachmentToRemove(attachment)}
                   type="button"
                 >
-                  ×
+                  ×]
                 </button>
               </li>
             ))}
@@ -774,7 +781,9 @@ export default function WorkspaceShell({
           stopGeneration={stopGeneration}
           workspace={workspace}
         />
-        {attachmentStatus && <p className="attachment-status">{attachmentStatus}</p>}
+        {attachmentStatus && (
+          <p className="font-mono text-xs text-muted-foreground">{attachmentStatus}</p>
+        )}
         {resourceNotice && (
           <div className="resource-gate" role="alert">
             <span>{resourceNotice}</span>
