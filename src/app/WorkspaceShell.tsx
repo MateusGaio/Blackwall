@@ -130,7 +130,7 @@ export default function WorkspaceShell({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const messageListRef = useRef<HTMLOListElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const workspacePickerRef = useRef<HTMLSelectElement | null>(null);

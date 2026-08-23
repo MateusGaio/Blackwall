@@ -1,9 +1,16 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
+import {
+  AssistantRuntimeProvider,
+  type ThreadMessageLike,
+  useExternalStoreRuntime,
+} from "@assistant-ui/react";
 import i18next from "i18next";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import "../../../i18n";
+import type { ChatMessage } from "../../../shared/api/sidecar";
 import { ChatThread } from "./ChatThread";
 
 beforeAll(async () => {
@@ -18,23 +25,39 @@ const baseHandlers = {
   regenerate: () => undefined,
 };
 
+/** Runtime externo mínimo para montar as primitivas fora do app. */
+function TestRuntimeProvider({ children }: { children: ReactNode }) {
+  const runtime = useExternalStoreRuntime({
+    convertMessage: (message: ChatMessage): ThreadMessageLike => ({
+      content: [{ text: message.content, type: "text" }],
+      id: message.id,
+      role: message.role === "user" ? "user" : "assistant",
+    }),
+    messages: [] as ChatMessage[],
+    onNew: async () => undefined,
+  });
+  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+}
+
 function renderThread(props: Partial<Parameters<typeof ChatThread>[0]> = {}) {
   return renderToStaticMarkup(
-    <ChatThread
-      copiedMessageId={null}
-      copyMessage={() => undefined}
-      editingMessageDraft=""
-      editingMessageId={null}
-      listRef={{ current: null }}
-      streamingId={null}
-      streamingStatus=""
-      visibleMessages={[
-        { content: "Pergunta do usuário", id: "m1", role: "user" },
-        { content: "**Resposta** do assistente", id: "m2", role: "assistant" },
-      ]}
-      {...baseHandlers}
-      {...props}
-    />,
+    <TestRuntimeProvider>
+      <ChatThread
+        copiedMessageId={null}
+        copyMessage={() => undefined}
+        editingMessageDraft=""
+        editingMessageId={null}
+        listRef={{ current: null }}
+        streamingId={null}
+        streamingStatus=""
+        visibleMessages={[
+          { content: "Pergunta do usuário", id: "m1", role: "user" },
+          { content: "**Resposta** do assistente", id: "m2", role: "assistant" },
+        ]}
+        {...baseHandlers}
+        {...props}
+      />
+    </TestRuntimeProvider>,
   );
 }
 
@@ -68,5 +91,16 @@ describe("ChatThread", () => {
     expect(html).toContain("conversation-summary-card");
     expect(html).toContain("Resumo automático da conversa");
     expect(html).not.toContain("action-bar");
+  });
+
+  it("passos de ferramenta consecutivos viram bloco colapsável único", () => {
+    const html = renderThread({
+      visibleMessages: [
+        { content: "ok", id: "t1", role: "tool", toolCallId: "call-1", toolName: "read_file" },
+        { content: "", id: "a1", role: "assistant" },
+      ],
+    });
+    expect(html).toContain("passos de ferramenta");
+    expect(html).not.toContain("read_file");
   });
 });
