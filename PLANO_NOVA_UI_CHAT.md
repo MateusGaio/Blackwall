@@ -163,6 +163,43 @@ Execução: PR de documentação primeiro (amenda do UX_SPEC §3), depois Issue 
 branch `feat/<n>-chat-terminal` encadeada na stack aberta (`Depends on`), gates completos
 e motion audit ADR-09 nos dois componentes.
 
+---
+
+## Fase U5 — Cromo de sessão estilo Claude · `type:enhancement`
+
+> Complemento da U4, decidido pelo owner (ago/2026): adaptar os padrões de interface da
+> Claude (status line do Claude Code, model dropdown junto ao enviar, usage ring, painel
+> de passos do Cowork) à identidade OLED e às features que o Blackwall tem e a Claude não:
+> roteador com fallback (ADR-05/16), janelas de limite por provedor, fila FIFO (ADR-21)
+> e rastreamento local de uso.
+
+Mapeamento elemento Claude → adaptação Blackwall:
+
+| Claude | Blackwall |
+|---|---|
+| Status line `model · ctx% · $cost` | **Linha de sessão mono** abaixo do composer: `provedor › modelo · ctx 34% [▓▓▓░░░░░░░] 68k/200k · janela 72% restante · fila N` — custo não existe (grátis) → janela de limite do roteador no lugar |
+| Model dropdown junto ao enviar | **Chip `provedor › modelo`** no rodapé do composer: popover agrupado por provedor, ordem de fallback numerada (#1→n), ativo marcado; desabilitado durante streaming |
+| Usage ring clicável | O **segmento ctx da linha de sessão vira botão** (`aria-haspopup="dialog"`) abrindo o `SessionUsageDialog` existente |
+| Mode selector junto ao enviar | Escudo de permissões já existente — permanece no grupo do rodapé |
+| Painel de passos do Cowork | **Passos de ferramenta**: parar de filtrar `role === "tool"`; cada tool call vira linha mono colapsável (`├─ read_file src/x.ts · ok`), grupo recolhido com contador ("N passos"); aprovação continua inline |
+
+Decisões trancadas:
+
+1. Linha de sessão **abaixo do composer**, uma linha, mono xs; zero fetch novo — consome
+   `usageSummary`, `queuedCount`, `streamingStatus` que o shell já possui.
+2. Custo USD fora do escopo; "janela restante" usa o menor `remainingPercent` entre as
+   janelas conhecidas (`windows[].remainingPercent`).
+3. O `<select>` de provedor do header é removido (fonte única de verdade = chip do composer);
+   header fica com sidebar-toggle + breadcrumb + título + Vault.
+4. Passos de ferramenta recolhidos por padrão; modo Verboso/Normal/Resumo fica documentado
+   como pendência futura.
+5. Ganchos do e2e preservados (`chat-composer`, `menuitemradio` de permissões,
+   `li.message-user`) e novos `data-testid`: `session-statusline`, `provider-chip`.
+6. i18n completo pt-BR/en para todo texto novo.
+
+Execução: Issue + branch `feat/<n>-session-chrome` encadeada na branch da U4, gates completos,
+motion audit ADR-09 (EnterExit na linha/grupos, reduced-motion).
+
 ## Riscos
 
 | Risco | Mitigação |
@@ -181,3 +218,4 @@ e motion audit ADR-09 nos dois componentes.
 | Redesign do chat (Thread/Message/Composer) | `type:feature` |
 | Um Issue por tela no rollout (onboarding, vault, settings) | `type:enhancement` |
 | Estética terminal do chat (thread+composer) | `type:enhancement` |
+| Cromo de sessão estilo Claude (status line, chip de provedor, passos) | `type:enhancement` |
