@@ -197,6 +197,7 @@ export function Composer({
               <PopoverTrigger asChild>
                 <Button
                   className="gap-1.5 px-2 font-mono text-xs"
+                  data-testid="provider-chip"
                   size="sm"
                   title={modelName}
                   type="button"

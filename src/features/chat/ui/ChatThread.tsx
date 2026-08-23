@@ -29,6 +29,64 @@ type ChatThreadProps = {
 
 type GhostItem = { key: string; message: ChatMessage };
 
+type ThreadItem =
+  | { kind: "message"; message: ChatMessage }
+  | { kind: "steps"; steps: ChatMessage[] };
+
+/** Agrupa mensagens de ferramenta consecutivas em um bloco colapsável (U5/Cowork). */
+function groupThreadItems(messages: readonly ChatMessage[]): ThreadItem[] {
+  const items: ThreadItem[] = [];
+  let steps: ChatMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "tool") {
+      steps.push(message);
+      continue;
+    }
+    if (steps.length > 0) {
+      items.push({ kind: "steps", steps });
+      steps = [];
+    }
+    items.push({ kind: "message", message });
+  }
+  if (steps.length > 0) items.push({ kind: "steps", steps });
+  return items;
+}
+
+/** Bloco "N passos de ferramenta" — recolhido por padrão, linhas mono ao expandir. */
+function ToolSteps({ steps }: { steps: readonly ChatMessage[] }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <li>
+      <EnterExit offsetPx={4} show>
+        <div className="font-mono text-xs text-muted-foreground">
+          <button
+            aria-expanded={open}
+            className="rounded px-1 py-0.5 transition-colors duration-[120ms] hover:bg-accent hover:text-foreground focus-visible:outline-none"
+            onClick={() => setOpen((current) => !current)}
+            type="button"
+          >
+            <span aria-hidden="true">{open ? "▾" : "▸"} </span>
+            {t("chat.toolSteps", { count: steps.length })}
+          </button>
+          <EnterExit show={open}>
+            <ul className="m-0 mt-1 grid list-none gap-0.5 p-0 pl-3">
+              {steps.map((step) => (
+                <li className="truncate" key={step.id}>
+                  <span aria-hidden="true">├─ </span>
+                  {step.toolName ?? step.toolCallId ?? t("chat.toolFallbackName")}
+                  {step.content.trim() ? ` · ${step.content.slice(0, 80)}` : ""}
+                </li>
+              ))}
+              <li aria-hidden="true">└─</li>
+            </ul>
+          </EnterExit>
+        </div>
+      </EnterExit>
+    </li>
+  );
+}
+
 /** Mensagens flat do §3/U4: usuário à direita, agente à esquerda, sem bolha. */
 function messageClasses(role: ChatMessage["role"]) {
   return cn(
@@ -148,10 +206,15 @@ export function ChatThread({
         onScroll={handleScroll}
         ref={listRef}
       >
-        {visibleMessages.map((message) =>
-          message.isSummary ? (
-            <ConversationSummaryCard content={message.content} key={message.id} />
-          ) : (
+        {groupThreadItems(visibleMessages).map((item) => {
+          if (item.kind === "steps") {
+            return <ToolSteps key={`steps-${item.steps[0]?.id ?? "empty"}`} steps={item.steps} />;
+          }
+          if (item.message.isSummary) {
+            return <ConversationSummaryCard content={item.message.content} key={item.message.id} />;
+          }
+          const message = item.message;
+          return (
             <EnterExit
               as="li"
               className={cn(
@@ -251,8 +314,8 @@ export function ChatThread({
                 </>
               )}
             </EnterExit>
-          ),
-        )}
+          );
+        })}
         {ghosts.map((ghost) => (
           <ExitingMessage
             key={ghost.key}
