@@ -3,7 +3,7 @@
 import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
-import "../i18n";
+import "../../../i18n";
 import { ConversationSummaryCard } from "./ConversationSummaryCard";
 
 describe("ConversationSummaryCard", () => {

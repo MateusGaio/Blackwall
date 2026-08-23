@@ -11,6 +11,7 @@ import { ChatRuntimeProvider, useSidecarChat } from "../features/chat/adapter/us
 import { ApprovalCard } from "../features/chat/ui/ApprovalCard";
 import { ChatThread } from "../features/chat/ui/ChatThread";
 import { SessionStatusLine } from "../features/chat/ui/SessionStatusLine";
+import { SessionUsageDialog } from "../features/chat/ui/SessionUsageDialog";
 import { ProviderManager } from "../features/config/components/ProviderManager";
 import {
   type AppState,
@@ -46,7 +47,6 @@ import {
   writeBooleanPreference,
   writeNumberPreference,
 } from "./panel-preferences";
-import { SessionUsageDialog } from "./SessionUsageDialog";
 import { ChatHeader } from "./shell/ChatHeader";
 import { Composer } from "./shell/Composer";
 import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";

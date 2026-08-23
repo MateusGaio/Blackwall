@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SafeMarkdown } from "../shared/components/SafeMarkdown";
+import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 
 type ConversationSummaryCardProps = {
   content: string;
