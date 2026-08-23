@@ -278,10 +278,13 @@ button:disabled {
 .workspace-shell {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
   min-height: 0;
   overflow: hidden;
-  transition: grid-template-columns 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    grid-template-columns 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    grid-template-rows 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .workspace-sidebar {
@@ -289,7 +292,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 28px;
-  height: 100vh;
+  height: auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -723,27 +726,6 @@ button:disabled {
   padding: 10px 12px;
 }
 
-.workspace-header {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  min-width: 0;
-}
-
-.chat-controls {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-}
-
-.provider-selector,
-.provider-selector select,
-.provider-selector select {
-  max-width: 150px;
-}
-
-.provider-selector select:hover,
-.provider-selector select:focus-visible,
 .sr-only {
   height: 1px;
   margin: -1px;
@@ -756,24 +738,72 @@ button:disabled {
 .workspace-main {
   display: flex;
   flex-direction: column;
-  height: 100vh;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   padding: 24px 28px 0;
 }
 
+/* Barra de título da janela frameless — linha única do grid do shell. */
 .workspace-header {
-  justify-content: space-between;
-  min-height: 52px;
-  flex: 0 0 auto;
+  align-items: center;
+  background: var(--background);
+  border-bottom: 1px solid #252527;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  height: 48px;
+  padding: 0 12px;
+}
+
+.thread-title {
+  color: #e5e5e7;
+  font-size: 0.95rem;
+  font-weight: 500;
+  justify-self: center;
+  letter-spacing: -0.02em;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-controls {
   align-items: center;
   display: flex;
-  gap: 10px;
+  gap: 8px;
+  justify-self: end;
   position: relative;
+}
+
+.window-controls {
+  align-items: center;
+  display: flex;
+  margin-left: 6px;
+}
+
+.window-control {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: #89898e;
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+  width: 34px;
+}
+
+.window-control:hover,
+.window-control:focus-visible {
+  background: #1a1a1d;
+  color: #f2f2f3;
+  outline: none;
 }
 
 .usage-indicator-wrap {
@@ -1171,17 +1201,6 @@ button:disabled {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-    scroll-behavior: auto;
-    transition-duration: 0.01ms;
-  }
-}
-
 .sidebar-collapsed .workspace-sidebar {
   border-right: 0;
   gap: 0;
@@ -1216,13 +1235,6 @@ button:disabled {
 }
 
 /* assistant-ui-inspired shell chrome */
-.workspace-header-primary {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  min-width: 0;
-}
-
 .workspace-header-trigger {
   align-items: center;
   background: transparent;
@@ -1234,6 +1246,7 @@ button:disabled {
   flex: 0 0 auto;
   height: 32px;
   justify-content: center;
+  justify-self: start;
   padding: 6px;
   transition:
     background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -1263,68 +1276,6 @@ button:disabled {
 
 .sidebar-collapsed .workspace-header-trigger svg {
   transform: scaleX(-1);
-}
-
-.breadcrumb {
-  min-width: 0;
-}
-
-.breadcrumb-list {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.breadcrumb-item {
-  min-width: 0;
-}
-
-.breadcrumb-page {
-  color: #e5e5e7;
-  font-size: 0.92rem;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.breadcrumb-link {
-  color: #89898e;
-  font-size: 0.76rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.breadcrumb-path {
-  color: #6f6f76;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.7rem;
-  font-weight: 400;
-  max-width: min(320px, 34vw);
-}
-
-.thread-title {
-  color: #e5e5e7;
-  font-size: 1rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  margin: 3px 0 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.breadcrumb-separator {
-  color: #4a4a50;
-  font-size: 0.85rem;
 }
 
 .sidebar-actions {
@@ -1379,15 +1330,6 @@ button:disabled {
 .new-thread-button:disabled {
   cursor: default;
   opacity: 0.55;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .breadcrumb-page,
-  .sidebar-actions,
-  .new-thread-button,
-  .workspace-header-trigger {
-    transition: none;
-  }
 }
 
 /* Overrides de estado do shell — declarados por último para vencer as bases com especificidade maior. */

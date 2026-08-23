@@ -1,10 +1,13 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 type CompactIconKind =
   | "clip"
+  | "close"
   | "copy"
   | "edit"
   | "files"
   | "graph"
+  | "maximize"
+  | "minimize"
   | "new-thread"
   | "panel"
   | "refresh"
@@ -18,12 +21,15 @@ const paths = {
   clip: (
     <path d="m21.4 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
   ),
+  close: <path d="M18 6 6 18M6 6l12 12" />,
   copy: <path d="M9 9h11v11H9V9ZM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
   edit: <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" />,
   files: <path d="M5 4h9l4 4v12H5V4Zm9 0v4h4M8 13h8M8 17h6" />,
   graph: (
     <path d="m7 6 5 3 5-3M7 18l5-3 5 3M12 9v6M5 5h4v4H5V5Zm10 0h4v4h-4V5ZM5 15h4v4H5v-4Zm10 0h4v4h-4v-4Z" />
   ),
+  maximize: <rect height="12" rx="1.5" width="12" x="6" y="6" />,
+  minimize: <path d="M5 12h14" />,
   "new-thread": <path d="M12 5v14M5 12h14" />,
   panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
   recent: <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.5 2" />,
