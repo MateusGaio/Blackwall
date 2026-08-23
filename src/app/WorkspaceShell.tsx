@@ -156,11 +156,14 @@ export default function WorkspaceShell({
 
   const {
     cancel: stopGeneration,
+    clearError,
     editMessage,
     error: chatError,
     isRunning: isSending,
     messages,
+    pullQueuedDraft,
     queuedCount,
+    queuedPreview,
     regenerate,
     resolveToolDecision,
     runtime,
@@ -708,14 +711,6 @@ export default function WorkspaceShell({
             ))}
           </ul>
         )}
-        <EnterExit className="justify-self-start" offsetPx={4} show={queuedCount > 0}>
-          <p
-            className="rounded-full border border-border bg-muted px-3 py-1 font-mono text-xs text-muted-foreground"
-            role="status"
-          >
-            {t("chat.inQueue", { count: queuedCount })}
-          </p>
-        </EnterExit>
         {toolApproval && <ApprovalCard onResolve={resolveToolDecision} request={toolApproval} />}
         <Composer
           activeProvider={activeProvider}
@@ -728,23 +723,32 @@ export default function WorkspaceShell({
           modelName={modelName}
           models={models}
           onAttachFile={(file) => void attachFile(file)}
+          onEditQueued={() => {
+            const next = pullQueuedDraft();
+            if (next !== null) setDraft(next);
+            composerRef.current?.focus();
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             submitDraft();
           }}
           permissionError={permissionError}
+          queuedCount={queuedCount}
+          queuedPreview={queuedPreview}
           selectedModel={selectedModel}
           setDraft={setDraft}
+          statusFooter={
+            <SessionStatusLine
+              activeProvider={activeProvider}
+              modelName={modelName}
+              onOpenDetails={() => setShowUsageDetails(true)}
+              queuedCount={0}
+              streamingStatus={streamingId !== null ? streamingStatus : ""}
+              summary={usageSummary}
+            />
+          }
           stopGeneration={stopGeneration}
           workspace={workspace}
-        />
-        <SessionStatusLine
-          activeProvider={activeProvider}
-          modelName={modelName}
-          onOpenDetails={() => setShowUsageDetails(true)}
-          queuedCount={queuedCount}
-          streamingStatus={streamingId !== null ? streamingStatus : ""}
-          summary={usageSummary}
         />
         {attachmentStatus && (
           <p className="font-mono text-xs text-muted-foreground">{attachmentStatus}</p>
@@ -758,9 +762,37 @@ export default function WorkspaceShell({
           </div>
         )}
         {(error || chatError) && (
-          <p className="form-error chat-error" role="alert">
-            {error || chatError}
-          </p>
+          <div
+            className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground"
+            role="alert"
+          >
+            <span aria-hidden="true">⚠</span>
+            <span className="min-w-0 flex-1 truncate">{error || chatError}</span>
+            {!isSending && messages.length > 0 && (
+              <button
+                className="transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
+                onClick={() => {
+                  setError("");
+                  clearError();
+                  regenerate();
+                }}
+                type="button"
+              >
+                {t("chat.retry")}
+              </button>
+            )}
+            <button
+              aria-label={t("chat.dismiss")}
+              className="transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
+              onClick={() => {
+                setError("");
+                clearError();
+              }}
+              type="button"
+            >
+              ✕
+            </button>
+          </div>
         )}
       </section>
     </section>
