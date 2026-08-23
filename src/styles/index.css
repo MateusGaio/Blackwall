@@ -1083,46 +1083,6 @@ button:disabled {
   transform: translateY(-5px);
 }
 
-.tool-approval-card {
-  animation: card-enter 160ms ease-out both;
-  background: #17171a;
-  border: 1px solid #45454b;
-  border-radius: 12px;
-  display: grid;
-  gap: 8px;
-  margin: 0 auto;
-  max-width: 680px;
-  padding: 12px 14px;
-  width: 100%;
-}
-
-.tool-approval-card p,
-.tool-approval-card strong {
-  margin: 0;
-}
-
-.tool-approval-card pre {
-  background: #101012;
-  border: 1px solid #2f2f34;
-  border-radius: 8px;
-  color: #c8c8cd;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.72rem;
-  margin: 0;
-  max-height: 180px;
-  overflow: auto;
-  padding: 9px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.workspace-access-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .chat-error {
   margin-top: 10px;
 }

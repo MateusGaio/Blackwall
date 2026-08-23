@@ -8,6 +8,7 @@ import {
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
 import { ChatRuntimeProvider, useSidecarChat } from "../features/chat/adapter/use-sidecar-runtime";
+import { ApprovalCard } from "../features/chat/ui/ApprovalCard";
 import { ChatThread } from "../features/chat/ui/ChatThread";
 import { SessionStatusLine } from "../features/chat/ui/SessionStatusLine";
 import { ProviderManager } from "../features/config/components/ProviderManager";
@@ -715,40 +716,7 @@ export default function WorkspaceShell({
             {t("chat.inQueue", { count: queuedCount })}
           </p>
         </EnterExit>
-        {toolApproval && (
-          <section aria-live="assertive" className="tool-approval-card" role="alertdialog">
-            <p className="eyebrow">{t("chat.permissionRequested")}</p>
-            <strong>{toolApproval.tool}</strong>
-            <pre>{JSON.stringify(toolApproval.args, null, 2)}</pre>
-            <div className="workspace-access-actions">
-              <button
-                className="button button-primary"
-                onClick={() => resolveToolDecision("allow_once")}
-                type="button"
-              >
-                {t("chat.allowOnce")}
-              </button>
-              {!["apply_patch", "create_or_update_file", "execute_command"].includes(
-                toolApproval.tool,
-              ) && (
-                <button
-                  className="button button-secondary"
-                  onClick={() => resolveToolDecision("allow_session")}
-                  type="button"
-                >
-                  {t("chat.allowThisSession")}
-                </button>
-              )}
-              <button
-                className="text-button"
-                onClick={() => resolveToolDecision("deny")}
-                type="button"
-              >
-                {t("chat.deny")}
-              </button>
-            </div>
-          </section>
-        )}
+        {toolApproval && <ApprovalCard onResolve={resolveToolDecision} request={toolApproval} />}
         <Composer
           activeProvider={activeProvider}
           activeSessionId={activeSession?.id}
