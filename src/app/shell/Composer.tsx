@@ -94,7 +94,7 @@ export function Composer({
 
   return (
     <form
-      className="relative z-10 rounded-lg border border-input bg-input/30 transition-colors duration-150 focus-within:border-ring"
+      className="relative z-10 rounded-lg border border-input bg-muted transition-colors duration-150 focus-within:border-ring"
       onSubmit={onSubmit}
     >
       <input

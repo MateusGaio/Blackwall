@@ -627,24 +627,6 @@ export default function WorkspaceShell({
 
   const chatArea = (
     <section className="workspace-main">
-      <ChatHeader
-        onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
-        onVaultClick={() => {
-          if (!workspace) {
-            setResourceNotice(t("chat.selectAFolderToConfigure"));
-            return;
-          }
-          setResourceNotice("");
-          setShowVault((current) => {
-            if (!current) setVaultCollapsed(false);
-            return !current;
-          });
-        }}
-        sessionTitle={activeSession?.title}
-        sidebarCollapsed={sidebarCollapsed}
-        vaultActive={Boolean(workspace && showVault)}
-        workspace={workspace}
-      />
       <section
         className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
         aria-label={t("chat.conversation")}
@@ -803,6 +785,24 @@ export default function WorkspaceShell({
       <main
         className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
       >
+        <ChatHeader
+          onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+          onVaultClick={() => {
+            if (!workspace) {
+              setResourceNotice(t("chat.selectAFolderToConfigure"));
+              return;
+            }
+            setResourceNotice("");
+            setShowVault((current) => {
+              if (!current) setVaultCollapsed(false);
+              return !current;
+            });
+          }}
+          sessionTitle={activeSession?.title}
+          sidebarCollapsed={sidebarCollapsed}
+          vaultActive={Boolean(workspace && showVault)}
+        />
+
         <SessionsSidebar
           activeProfile={activeProfile}
           activeSessionId={activeSession?.id}

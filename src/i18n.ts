@@ -101,7 +101,6 @@ void i18n.use(initReactI18next).init({
           allowOnce: "Permitir uma vez",
           allowThisSession: "Permitir nesta sessão",
           automaticConversationSummary: "Resumo automático da conversa",
-          breadcrumb: "Trilha de navegação",
           cached: "Em cache",
           cancel: "Cancelar",
           chatFreelyAddAFolder:
@@ -150,7 +149,6 @@ void i18n.use(initReactI18next).init({
           newConversation: "Nova conversa",
           newSession: "Nova sessão",
           noProvider: "sem provedor",
-          noWorkspace: "Sem workspace",
           notSelected: "não selecionado",
           permissionRequested: "Autorização solicitada",
           provider: "Provedor",
@@ -427,6 +425,11 @@ void i18n.use(initReactI18next).init({
           usageProvider: "Provedor do uso",
           userMessages: "Mensagens do usuário",
         },
+        window: {
+          close: "Fechar",
+          maximize: "Maximizar/Restaurar",
+          minimize: "Minimizar",
+        },
         errors: {
           continuing: "Continuando…",
           couldNotDeleteProfile: "Não foi possível excluir o perfil.",
@@ -546,7 +549,6 @@ void i18n.use(initReactI18next).init({
           allowOnce: "Allow once",
           allowThisSession: "Allow this session",
           automaticConversationSummary: "Automatic conversation summary",
-          breadcrumb: "Breadcrumb",
           cached: "Cached",
           cancel: "Cancel",
           chatFreelyAddAFolder:
@@ -595,7 +597,6 @@ void i18n.use(initReactI18next).init({
           newConversation: "New conversation",
           newSession: "New session",
           noProvider: "no provider",
-          noWorkspace: "No workspace",
           notSelected: "not selected",
           permissionRequested: "Permission requested",
           provider: "Provider",
@@ -872,6 +873,11 @@ void i18n.use(initReactI18next).init({
           usage: "Usage",
           usageProvider: "Usage provider",
           userMessages: "User messages",
+        },
+        window: {
+          close: "Close",
+          maximize: "Maximize/Restore",
+          minimize: "Minimize",
         },
         errors: {
           continuing: "Continuing…",

@@ -23,7 +23,7 @@ export function ApprovalCard({ onResolve, request }: ApprovalCardProps) {
     <EnterExit offsetPx={6} show>
       <section
         aria-live="assertive"
-        className="mx-auto grid w-full max-w-[680px] gap-2 rounded-[var(--radius-panel)] border border-border bg-card/60 px-3.5 py-3"
+        className="mx-auto grid w-full max-w-[680px] gap-2 rounded-[var(--radius-panel)] border border-border bg-muted px-3.5 py-3"
         role="alertdialog"
       >
         <p className="m-0 font-mono text-[0.68rem] uppercase tracking-[0.08em] text-muted-foreground">
