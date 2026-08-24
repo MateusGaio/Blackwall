@@ -100,6 +100,7 @@ export function Composer({
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [modelError, setModelError] = useState("");
   const modelListRef = useRef<HTMLDivElement | null>(null);
+  const chipRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedStillLoading = isModelsLoading && models.length === 0;
 
@@ -363,7 +364,17 @@ export function Composer({
             </button>
           )}
           {activeProvider && (
-            <Popover onOpenChange={setModelOpen} open={modelOpen}>
+            <Popover
+              onOpenChange={(next) => {
+                setModelOpen(next);
+                if (!next) {
+                  // Retorno de foco determinístico ao trigger (#208).
+                  const chip = chipRef.current;
+                  requestAnimationFrame(() => chip?.focus());
+                }
+              }}
+              open={modelOpen}
+            >
               <PopoverTrigger asChild>
                 {/* Somente o modelo ativo (comentário 6): provedor permanece
                 interno para roteamento e é identificado apenas no popover. */}
@@ -371,6 +382,7 @@ export function Composer({
                   aria-label={`${t("chat.selectModel")}: ${modelName}`}
                   className="gap-1.5 px-2 font-mono text-xs"
                   data-testid="provider-chip"
+                  ref={chipRef}
                   size="sm"
                   title={modelName}
                   type="button"
@@ -420,8 +432,8 @@ export function Composer({
                       const busy = pendingModelId === model.id;
                       return (
                         <button
-                          aria-checked={checked}
-                          className={cn(menuItem, checked && "aria-checked:bg-accent")}
+                          aria-selected={checked}
+                          className={cn(menuItem, checked && "bg-accent")}
                           data-checked={checked || undefined}
                           data-model-item=""
                           disabled={pendingModelId !== null}

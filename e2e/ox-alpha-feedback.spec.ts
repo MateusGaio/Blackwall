@@ -27,9 +27,21 @@ async function resetToOnboarding(page: Page) {
     await dialog.getByRole("button", { name: /^Excluir perfil$|^Delete profile$/ }).click();
     await expect(page.getByTestId("profile-option")).toHaveCount(0);
   }
-  await expect(
-    page.getByRole("region", { name: /Initial setup|Configuração inicial/ }),
-  ).toBeVisible();
+  const setupRegion = page.getByRole("region", { name: /Initial setup|Configuração inicial/ });
+  if (!(await setupRegion.isVisible().catch(() => false))) {
+    // Sessão anterior deixou o app direto no shell: saia pelo settings.
+    try {
+      await expect(page.getByTestId("chat-composer")).toBeVisible({ timeout: 5_000 });
+    } catch {
+      await page.reload();
+    }
+    await page
+      .getByRole("button", { name: /Abrir configurações|Open settings/ })
+      .first()
+      .click();
+    await page.getByRole("button", { name: /Sair do perfil|Sign out/ }).click();
+  }
+  await expect(setupRegion).toBeVisible({ timeout: 15_000 });
 }
 
 type ShellOptions = {
@@ -76,6 +88,8 @@ async function enterShellWithWorkspace(page: Page, profileName: string, options:
     [
       "# Nota de prosa",
       "",
+      '![imagem sintética](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP8z8AARIQBEwMDAwJkAgOYIgEAAAAASUVORK5CYII=)',
+      "",
       "Este parágrafo sintético existe para verificar quebra de linha dentro do painel do Vault em larguras reduzidas. ".repeat(
         4,
       ),
@@ -112,90 +126,174 @@ function vaultToggle(page: Page) {
     .first();
 }
 
+/** Onboarding até o shell SEM workspace (para provas de estado bloqueado). */
+async function completeOnboarding(page: Page, profileName: string) {
+  const continueButton = page.getByRole("button", { name: /Continuar|Continue/ });
+  await page.getByLabel(/Nome do perfil|Profile name/).fill(profileName);
+  await continueButton.click();
+  await page.getByLabel(/Nome do workspace|Workspace name/).fill(`${profileName}-ws`);
+  await continueButton.click();
+  await page.getByRole("button", { name: startWithoutRegex }).click();
+  await continueButton.click();
+  await continueButton.click();
+  await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
+  await page
+    .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
+    .fill("http://127.0.0.1:17999/v1");
+  await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
+  await page.getByLabel(/Chave de API|API key/).fill("test-key");
+  await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
+  await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
+  await expect(page.getByTestId("chat-composer")).toBeVisible();
+}
+
 async function openVaultFiles(page: Page) {
   if ((await page.locator(".vault-slot").count()) === 0) await vaultToggle(page).click();
   await expect(page.locator(".vault-slot")).toBeVisible();
 }
 
 test.describe("feedback 24/08 — comentário 1: Markdown adapta à largura do Vault", () => {
-  test("prosa quebra no painel de 300 px e bloco largo rola apenas internamente", async ({
-    page,
-  }) => {
-    await enterShellWithWorkspace(page, "Perfil Prosa", { vaultWidth: 300 });
-    await openVaultFiles(page);
-    await page.locator(".vault-slot").getByRole("button", { name: "Prosa" }).click();
+  test.use({ viewport: { width: 1920, height: 950 } });
+  for (const panelWidth of [300, 360, 680] as const) {
+    test(`prosa quebra com painel real de ${panelWidth} px; blocos rolam só internamente`, async ({
+      page,
+    }) => {
+      await enterShellWithWorkspace(page, "Perfil Prosa", { vaultWidth: panelWidth });
+      await openVaultFiles(page);
+      await page.locator(".vault-slot").getByRole("button", { name: "Prosa" }).click();
 
-    const article = page.locator(".vault-slot article");
-    await expect(article).toBeVisible();
-    const widths = article.evaluate((element) => ({
-      scroll: element.scrollWidth,
-      client: element.clientWidth,
-    }));
-    expect((await widths).scroll).toBeLessThanOrEqual((await widths).client + 1);
+      // Largura REAL do painel (não a preferência semeada).
+      const slot = page.locator(".vault-slot");
+      const measured = (await slot.boundingBox())?.width ?? 0;
+      expect(Math.abs(measured - panelWidth)).toBeLessThanOrEqual(2);
 
-    // Bloco intrinsecamente largo rola só dentro dele mesmo.
-    const wideBlock = page.locator(".vault-slot .code-block pre").first();
-    await expect(wideBlock).toBeVisible();
-    const preBox = await wideBlock.evaluate((element) => ({
-      overflowX: getComputedStyle(element).overflowX,
-      scrollWidth: element.scrollWidth,
-      clientWidth: element.clientWidth,
-    }));
-    expect(preBox.overflowX).toBe("auto");
-    if (preBox.scrollWidth > preBox.clientWidth) {
-      const articleRect = await article.boundingBox();
-      const preRect = await wideBlock.boundingBox();
-      expect(preRect?.x).toBeGreaterThanOrEqual((articleRect?.x ?? 0) - 1);
-    }
-  });
+      const article = slot.locator("article");
+      await expect(article).toBeVisible();
+      const prose = await article.evaluate((element) => ({
+        scroll: element.scrollWidth,
+        client: element.clientWidth,
+      }));
+      expect(prose.scroll).toBeLessThanOrEqual(prose.client + 1);
+
+      // Bloco intrinsecamente largo rola apenas dentro dele mesmo.
+      const wideBlock = slot.locator(".code-block pre").first();
+      await expect(wideBlock).toBeVisible();
+      const preBox = await wideBlock.evaluate((element) => ({
+        overflowX: getComputedStyle(element).overflowX,
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }));
+      expect(preBox.overflowX).toBe("auto");
+
+      // Imagem não excede a largura do conteúdo.
+      const image = slot.locator(".safe-markdown img").first();
+      if ((await image.count()) > 0) {
+        const imageBox = await image.boundingBox();
+        const articleBox = await article.boundingBox();
+        expect(imageBox?.width ?? 0).toBeLessThanOrEqual((articleBox?.width ?? 0) + 1);
+      }
+    });
+  }
 });
 
 test.describe("feedback 24/08 — comentário 2: paleta de comandos", () => {
-  test("abre por clique e Ctrl+K, filtra, executa e devolve foco sem pageerror", async ({
+  test("abre por clique e Ctrl+K, filtra, Enter executa, devolve foco, sem pageerror", async ({
     page,
   }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await enterShellWithWorkspace(page, "Perfil Paleta");
 
-    // Abertura por clique no atalho da sidebar.
-    await page.getByRole("button", { name: /Pesquisar comandos|Search commands/ }).click();
+    const searchButton = page.getByRole("button", {
+      name: /Pesquisar comandos|Search commands/,
+    });
+
+    // 1) Abertura por CLIQUE devolve foco ao botão que abriu.
+    await searchButton.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    // Raiz cmdk presente: sem ela Input/List quebram ao interagir.
     await expect(dialog.locator('[data-slot="command"]').first()).toBeAttached();
 
     // Filtro: "versa" existe em "conversation"/"conversa" e em nada nas ações.
     const beforeFilter = dialog.getByRole("option");
     await expect(beforeFilter.first()).toBeVisible();
     const beforeCount = await beforeFilter.count();
-    expect(beforeCount).toBeGreaterThanOrEqual(4);
+    expect(beforeCount).toBeGreaterThanOrEqual(8);
     await dialog.getByPlaceholder(/sessões|sessions/i).fill("versa");
-    const options = dialog.getByRole("option");
-    const filteredTexts = await options.allTextContents();
+    const filteredTexts = await dialog.getByRole("option").allTextContents();
     expect(filteredTexts.length).toBeGreaterThan(0);
     for (const text of filteredTexts) {
       expect(text).toMatch(/conversa|conversation/i);
     }
 
-    // Enter executa a ação selecionada; clique direto executa outra.
+    // Busca zerada + Escape fecha + foco volta ao botão opener.
     await dialog.getByPlaceholder(/sessões|sessions/i).fill("");
-    await dialog.getByRole("option", { name: /Provedores|Providers/i }).click();
-    await expect(
-      page.getByRole("dialog").getByText(/Provedores|Providers/i).first(),
-    ).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(searchButton).toBeFocused();
 
-    // Reabertura por atalho de plataforma e navegação por setas.
+    // 2) Enter EXECUTA o handler observável (Provedores → diálogo na seção).
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.getByRole("dialog").getByRole("option").first()).toBeVisible();
-    // A busca recomeça vazia na próxima abertura.
-    await expect(page.getByRole("dialog").getByPlaceholder(/sessões|sessions/i)).toHaveValue("");
-    await page.keyboard.press("ArrowDown");
+    // ArrowDown navega; seleção visível no item.
+    for (let step = 0; step < 7; step += 1) {
+      await page.keyboard.press("ArrowDown");
+    }
+    // Isola o item Provedores usando o PRÓPRIO texto do item (locale-proof).
+    const providersItem = page.getByRole("dialog").getByRole("option", {
+      name: /Provedores|Providers/i,
+    });
+    const needle = ((await providersItem.textContent()) ?? "").trim().slice(0, 6);
+    await page
+      .getByRole("dialog")
+      .getByPlaceholder(/sessões|sessions/i)
+      .fill(needle);
+    await expect(page.getByRole("dialog").getByRole("option")).toHaveCount(1);
+    await page.keyboard.press("Enter");
+    // O diálogo da central de provedores é o que contém a seção.
     await expect(
-      page.getByRole("dialog").getByRole("option").nth(1),
-    ).toHaveAttribute("aria-selected", "true");
+      page
+        .getByRole("dialog")
+        .filter({ hasText: /Provedores|Providers/i })
+        .first(),
+    ).toBeVisible();
+    // Fecha QUALQUER diálogo remanescente para o próximo bloco.
+    while ((await page.getByRole("dialog").count()) > 0) {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(50);
+    }
+
+    // 3) Abertura por ATALHO devolve foco ao elemento antes focado.
+    await page.getByTestId("chat-composer").focus();
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(page.getByRole("dialog")).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(page.locator('[data-testid="chat-composer"]')).toBeFocused();
+
+    // Inventário completo: itens presentes ou desabilitados com motivo.
+    await page.keyboard.press("ControlOrMeta+k");
+    const inventory = [
+      /Nova conversa|New conversation/,
+      /Trocar perfil|Switch profile/,
+      /Provedores|Providers/i,
+      /Editar Soul|Edit Soul/,
+      /Escolher modelo|Choose a model/i,
+      /Abrir nota do Vault|Open Vault note/i,
+      /Abrir configurações|Open settings/i,
+      /Ir para Agentes|Go to Agents/i,
+    ];
+    for (const pattern of inventory) {
+      // Sessões recentes podem repetir título; ações são únicas.
+      await expect(
+        page.getByRole("dialog").getByRole("option", { name: pattern }).first(),
+      ).toBeVisible();
+    }
+    // Nota requer workspace — aqui HÁ workspace, então habilitada.
+    // Agents segue desabilitado com motivo.
+    const agentsItem = page
+      .getByRole("dialog")
+      .getByRole("option", { name: /Ir para Agentes|Go to Agents/i });
+    await expect(agentsItem).toHaveAttribute("aria-disabled", "true");
 
     // Abrir/fechar repetidamente não cria overlays órfãos nem trava o app.
     for (let cycle = 0; cycle < 5; cycle += 1) {
@@ -228,14 +326,31 @@ test.describe("feedback 24/08 — comentários 4 e 5: toggle único e trilho do 
     page,
   }) => {
     await enterShellWithWorkspace(page, "Perfil Trilho");
+    const toggle = vaultToggle(page);
     await openVaultFiles(page);
 
     // Botão interno redundante não pode mais existir dentro do painel.
     await expect(
       page.locator(".vault-slot").getByRole("button", { name: /Recolher.*Vault|Collapse.*Vault/i }),
     ).toHaveCount(0);
+    // aria-controls real apontando para o painel existente.
+    await expect(toggle).toHaveAttribute("aria-controls", "bw-vault-panel");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    await vaultToggle(page).click();
+    // Abre a nota e move o scroll da LEITURA para valor não zero.
+    await page.locator(".vault-slot").getByRole("button", { name: "Prosa" }).click();
+    await expect(page.locator(".vault-slot article")).toBeVisible();
+    const noteViewport = page
+      .locator(".vault-slot")
+      .locator('[data-slot="scroll-area-viewport"]')
+      .last();
+    await noteViewport.evaluate((element) => element.scrollTo({ top: 120 }));
+    await expect
+      .poll(() => noteViewport.evaluate((element) => element.scrollTop), { timeout: 2_000 })
+      .toBeGreaterThan(80);
+
+    // Recolhe pelo header → trilho com exatamente dois atalhos.
+    await toggle.click();
     const rail = page.locator(".vault-rail");
     await expect(rail).toBeVisible();
     await expect(rail.getByRole("button")).toHaveCount(2);
@@ -243,24 +358,40 @@ test.describe("feedback 24/08 — comentários 4 e 5: toggle único e trilho do 
     const graphShortcut = rail.getByRole("button", { name: /grafo do vault|vault graph/i });
     await expect(filesShortcut).toBeVisible();
     await expect(graphShortcut).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     // Tooltip real em focus (title isolado não satisfaz).
     await filesShortcut.focus();
     await expect(rail.getByRole("tooltip").filter({ hasText: /Arquivos|Files/i })).toBeVisible();
 
-    // Atalho reabre o painel completo já na aba correspondente.
+    // Atalho reabre na MESMA aba, MESMA nota e MESMO scroll.
     await filesShortcut.click();
     await expect(page.locator(".vault-slot")).toBeVisible();
     await expect(page.locator(".vault-slot [role='tab'][aria-selected='true']")).toContainText(
       /Arquivos|Files/i,
     );
+    await expect(page.locator(".vault-slot article")).toBeVisible();
+    const restoredScroll = await page
+      .locator(".vault-slot")
+      .locator('[data-slot="scroll-area-viewport"]')
+      .last()
+      .evaluate((element) => element.scrollTop);
+    expect(restoredScroll).toBeGreaterThan(80);
 
-    await vaultToggle(page).click();
+    // Atalho do grafo reabre na aba Grafo.
+    await toggle.click();
     await graphShortcut.click();
-    await expect(page.locator(".vault-slot")).toBeVisible();
     await expect(page.locator(".vault-slot [role='tab'][aria-selected='true']")).toContainText(
       /Grafo|Graph/i,
     );
+  });
+
+  test("sem workspace nenhum rail é criado", async ({ page }) => {
+    await resetToOnboarding(page);
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await completeOnboarding(page, "Perfil SemRail");
+    await expect(page.locator(".vault-rail")).toHaveCount(0);
+    await expect(page.locator(".vault-slot")).toHaveCount(0);
   });
 });
 
@@ -367,6 +498,57 @@ test.describe("feedback 24/08 — comentário 7: seletor de modelos compacto e r
     }));
     expect(backgroundAfter.windowY).toBe(backgroundBefore.windowY);
     expect(backgroundAfter.threadTop).toBe(backgroundBefore.threadTop);
+
+    // Contrato ARIA coerente: listbox + option + aria-selected.
+    await expect(list).toHaveAttribute("role", "listbox");
+    const firstOption = list.getByRole("option").first();
+    await expect(firstOption).toHaveAttribute("aria-selected", /.+/);
+    await expect(list.getByRole("option", { selected: true })).toHaveCount(1);
+
+    // Home vai ao primeiro; End vai ao último; ArrowUp volta um.
+    const items = list.getByRole("option");
+    await items.first().focus();
+    await page.keyboard.press("End");
+    await expect(items.nth(64)).toBeFocused();
+    await page.keyboard.press("Home");
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(items.first()).toBeFocused();
+
+    // Busy impede duplo clique: atrasa o POST e garante UMA única requisição.
+    let modelRequests = 0;
+    let releaseModelRequest: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => (releaseModelRequest = resolve));
+    await page.route("**/v1/sessions/*/model", async (route) => {
+      modelRequests += 1;
+      await gate;
+      await route.continue();
+    });
+    await items.nth(2).click();
+    await expect(items.nth(2)).toBeDisabled({ timeout: 5_000 });
+    // Segundo clique sobre item desabilitado não dispara nova troca.
+    await items.first().click({ force: true }).catch(() => undefined);
+    expect(modelRequests).toBe(1);
+    releaseModelRequest?.();
+    // Sucesso fecha o menu e reabilita estado.
+    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 5_000 });
+
+    // Erro na troca mantém o menu aberto com feedback inline.
+    await page.route("**/v1/sessions/*/model", async (route) => route.abort());
+    await chip.click();
+    const errorList = page.getByTestId("model-list");
+    await expect(errorList.getByRole("option").nth(3)).toBeEnabled({ timeout: 5_000 });
+    await errorList.getByRole("option").nth(3).click();
+    await expect(
+      page.locator('[data-slot="popover-content"] [role="alert"]'),
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(errorList).toBeVisible();
+
+    // Escape fecha e devolve foco ao trigger.
+    await page.keyboard.press("Escape");
+    await expect(chip).toBeFocused();
 
     await mockServer.close();
   });

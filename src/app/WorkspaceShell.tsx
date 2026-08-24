@@ -149,6 +149,7 @@ export default function WorkspaceShell({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const paletteOpenerRef = useRef<HTMLElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -378,6 +379,9 @@ export default function WorkspaceShell({
     function onShortcut(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
+        // Guarda quem abriu por atalho para devolver o foco ao fechar.
+        paletteOpenerRef.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setPaletteOpen((current) => !current);
       }
       // Escape é do Radix Dialog: fecha com animação, limpa a busca e
@@ -389,22 +393,20 @@ export default function WorkspaceShell({
 
   async function changeModel(model: string) {
     if (!activeSession || !activeProvider) return;
-    try {
-      const session = await setSessionModel(activeSession.id, model, activeProvider.id);
-      setState((current) =>
-        current
-          ? {
-              ...current,
-              recentSessions: current.recentSessions.map((item) =>
-                item.id === session.id ? { ...item, ...session } : item,
-              ),
-              sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
-            }
-          : current,
-      );
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("chat.couldNotChangeTheModel"));
-    }
+    // Sem try/catch: o Composer exibe falha INLINE no próprio menu (#208);
+    // engolir aqui fecharia o menu como sucesso silencioso.
+    const session = await setSessionModel(activeSession.id, model, activeProvider.id);
+    setState((current) =>
+      current
+        ? {
+            ...current,
+            recentSessions: current.recentSessions.map((item) =>
+              item.id === session.id ? { ...item, ...session } : item,
+            ),
+            sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
+          }
+        : current,
+    );
   }
 
   async function selectProvider(nextProvider: ConnectedProvider) {
@@ -922,7 +924,11 @@ export default function WorkspaceShell({
               setOpenSessionMenuId(sessionId);
               setSessionMenuPosition(position);
             }}
-            onTogglePalette={() => setPaletteOpen(true)}
+            onTogglePalette={(event) => {
+              paletteOpenerRef.current =
+                event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+              setPaletteOpen(true);
+            }}
             openSession={(sessionId) => void openSession(sessionId)}
             openSessionMenuId={openSessionMenuId}
             openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
@@ -1088,11 +1094,37 @@ export default function WorkspaceShell({
           sessionToRename={sessionToRename}
         />
         <CommandPalette
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => {
+            setPaletteOpen(false);
+            // Retorno de foco determinístico (clique OU atalho).
+            const opener = paletteOpenerRef.current;
+            requestAnimationFrame(() => opener?.focus());
+          }}
+          onFocusModelSelector={
+            activeProvider
+              ? () => {
+                  document
+                    .querySelector<HTMLButtonElement>('[data-testid="provider-chip"]')
+                    ?.focus();
+                }
+              : undefined
+          }
           onNewSession={() => void newSession()}
+          onOpenNote={
+            workspace
+              ? () => {
+                  dispatchVaultView({ type: "shortcut-activated", tab: "files" });
+                }
+              : undefined
+          }
+          onOpenProfileChooser={() => void onSignOut()}
           onOpenSession={(sessionId) => void openSession(sessionId)}
           onOpenProviders={openProvidersCenter}
           onOpenSettings={() => setShowSettings(true)}
+          onOpenSoulSection={() => {
+            setShowSettings(true);
+            setSettingsSection("default");
+          }}
           open={paletteOpen}
           paletteQuery={paletteQuery}
           recentSessions={recentSessions}

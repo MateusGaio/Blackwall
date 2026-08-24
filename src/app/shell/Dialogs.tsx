@@ -85,8 +85,12 @@ export function RenameSessionDialog({
 type CommandSurfaceProps = {
   onClose: () => void;
   onNewSession: () => void;
+  onOpenNote?: () => void;
+  onOpenProfileChooser?: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSettings: () => void;
+  onOpenSoulSection?: () => void;
+  onFocusModelSelector?: () => void;
   onOpenProviders: () => void;
   query: string;
   recentSessions: SessionSummary[];
@@ -101,8 +105,12 @@ type CommandSurfaceProps = {
 export function CommandSurface({
   onClose,
   onNewSession,
+  onOpenNote,
+  onOpenProfileChooser,
   onOpenSession,
   onOpenSettings,
+  onOpenSoulSection,
+  onFocusModelSelector,
   onOpenProviders,
   query,
   recentSessions,
@@ -127,7 +135,39 @@ export function CommandSurface({
         <CommandEmpty>{t("sessions.nothingFoundInPalette")}</CommandEmpty>
         <CommandGroup heading={t("sessions.actions")}>
           <CommandItem onSelect={() => run(onNewSession)}>{t("sessions.new")}</CommandItem>
+          <CommandItem
+            onSelect={onOpenProfileChooser ? () => run(onOpenProfileChooser) : undefined}
+            {...(onOpenProfileChooser ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("palette.switchProfile")}
+          </CommandItem>
           <CommandItem onSelect={() => run(onOpenProviders)}>{t("composer.providers")}</CommandItem>
+          <CommandItem
+            onSelect={
+              onOpenSoulSection ? () => run(onOpenSoulSection) : undefined
+            }
+            {...(onOpenSoulSection ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("palette.editSoul")}
+          </CommandItem>
+          <CommandItem
+            onSelect={onFocusModelSelector ? () => run(onFocusModelSelector) : undefined}
+            {...(onFocusModelSelector ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("chat.selectModel")}
+          </CommandItem>
+          <CommandItem
+            onSelect={onOpenNote ? () => run(onOpenNote) : undefined}
+            {...(onOpenNote ? {} : { disabled: true, "data-disabled": true })}
+            
+          >
+            {t("palette.openVaultNote")}
+            {!onOpenNote && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {t("palette.requiresWorkspace")}
+              </span>
+            )}
+          </CommandItem>
           <CommandItem
             onSelect={() => run(onOpenSettings)}
             value={`${t("sessions.openSettings")} ${t("sessions.settings")}`}
@@ -167,8 +207,12 @@ export function CommandSurface({
 type CommandPaletteProps = {
   onClose: () => void;
   onNewSession?: () => void;
+  onOpenNote?: () => void;
+  onOpenProfileChooser?: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSettings: () => void;
+  onOpenSoulSection?: () => void;
+  onFocusModelSelector?: () => void;
   onOpenProviders?: () => void;
   open: boolean;
   paletteQuery: string;
@@ -183,8 +227,12 @@ type CommandPaletteProps = {
 export function CommandPalette({
   onClose,
   onNewSession = () => undefined,
+  onOpenNote,
+  onOpenProfileChooser,
   onOpenSession,
   onOpenSettings,
+  onOpenSoulSection,
+  onFocusModelSelector,
   onOpenProviders = () => undefined,
   open,
   paletteQuery,
@@ -209,10 +257,14 @@ export function CommandPalette({
           setPaletteQuery("");
           onClose();
         }}
+        onFocusModelSelector={onFocusModelSelector}
         onNewSession={onNewSession}
+        onOpenNote={onOpenNote}
+        onOpenProfileChooser={onOpenProfileChooser}
         onOpenSession={onOpenSession}
         onOpenProviders={onOpenProviders}
         onOpenSettings={onOpenSettings}
+        onOpenSoulSection={onOpenSoulSection}
         query={paletteQuery}
         recentSessions={recentSessions}
         setQuery={setPaletteQuery}
