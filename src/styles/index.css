@@ -33,8 +33,12 @@
   --muted-foreground: #77777c;
   --accent: #252527;
   --accent-foreground: #f2f2f3;
-  /* Cinza mais claro + ícone carregam o significado (UX_SPEC §1). */
-  --destructive: #3a3a3f;
+  /* Destrutivo monocromático e LEGÍVEL como texto (#9a9aa1 ≈ 6,5:1 sobre
+     card/popover): a UX_SPEC §1 pede cinza mais claro + ícone em vez de
+     vermelho saturado, mas o tom antigo (#3a3a3f) era de superfície e ficava
+     invisível quando usado em texto/borda de botões e alertas. Usos de
+     superfície (bg/ring/border) continuam sutis porque aplicam alfa. */
+  --destructive: #9a9aa1;
   --border: #252527;
   --input: #252527;
   --ring: #77777c;

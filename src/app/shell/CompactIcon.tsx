@@ -50,7 +50,20 @@ const paths = {
 
 export function CompactIcon({ kind }: { kind: CompactIconKind }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
+    // Autocontido: sem os atributos de apresentação o SVG usa fill preto
+    // padrão do navegador e some no tema OLED (e sem dimensão vira gigante).
+    // `currentColor` herda a cor do controle; o tamanho padrão é 16px e as
+    // regras escopadas (.workspace-header-trigger svg etc.) continuam valendo.
+    <svg
+      aria-hidden="true"
+      className="size-4 shrink-0"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       {paths[kind]}
     </svg>
   );

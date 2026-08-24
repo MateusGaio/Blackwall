@@ -69,7 +69,16 @@ type ViewTransform = { scale: number; x: number; y: number };
 
 function GraphIcon({ kind }: { kind: "settings" }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
+    <svg
+      aria-hidden="true"
+      className="size-4 shrink-0"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       {kind === "settings" && (
         <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
       )}
@@ -789,7 +798,16 @@ export function VaultPanel({
           title={t("vault.collapseVault")}
           variant="ghost"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24">
+          <svg
+            aria-hidden="true"
+            className="size-4 shrink-0"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
             <path d="M4 5h16v14H4V5Zm5 0v14M15 9l-3 3 3 3" />
           </svg>
         </Button>

@@ -206,7 +206,16 @@ export function Composer({
                   type="button"
                   variant="ghost"
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <svg
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path d="M12 3 5 6v5c0 4.3 2.8 8.2 7 10 4.2-1.8 7-5.7 7-10V6l-7-3Z" />
                     <path d="m9 12 2 2 4-4" />
                   </svg>

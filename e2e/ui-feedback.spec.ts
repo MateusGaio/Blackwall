@@ -71,6 +71,52 @@ async function signOutViaSettings(page: Page) {
   await expect(page.getByRole("heading", { name: chooserHeading })).toBeVisible();
 }
 
+  /** Perfil com workspace ativo para permitir Vault e medições de layout. */
+  async function shellWithWorkspace(page: Page, profileName: string) {
+    await resetToOnboarding(page);
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await page.getByLabel(/Nome do perfil|Profile name/).fill(profileName);
+    const continueButton = page.getByRole("button", { name: /Continuar|Continue/ });
+    await continueButton.click();
+    await page.getByLabel(/Nome do workspace|Workspace name/).fill(`${profileName}-ws`);
+    await continueButton.click();
+    await page.getByRole("button", { name: startWithoutRegex }).click();
+    await continueButton.click();
+    await continueButton.click();
+    await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
+    await page
+      .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
+      .fill("http://127.0.0.1:17999/v1");
+    await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
+    await page.getByLabel(/Chave de API|API key/).fill("test-key");
+    await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
+    await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
+    // Cria um workspace real (temporário) pela API e abre-o.
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const state = (await (await page.request.get("http://127.0.0.1:1423/v1/state")).json()) as {
+      activeProfileId: string;
+    };
+    const created = (await (
+      await page.request.post("http://127.0.0.1:1423/v1/workspaces", {
+        data: {
+          name: `${profileName} Workspace`,
+          profileId: state.activeProfileId,
+          rootPath: await mkdtemp(join(tmpdir(), "blackwall-e2e-ws-")),
+          soul: "",
+        },
+      })
+    ).json()) as { workspace: { id: string } };
+    await page.request.post(`http://127.0.0.1:1423/v1/workspaces/${created.workspace.id}/select`);
+    await page.reload();
+    await page
+      .getByTestId("profile-option")
+      .filter({ hasText: profileName })
+      .click();
+    await expect(page.getByTestId("chat-composer")).toBeVisible();
+  }
+
 test.describe("feedback de UI — perfis e onboarding", () => {
   test("excluir perfil pelo chooser pede confirmação, cancela e confirma", async ({ page }) => {
     await resetToOnboarding(page);
@@ -297,52 +343,6 @@ test.describe("feedback de UI — sidebar agrupada", () => {
 });
 
 test.describe("feedback de UI — composer e provedores", () => {
-  /** Perfil com workspace ativo para permitir Vault e medições de layout. */
-  async function shellWithWorkspace(page: Page, profileName: string) {
-    await resetToOnboarding(page);
-    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
-    await page.getByLabel(/Nome do perfil|Profile name/).fill(profileName);
-    const continueButton = page.getByRole("button", { name: /Continuar|Continue/ });
-    await continueButton.click();
-    await page.getByLabel(/Nome do workspace|Workspace name/).fill(`${profileName}-ws`);
-    await continueButton.click();
-    await page.getByRole("button", { name: startWithoutRegex }).click();
-    await continueButton.click();
-    await continueButton.click();
-    await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
-    await page
-      .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
-    await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
-    await page.getByLabel(/Chave de API|API key/).fill("test-key");
-    await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
-    await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
-    // Cria um workspace real (temporário) pela API e abre-o.
-    const { mkdtemp } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const state = (await (await page.request.get("http://127.0.0.1:1423/v1/state")).json()) as {
-      activeProfileId: string;
-    };
-    const created = (await (
-      await page.request.post("http://127.0.0.1:1423/v1/workspaces", {
-        data: {
-          name: `${profileName} Workspace`,
-          profileId: state.activeProfileId,
-          rootPath: await mkdtemp(join(tmpdir(), "blackwall-e2e-ws-")),
-          soul: "",
-        },
-      })
-    ).json()) as { workspace: { id: string } };
-    await page.request.post(`http://127.0.0.1:1423/v1/workspaces/${created.workspace.id}/select`);
-    await page.reload();
-    await page
-      .getByTestId("profile-option")
-      .filter({ hasText: profileName })
-      .click();
-    await expect(page.getByTestId("chat-composer")).toBeVisible();
-  }
-
   test("diálogo de configurações rola até a última ação com a roda do mouse", async ({
     page,
   }) => {
@@ -509,5 +509,151 @@ test.describe("feedback de UI — Vault", () => {
     await expect(
       page.getByText(/selecione uma pasta|select a folder/i),
     ).toBeVisible();
+  });
+});
+
+test.describe("feedback de UI — visibilidade no tema OLED", () => {
+  /** Aponta svgs pretos-sobre-preto, textos ilegíveis e ícones gigantes. */
+  async function auditOledVisibility(page: Page): Promise<string[]> {
+    return page.evaluate(() => {
+      const problems: string[] = [];
+      const BLACK: [number, number, number, number] = [0, 0, 0, 1];
+      // Converte rgb()/oklab()/oklch() para luminância relativa (0..1),
+      // compondo alfa sobre um fundo opaco quando informado.
+      // Luminância relativa de uma cor rgb()/oklab(), sem composição.
+      const lumPure = (value: string): { lum: number; alpha: number } => {
+        const numbers = value.match(/-?[\d.]+(?:e-?\d+)?/g);
+        if (!numbers) return { lum: 0, alpha: 1 };
+        const nums = numbers.map(Number);
+        let [r, g, b] = [0, 0, 0];
+        let alpha = 1;
+        if (value.includes("oklab")) {
+          const [L, a, bAxis, rawAlpha] = nums;
+          alpha = rawAlpha === undefined ? 1 : Math.min(rawAlpha, 1);
+          const l = (L + 0.3963377774 * a + 0.2158037573 * bAxis) ** 3;
+          const m = (L - 0.1055613458 * a - 0.0638541728 * bAxis) ** 3;
+          const s2 = (L - 0.0894841775 * a - 1.291485548 * bAxis) ** 3;
+          r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s2;
+          g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s2;
+          b = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s2;
+        } else {
+          const [rr, gg, bb, rawAlpha] = nums;
+          r = rr / 255;
+          g = gg / 255;
+          b = bb / 255;
+          alpha = rawAlpha === undefined ? 1 : Math.min(rawAlpha, 1);
+        }
+        const srgbToLinear = (channel: number) => {
+          const clamped = Math.min(Math.max(channel, 0), 1);
+          return clamped <= 0.04045
+            ? clamped / 12.92
+            : ((clamped + 0.055) / 1.055) ** 2.4;
+        };
+        return {
+          alpha,
+          lum:
+            0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b),
+        };
+      };
+      const BLACK_LUM = lumPure("rgb(10 10 11)").lum;
+      // Compõe o alfa da cor sobre um fundo opaco informado.
+      const luminanceOf = (
+        value: string,
+        under?: [number, number, number, number],
+      ): number => {
+        const { alpha, lum } = lumPure(value);
+        const backdropLum = under
+          ? lumPure(`rgb(${under[0]} ${under[1]} ${under[2]})`).lum
+          : BLACK_LUM;
+        return alpha * lum + (1 - alpha) * backdropLum;
+      };
+      const effectiveBackground = (element: Element): [number, number, number, number] => {
+        let node: Element | null = element;
+        while (node) {
+          const background = getComputedStyle(node).backgroundColor;
+          const alpha = Number(background.match(/\/\s*([\d.]+)\)?$/)?.[1] ?? 1);
+          if (!background.includes("oklab") || alpha > 0.9) {
+            const match = background.match(/[\d.]+/g);
+            if (match && !background.includes("oklab")) {
+              const [r, g, b, a = 1] = match.map(Number);
+              if (a > 0.9) return [r, g, b, a];
+            }
+          }
+          node = node.parentElement;
+        }
+        return [10, 10, 11, 1];
+      };
+
+      // Ícones: stroke não pode ser preto puro nem transparente; caixa ≤ 20px.
+      for (const svg of Array.from(document.querySelectorAll("svg"))) {
+        const box = svg.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0) continue;
+        const style = getComputedStyle(svg);
+        const stroke = style.stroke;
+        const fill = style.fill;
+        const background = effectiveBackground(svg);
+        const bgLum = luminanceOf(`rgb(${background.slice(0, 3).join(" ")})`);
+        const strokeLum = stroke === "none" ? 0 : luminanceOf(stroke);
+        const usesFillOnly =
+          fill !== "none" &&
+          fill !== "currentColor" &&
+          !fill.includes("currentColor") &&
+          luminanceOf(fill) > bgLum + 0.05;
+        const strokeInvisible = !usesFillOnly && strokeLum - bgLum < 0.12;
+        if (strokeInvisible) {
+          problems.push(
+            `svg invisível: ${svg.outerHTML.slice(0, 90)} stroke=${stroke} bg=rgb(${background.join(",")})`,
+          );
+        }
+        if (box.width > 22 || box.height > 22) {
+          problems.push(`svg gigante (${Math.round(box.width)}x${Math.round(box.height)}): ${svg.getAttribute("class") ?? ""}`);
+        }
+      }
+
+      // Textos de controles: cor precisa se distinguir do fundo efetivo.
+      for (const control of Array.from(document.querySelectorAll("button, a, kbd, output"))) {
+        if ((control as HTMLButtonElement).disabled) continue;
+        const text = (control.textContent ?? "").trim();
+        if (!text) continue;
+        const style = getComputedStyle(control);
+        const bg = effectiveBackground(control);
+        const colorLum = luminanceOf(style.color, bg);
+        const bgLum = luminanceOf(`rgb(${bg.slice(0, 3).join(" ")})`);
+        const opacity = Number(style.opacity || 1);
+        if (opacity > 0.4 && Math.abs(colorLum - bgLum) < 0.08) {
+          problems.push(
+            `texto ilegível "${text.slice(0, 40)}" color=${style.color} bg=rgb(${effectiveBackground(control).join(",")})`,
+          );
+        }
+      }
+      return problems;
+    });
+  }
+
+  test("nenhum elemento invisível por cor na sidebar, header, composer, Vault e diálogo", async ({
+    page,
+  }) => {
+    await shellWithWorkspace(page, "Perfil Contraste");
+
+    // Superfície principal com Vault aberto.
+    const vaultToggle = page
+      .locator("header")
+      .getByRole("button", { name: /painel do Vault|Vault panel/ })
+      .first();
+    if ((await page.locator(".vault-slot").count()) === 0) await vaultToggle.click();
+    await expect(page.locator(".vault-slot")).toHaveCount(1);
+    expect(await auditOledVisibility(page)).toEqual([]);
+
+    // Diálogo de configurações aberto (formulário de provedor incluso).
+    await page.getByRole("button", { name: /Provedores|Providers/ }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    expect(await auditOledVisibility(page)).toEqual([]);
+
+    // Fecha o diálogo e abre o popover do chip provedor › modelo.
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByTestId("provider-chip").click();
+    expect(await auditOledVisibility(page)).toEqual([]);
   });
 });
