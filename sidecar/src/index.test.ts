@@ -735,3 +735,173 @@ describe("sidecar robustez", () => {
     }
   });
 });
+describe("harness resiliente (#210): cache coerente e exit codes", () => {
+  it("mutação invalida leitura em cache e exit code ≠ 0 vira tool.failed estruturado", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-cache-exit-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    await writeFile(join(workspaceRoot, "cache.txt"), "v1", "utf8");
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    void baseUrl;
+    const bootstrap = await fetch(`http://${SIDECAR_HOST}:${port}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "ask",
+        profileName: "Cache Exit",
+        profileSoul: "Profile",
+        workspaceName: "Cache ws",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "k",
+        baseUrl: "https://cache-exit.example/v1",
+        model: "m1",
+        name: "CacheExit provider",
+        type: "openai-compatible",
+      },
+      directory,
+    );
+
+    // Roteiro: r1 read (popula cache) → r2 patch v1→v2 → r3 MESMA leitura
+    // (deve reler FS e ver v2; cache devolveria v1) → r4 comando com exit 7
+    // (falha estruturada) → r5 resposta final.
+    let round = 0;
+    const toolCallPayload = (
+      id: string,
+      name: string,
+      args: Record<string, unknown>,
+    ) =>
+      responseWithLines([
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    function: { arguments: JSON.stringify(args), name },
+                    id,
+                    index: 0,
+                    type: "function",
+                  },
+                ],
+              },
+            },
+          ],
+        })}`,
+        "data: [DONE]",
+      ]);
+    const fetchMock = (() => {
+      round += 1;
+      if (round === 1) return Promise.resolve(toolCallPayload("call-read-1", "read_file", { path: "cache.txt" }));
+      if (round === 2)
+        return Promise.resolve(
+          toolCallPayload("call-patch-1", "apply_patch", {
+            newText: "v2",
+            oldText: "v1",
+            path: "cache.txt",
+          }),
+        );
+      if (round === 3) return Promise.resolve(toolCallPayload("call-read-2", "read_file", { path: "cache.txt" }));
+      if (round === 4)
+        return Promise.resolve(
+          toolCallPayload("call-cmd-1", "execute_command", {
+            args: ["-e", "process.exit(7)"],
+            command: process.execPath,
+            cwd: ".",
+          }),
+        );
+      return Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: "turno encerrado com explicacao" } }],
+          })}`,
+          "data: [DONE]",
+        ]),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const queued: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const key = String(message.type ?? message.topic);
+        // Modo ask: todo tool call pede aprovação — aprova na hora.
+        if (key === "approval.requested" && client) {
+          client.send(
+            JSON.stringify({
+              decision: "allow_once",
+              requestId: message.requestId,
+              type: "approval.resolve",
+            }),
+          );
+        }
+        const resolver = waiters.get(key);
+        if (resolver) {
+          waiters.delete(key);
+          resolver(message);
+        } else {
+          queued.push(message);
+        }
+      });
+      const waitFor = (type: string) => {
+        const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+        if (index >= 0)
+          return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "teste cache/exit", role: "user" }],
+          model: provider.model,
+          providerId: provider.id,
+          requestId: "req-cache-exit",
+          sessionId: state.activeSessionId,
+          toolBudget: 12,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      await waitFor("chat.started");
+
+      const failed = await waitFor("tool.failed");
+      expect((failed.result as { error?: { code?: string } }).error?.code).toBe(
+        "COMMAND_EXIT_CODE",
+      );
+
+      const completed = await waitFor("chat.completed");
+      expect(completed.content).toBe("turno encerrado com explicacao");
+
+      // A segunda leitura (mesmos args da primeira) trouxe o conteúdo
+      // PÓS-mutação — a mutação invalidou o cache de leitura.
+      const completedResults = queued.filter(
+        (message) => message.type === "tool.completed",
+      ) as Array<{ result?: { content?: string; path?: string } }>;
+      const reads = completedResults.filter(
+        (entry) => entry.result?.path === "cache.txt" && typeof entry.result.content === "string",
+      );
+      expect(reads.length).toBe(2);
+      expect(reads[1]?.result?.content).toBe("v2");
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+});

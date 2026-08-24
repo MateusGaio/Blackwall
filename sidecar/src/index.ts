@@ -73,6 +73,7 @@ import {
   resolveApproval,
   ToolPolicyDenied,
 } from "./tools.js";
+import { classifyTool } from "./tool-policy.js";
 import {
   clearUsageHistory,
   getUsageSummary,
@@ -1259,7 +1260,36 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   },
                 };
               }
-              if (!toolError) successfulToolResults.set(executionSignature, toolResult);
+              if (!toolError) {
+                const commandResult = toolResult as {
+                  code?: number | null;
+                  stderr?: string;
+                };
+                // Comentário 9/item 1: exit code ≠ 0 é FALHA estruturada,
+                // nunca sucesso com stdout enigmático.
+                if (
+                  normalizedCall.name === "execute_command" &&
+                  typeof commandResult?.code === "number" &&
+                  commandResult.code !== 0
+                ) {
+                  toolError = true;
+                  toolResult = {
+                    error: {
+                      code: "COMMAND_EXIT_CODE",
+                      message: `O comando saiu com o código ${commandResult.code}.`,
+                      stderr: String(commandResult.stderr ?? "").slice(0, 64_000),
+                    },
+                  };
+                }
+              }
+              // Cache só de leitura PURA (#210): comando e mutação nunca são
+              // cacheados; mutação/comando executado invalida leituras do
+              // turno (podem ter mudado o filesystem).
+              if (!toolError && classifyTool(normalizedCall.name) !== "read") {
+                successfulToolResults.clear();
+              } else if (!toolError) {
+                successfulToolResults.set(executionSignature, toolResult);
+              }
               const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));
               toolResultBytes += hasCachedResult ? 0 : resultBytes;
               if (toolResultBytes > MAX_TOOL_RESULT_BYTES_PER_TURN) {
