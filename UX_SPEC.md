@@ -19,7 +19,7 @@ Este documento existe porque decisão de stack não garante experiência boa —
 ## 2. Navegação
 
 **Decisão: os dois modelos, não um só.**
-- **Sidebar persistente** à esquerda para navegação estrutural: Perfil atual no topo → lista de Workspaces do perfil → seção `Recentes` com até 30 sessões do perfil ativo. Cada sessão mostra título, workspace secundário (`Sem workspace` quando aplicável) e um único menu de ações.
+- **Sidebar persistente** à esquerda para navegação estrutural, em árvore compacta por projeto (atualizado em 2026-08-24, Issue #200): topo com as ações primárias `Novo` (nova sessão) e a seção `Projetos` com atalho de criação; cada workspace do perfil é um grupo expansível que contém suas sessões — **cada sessão aparece exatamente uma vez, sob o workspace dela**, e sessões sem workspace ficam no grupo `Sem workspace`, sempre por último. Ordenação dentro do grupo: `updatedAt DESC`, desempate `createdAt DESC`; workspaces preservam a ordem de `lastOpenedAt`; o grupo ativo nasce expandido e os demais recolhidos. Clicar no nome do projeto abre o workspace; a seta apenas expande/recolhe; cada sessão tem um único menu de ações (renomear/excluir com confirmação). O rodapé mantém command palette (`Ctrl/Cmd+K`), perfil (avatar 20px) e configurações, sem dominar o espaço. Com a sidebar recolhida, o único toggle fica no header da janela.
 - **Command palette (Cmd/Ctrl+K)** para qualquer ação rápida: trocar de perfil, criar workspace, trocar Soul, trocar modelo, abrir uma nota do Vault por nome, ir para a página de Agentes.
 
 A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer agora" — são complementares, não redundantes.

@@ -66,7 +66,7 @@ async function completeOnboarding(page: Page, profileName: string) {
 
 /** Sai do perfil atual via Configurações e aguarda o chooser. */
 async function signOutViaSettings(page: Page) {
-  await page.getByRole("button", { name: /Configurações|Settings/ }).click();
+  await page.getByRole("button", { name: /Abrir configurações|Open settings/ }).click();
   await page.getByRole("button", { name: /Sair do perfil|Sign out/ }).click();
   await expect(page.getByRole("heading", { name: chooserHeading })).toBeVisible();
 }
@@ -189,5 +189,109 @@ test.describe("feedback de UI — perfis e onboarding", () => {
     const cardCenterX = (cardBox?.x ?? 0) + (cardBox?.width ?? 0) / 2;
     const titleCenterX = (titleBox?.x ?? 0) + (titleBox?.width ?? 0) / 2;
     expect(Math.abs(titleCenterX - cardCenterX)).toBeLessThanOrEqual(36);
+  });
+});
+
+test.describe("feedback de UI — sidebar agrupada", () => {
+  /** Semeia dois workspaces sintéticos e sessões via API local do sidecar. */
+  async function seedSidebarData(page: Page) {
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const state = (await (
+      await page.request.get("http://127.0.0.1:1423/v1/state")
+    ).json()) as {
+      activeProfileId: string;
+      profiles: Array<{ id: string; name: string }>;
+    };
+    const profileId = state.activeProfileId;
+    const workspace = async (name: string) =>
+      (
+        (await (
+          await page.request.post("http://127.0.0.1:1423/v1/workspaces", {
+            data: {
+              name,
+              profileId,
+              rootPath: await mkdtemp(join(tmpdir(), "blackwall-e2e-fixture-")),
+              soul: "",
+            },
+          })
+        ).json()) as { workspace: { id: string } }
+      ).workspace.id;
+    const session = async (workspaceId?: string) =>
+      (
+        (await (
+          await page.request.post("http://127.0.0.1:1423/v1/sessions", {
+            data: { profileId, workspaceId: workspaceId ?? null },
+          })
+        ).json()) as { session: { id: string } }
+      ).session.id;
+
+    const wsA = await workspace("Projeto A");
+    const wsB = await workspace("Projeto B");
+    await session(wsA); // A · mais antiga
+    await session(wsA); // A · mais recente
+    await session(wsB);
+    await session(); // Sem workspace
+    return profileId;
+  }
+
+  test("sidebar agrupa sessões por projeto e Sem workspace sem duplicatas", async ({
+    page,
+  }) => {
+    await resetToOnboarding(page);
+    // Fluxo completo até o shell com um perfil dedicado.
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await completeOnboarding(page, "Perfil Sidebar");
+    await seedSidebarData(page);
+
+    // Recarrega para passar pelo chooser e abrir o perfil com os dados novos.
+    await page.reload();
+    await page.getByRole("heading", { name: chooserHeading }).waitFor();
+    await page
+      .getByTestId("profile-option")
+      .filter({ hasText: "Perfil Sidebar" })
+      .click();
+    const nav = page.getByRole("navigation", { name: /Lista de conversas|Thread list/ });
+    await expect(nav).toBeVisible();
+
+    // Grupos na ordem do estado, com "Sem workspace" por último.
+    for (const label of [/^Projeto A$/, /^Projeto B$/, /^Sem workspace$|^No workspace$/]) {
+      await expect(nav.getByText(label)).toBeVisible();
+    }
+    // Cada sessão aparece exatamente uma vez ao expandir os grupos (5 no
+    // total: 2 em A, 1 em B, 2 em Sem workspace — a do bootstrap + a semeada,
+    // que já nasce expandido por ser o grupo ativo).
+    const expandButton = (label: string) =>
+      nav.getByRole("button", { name: new RegExp(`(Expand|Collapse|Expandir|Recolher): ${label}`) });
+    await expandButton("Projeto A").click();
+    await expect(nav.locator("[data-session-menu]")).toHaveCount(4);
+    await expandButton("Projeto B").click();
+    await expect(nav.locator("[data-session-menu]")).toHaveCount(5);
+    // Recolher novamente esconde as sessões do grupo.
+    await expandButton("Projeto B").click();
+    await expect(nav.locator("[data-session-menu]")).toHaveCount(4);
+  });
+
+  test("Novo cria uma única sessão sob clique repetido e não exibe o sol", async ({
+    page,
+  }) => {
+    await resetToOnboarding(page);
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await completeOnboarding(page, "Perfil Novo");
+    const nav = page.getByRole("navigation", { name: /Lista de conversas|Thread list/ });
+    const novo = page.getByRole("button", { name: /^Novo$|^New$/ });
+    await expect(novo).toBeVisible();
+
+    // Grupo ativo (Sem workspace) nasce expandido com a sessão do bootstrap.
+    const before = await nav.locator("[data-session-menu]").count();
+    expect(before).toBeGreaterThanOrEqual(1);
+    await novo.dblclick(); // duplo clique: cria apenas uma sessão
+    await page.waitForTimeout(300);
+    const after = await nav.locator("[data-session-menu]").count();
+    expect(after - before).toBeLessThanOrEqual(1);
+
+    // Estado vazio sem símbolo decorativo.
+    await expect(page.getByText("✳")).toHaveCount(0);
   });
 });

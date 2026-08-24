@@ -49,7 +49,7 @@ import {
 import { ChatHeader } from "./shell/ChatHeader";
 import { Composer } from "./shell/Composer";
 import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
-import { SessionsSidebar, type SidebarFocusTarget } from "./shell/SessionsSidebar";
+import { SessionsSidebar } from "./shell/SessionsSidebar";
 import {
   maximumVaultWidth,
   minimumVaultWidth,
@@ -133,7 +133,6 @@ export default function WorkspaceShell({
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
-  const workspacePickerRef = useRef<HTMLSelectElement | null>(null);
   const activeSessionIdRef = useRef<string | null>(appState?.activeSessionId ?? null);
   const lastAppStateRef = useRef(appState);
 
@@ -502,16 +501,6 @@ export default function WorkspaceShell({
     setShowSettings(true);
   }
 
-  function expandSidebar(target?: SidebarFocusTarget) {
-    setSidebarCollapsed(false);
-    if (!target) return;
-    requestAnimationFrame(() => {
-      if (target === "workspace") workspacePickerRef.current?.focus();
-      if (target === "recent") recentSessionsRef.current?.focus();
-      if (target === "settings") settingsButtonRef.current?.focus();
-    });
-  }
-
   function boundedVaultWidth(width: number) {
     const viewportMaximum = Math.max(
       minimumVaultWidth,
@@ -700,13 +689,8 @@ export default function WorkspaceShell({
             </EnterExit>
           )}
           {isEmpty ? (
+            // Estado vazio sem ilustração decorativa: saudação + orientação.
             <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
-              <span
-                aria-hidden="true"
-                className="mb-5 text-2xl leading-none text-neutral-500 select-none"
-              >
-                ✳
-              </span>
               <h1 className="text-2xl font-medium tracking-tight text-foreground">
                 {greeting}, {name}
               </h1>
@@ -873,7 +857,6 @@ export default function WorkspaceShell({
             activeProfile={activeProfile}
             activeSessionId={activeSession?.id}
             collapsed={sidebarCollapsed}
-            expandSidebar={expandSidebar}
             hasActiveProfile={Boolean(state?.activeProfileId)}
             isCreatingSession={isCreatingSession}
             name={name}
@@ -904,7 +887,6 @@ export default function WorkspaceShell({
             settingsButtonRef={settingsButtonRef}
             setShowSettings={setShowSettings}
             workspace={workspace}
-            workspacePickerRef={workspacePickerRef}
             workspaces={state?.workspaces ?? []}
           />
 
