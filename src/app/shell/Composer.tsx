@@ -135,7 +135,7 @@ export function Composer({
         aria-label={t("composer.message")}
         className="max-h-[180px] min-h-[44px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         data-testid="chat-composer"
-        disabled={!activeProvider || !activeSessionId || isSending}
+        disabled={!activeSessionId || isSending}
         onChange={(event) => {
           setDraft(event.target.value);
           resizeComposer(event.target);
@@ -146,6 +146,19 @@ export function Composer({
         rows={2}
         value={draft}
       />
+      {!selectedModel.trim() && (
+        // Sem provedor/modelo escolhido: orienta e abre a seleção em vez de
+        // deixar o botão de enviar silenciosamente desabilitado.
+        <span className="mx-4 mb-1 w-fit" role="status">
+          <button
+            className="rounded px-0 text-left text-xs text-muted-foreground underline-offset-2 transition-colors duration-[120ms] hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+            onClick={() => setModelOpen(true)}
+            type="button"
+          >
+            {t("chat.chooseModelHint")}
+          </button>
+        </span>
+      )}
       <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
         <div className="flex min-w-0 items-center gap-0.5">
           <Button
@@ -278,6 +291,11 @@ export function Composer({
                 <p className="px-2 pb-1 font-mono text-[0.68rem] tracking-wide text-muted-foreground uppercase">
                   {activeProvider.name}
                 </p>
+                {models.length === 0 && (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {t("settings.thisProviderReturnedNoModels")}
+                  </p>
+                )}
                 {models.map((model) => (
                   <button
                     aria-checked={model.id === selectedModel}
@@ -315,7 +333,9 @@ export function Composer({
           ) : (
             <Button
               aria-label={t("composer.sendMessage")}
-              disabled={!draft.trim() || !activeProvider || !activeSessionId}
+              disabled={
+                !draft.trim() || !activeProvider || !activeSessionId || !selectedModel.trim()
+              }
               size="icon-sm"
               title={t("composer.sendMessage")}
               type="submit"

@@ -232,10 +232,7 @@ export function ProviderFormSection({
         <Button disabled={isSaving} onClick={() => void onTest()} type="button" variant="secondary">
           {t("settings.test")}
         </Button>
-        <Button
-          disabled={isSaving || !form.name.trim() || !form.baseUrl.trim() || !form.model.trim()}
-          type="submit"
-        >
+        <Button disabled={isSaving || !form.name.trim() || !form.baseUrl.trim()} type="submit">
           {isSaving ? t("settings.saving") : t("settings.save")}
         </Button>
         {editingId && (

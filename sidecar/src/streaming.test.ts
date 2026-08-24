@@ -48,6 +48,30 @@ describe("streaming de provedores", () => {
       name: "execute_command",
     });
   });
+  it("rejeita streaming com modelo vazio e erro acionável", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-nomodel-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      baseUrl: "https://example.com/v1",
+      model: "",
+      name: "Example",
+    });
+    const request = vi.fn() as unknown as typeof fetch;
+    await expect(
+      streamChatMessage(
+        provider.id,
+        [{ content: "Oi", role: "user" }],
+        "   ",
+        () => undefined,
+        new AbortController().signal,
+        request,
+      ),
+    ).rejects.toThrow("Nenhum modelo foi escolhido");
+    // A API nunca é chamada sem modelo.
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("emite deltas de OpenAI-compatible", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-"));
     directories.push(directory);

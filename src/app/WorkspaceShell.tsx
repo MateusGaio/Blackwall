@@ -147,8 +147,11 @@ export default function WorkspaceShell({
   const recentSessions = [...(state?.recentSessions ?? [])].sort(
     (left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt,
   );
-  const selectedModel =
-    activeSession?.selectedModel ?? activeProvider?.model ?? models[0]?.id ?? "";
+  // Modelo efetivo: escolha explícita da sessão; sem ela, o padrão do
+  // provedor quando existir. Nunca um modelo arbitrário (`models[0]`) nem uma
+  // string vazia — ausência de escolha mantém o composer em "Escolher modelo".
+  const sessionSelectedModel = activeSession?.selectedModel?.trim() || "";
+  const selectedModel = sessionSelectedModel || activeProvider?.model?.trim() || "";
   const modelName =
     (models.find((model) => model.id === selectedModel)?.name ?? selectedModel) ||
     t("chat.selectModel");
@@ -311,24 +314,25 @@ export default function WorkspaceShell({
   }, [activeSession?.id, messages.length]);
 
   useEffect(() => {
-    if (!activeProvider) return;
+    if (!activeProvider) {
+      setModels([]);
+      return;
+    }
     let cancelled = false;
-    const selectedProviderModel = {
-      capabilities: [],
-      id: activeProvider.model,
-      name: activeProvider.model,
-    } satisfies ProviderModel;
-    setModels([selectedProviderModel]);
     void listStoredProviderModels(activeProvider.id)
       .then((available) => {
         if (cancelled) return;
-        const hasSelectedModel = available.some((model) => model.id === selectedProviderModel.id);
+        // Dedupe defensivo: alguns endpoints retornam o mesmo id duas vezes.
+        const unique = available.filter(
+          (model, index, all) => all.findIndex((item) => item.id === model.id) === index,
+        );
+        // O padrão legado do provedor continua listável quando existe e não
+        // veio da sincronização; um default vazio nunca vira pseudo-modelo.
+        const fallbackDefault = activeProvider.model?.trim();
         setModels(
-          available.length > 0
-            ? hasSelectedModel
-              ? available
-              : [selectedProviderModel, ...available]
-            : [selectedProviderModel],
+          fallbackDefault && !unique.some((model) => model.id === fallbackDefault)
+            ? [...unique, { capabilities: [], id: fallbackDefault, name: fallbackDefault }]
+            : unique,
         );
       })
       .catch(() => undefined);
@@ -371,10 +375,12 @@ export default function WorkspaceShell({
 
   async function selectProvider(nextProvider: ConnectedProvider) {
     setActiveProvider(nextProvider);
-    setModels([{ capabilities: [], id: nextProvider.model, name: nextProvider.model }]);
+    // Trocar provedor limpa o modelo incompatível e aplica o default somente
+    // quando ele existe; a escolha é persistida explicitamente na sessão.
+    const nextModel = nextProvider.model?.trim() || "";
     if (!activeSession) return;
     try {
-      const session = await setSessionModel(activeSession.id, nextProvider.model, nextProvider.id);
+      const session = await setSessionModel(activeSession.id, nextModel, nextProvider.id);
       setState((current) =>
         current
           ? {
@@ -398,15 +404,34 @@ export default function WorkspaceShell({
     try {
       const nextState = await selectSession(sessionId);
       activeSessionIdRef.current = sessionId;
-      setState(nextState);
       const nextSession = nextState.sessions.find((item) => item.id === sessionId);
-      setActiveProvider(
-        nextSession?.selectedProviderId
-          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ??
-              providers[0] ??
-              null)
-          : (providers[0] ?? null),
-      );
+      const resolvedProvider = nextSession?.selectedProviderId
+        ? (providers.find((item) => item.id === nextSession.selectedProviderId) ??
+          providers[0] ??
+          null)
+        : (providers[0] ?? null);
+      // Sessão sem modelo e provedor com padrão: aplica e persiste a escolha
+      // explicitamente (selectedProviderId + selectedModel) na seleção.
+      if (nextSession && !nextSession.selectedModel?.trim() && resolvedProvider?.model?.trim()) {
+        try {
+          const updated = await setSessionModel(
+            sessionId,
+            resolvedProvider.model.trim(),
+            resolvedProvider.id,
+          );
+          Object.assign(nextSession, updated);
+          nextState.recentSessions = nextState.recentSessions.map((item) =>
+            item.id === updated.id ? { ...item, ...updated } : item,
+          );
+          nextState.sessions = nextState.sessions.map((item) =>
+            item.id === updated.id ? updated : item,
+          );
+        } catch {
+          // Persistência do default é uma conveniência; não bloqueia a abertura.
+        }
+      }
+      setState(nextState);
+      setActiveProvider(resolvedProvider);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheSession"));
     } finally {
@@ -422,15 +447,34 @@ export default function WorkspaceShell({
     try {
       const nextState = await selectWorkspace(workspaceId);
       activeSessionIdRef.current = nextState.activeSessionId;
-      setState(nextState);
       const nextSession = nextState.sessions.find((item) => item.id === nextState.activeSessionId);
-      setActiveProvider(
-        nextSession?.selectedProviderId
-          ? (providers.find((item) => item.id === nextSession.selectedProviderId) ??
-              providers[0] ??
-              null)
-          : (providers[0] ?? null),
-      );
+      const resolvedProvider = nextSession?.selectedProviderId
+        ? (providers.find((item) => item.id === nextSession.selectedProviderId) ??
+          providers[0] ??
+          null)
+        : (providers[0] ?? null);
+      // Mesma regra do openSession: default do provedor é aplicado e
+      // persistido explicitamente quando a sessão ainda não tem modelo.
+      if (nextSession && !nextSession.selectedModel?.trim() && resolvedProvider?.model?.trim()) {
+        try {
+          const updated = await setSessionModel(
+            nextSession.id,
+            resolvedProvider.model.trim(),
+            resolvedProvider.id,
+          );
+          Object.assign(nextSession, updated);
+          nextState.recentSessions = nextState.recentSessions.map((item) =>
+            item.id === updated.id ? { ...item, ...updated } : item,
+          );
+          nextState.sessions = nextState.sessions.map((item) =>
+            item.id === updated.id ? updated : item,
+          );
+        } catch {
+          // Conveniência; não bloqueia a troca de workspace.
+        }
+      }
+      setState(nextState);
+      setActiveProvider(resolvedProvider);
       if (wasWithoutWorkspace) setShowVault(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheWorkspace"));
@@ -509,13 +553,30 @@ export default function WorkspaceShell({
       };
       activeSessionIdRef.current = session.id;
       setState(nextStateWithWorkspace);
-      setActiveProvider(
-        session.selectedProviderId
-          ? (providers.find((item) => item.id === session.selectedProviderId) ??
-              providers[0] ??
-              null)
-          : (providers[0] ?? null),
-      );
+      const resolvedProvider = session.selectedProviderId
+        ? (providers.find((item) => item.id === session.selectedProviderId) ?? providers[0] ?? null)
+        : (providers[0] ?? null);
+      // Sessão recém-criada herda o default do provedor de forma explícita
+      // quando ele existe; sem default, nasce sem modelo escolhido.
+      if (!session.selectedModel?.trim() && resolvedProvider?.model?.trim()) {
+        try {
+          const updated = await setSessionModel(
+            session.id,
+            resolvedProvider.model.trim(),
+            resolvedProvider.id,
+          );
+          nextStateWithWorkspace.recentSessions = nextStateWithWorkspace.recentSessions.map(
+            (item) => (item.id === updated.id ? { ...item, ...updated } : item),
+          );
+          nextStateWithWorkspace.sessions = nextStateWithWorkspace.sessions.map((item) =>
+            item.id === updated.id ? updated : item,
+          );
+          setState({ ...nextStateWithWorkspace });
+        } catch {
+          // Conveniência; não bloqueia a ativação do workspace.
+        }
+      }
+      setActiveProvider(resolvedProvider);
       setShowVault(true);
       setVaultCollapsed(false);
       setResourceNotice("");

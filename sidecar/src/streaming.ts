@@ -424,7 +424,13 @@ export async function streamChatMessage(
 ): Promise<StreamResponse> {
   const provider = await getProvider(providerId, dataDirectory);
   const apiKey = await providerApiKey(providerId, dataDirectory);
+  // A API nunca pode receber um modelo vazio: sem padrão no provedor e sem
+  // escolha explícita na sessão, o envio é rejeitado com erro acionável.
   const model = modelOverride?.trim() || provider.model;
+  if (!model)
+    throw new Error(
+      "Nenhum modelo foi escolhido. Selecione um modelo do provedor antes de enviar a mensagem.",
+    );
   const protocol = options.protocol ?? (provider.type === "ollama" ? "ollama-chat" : "openai-chat");
   if (process.env.BLACKWALL_E2E_AGENT === "1") {
     const scripted = scriptedHarnessTurn(messages);

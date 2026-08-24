@@ -16,8 +16,18 @@ export const onboardingSteps = [
 
 export type OnboardingStep = (typeof onboardingSteps)[number];
 
-export function clampOnboardingStep(step: number): number {
-  return Math.min(Math.max(step, 0), onboardingSteps.length - 1);
+/**
+ * Etapas efetivamente visíveis. O contexto do workspace ("workspace-soul") só
+ * existe quando há um workspace: ao escolher "iniciar sem workspace" a etapa é
+ * removida da lista e toda a navegação (frente, trás, Enter e contador) usa
+ * esta lista, evitando cair na tela pulada ou exibir progresso fantasma.
+ */
+export function visibleOnboardingSteps(withWorkspaceContext: boolean): OnboardingStep[] {
+  return onboardingSteps.filter((step) => withWorkspaceContext || step.id !== "workspace-soul");
+}
+
+export function clampOnboardingStep(step: number, visibleTotal: number): number {
+  return Math.min(Math.max(step, 0), Math.max(0, visibleTotal - 1));
 }
 
 export function detectInitialLocale(language?: string): "pt-BR" | "en" {

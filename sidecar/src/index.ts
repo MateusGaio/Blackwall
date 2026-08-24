@@ -728,6 +728,13 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       });
     };
     try {
+      // Sessão sem modelo escolhido e sem rota alternativa com modelo: rejeita
+      // com erro acionável em vez de iniciar streaming com modelo vazio.
+      if (!candidates.some((candidate) => candidate.model)) {
+        throw new Error(
+          "Nenhum modelo foi escolhido. Selecione um provedor e um modelo antes de enviar a mensagem.",
+        );
+      }
       let toolCount = 0;
       let toolResultBytes = 0;
       let alreadyCompactedThisTurn = false;

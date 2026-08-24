@@ -24,7 +24,7 @@ import {
   clampOnboardingStep,
   detectInitialLocale,
   type OnboardingStep,
-  onboardingSteps,
+  visibleOnboardingSteps,
 } from "./onboarding";
 import { choiceCardBase, ProfileChooser } from "./shell/ProfileChooser";
 import { DEFAULT_SOUL_PROMPT } from "./souls";
@@ -144,9 +144,11 @@ function OnboardingPanel({
   onStepExited,
 }: OnboardingPanelProps) {
   const { t } = useTranslation();
-  const stepIndex = onboardingSteps.findIndex((item) => item.id === step.id);
-  const isLastStep = stepIndex === onboardingSteps.length - 1;
-  const progressValue = ((stepIndex + 1) / onboardingSteps.length) * 100;
+  const visibleSteps = visibleOnboardingSteps(!startWithoutWorkspace);
+  const foundIndex = visibleSteps.findIndex((item) => item.id === step.id);
+  const stepIndex = foundIndex < 0 ? 0 : foundIndex;
+  const isLastStep = stepIndex === visibleSteps.length - 1;
+  const progressValue = ((stepIndex + 1) / visibleSteps.length) * 100;
   const isTransitioning = pendingStep !== null;
   const stepKey = `onboarding.stepTitle.${step.id.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
   const labelKey = `onboarding.stepLabel.${step.id.replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
@@ -180,13 +182,13 @@ function OnboardingPanel({
         <header className="mb-[34px] flex items-center gap-4">
           <p className={metaClass}>
             {String(stepIndex + 1).padStart(2, "0")} /{" "}
-            {String(onboardingSteps.length).padStart(2, "0")}
+            {String(visibleSteps.length).padStart(2, "0")}
           </p>
           <ProgressIndicator
             className="h-0.5 flex-1 rounded-none"
             label={t("onboarding.stepProgress", {
               current: stepIndex + 1,
-              total: onboardingSteps.length,
+              total: visibleSteps.length,
             })}
             value={progressValue}
           />
@@ -253,11 +255,13 @@ function OnboardingPanel({
               >
                 <span
                   aria-hidden="true"
-                  className="inline-flex size-[30px] items-center justify-center border border-ring font-mono text-foreground/85"
+                  className="inline-flex size-[30px] shrink-0 items-center justify-center border border-ring font-mono text-foreground/85"
                 >
                   ⌘
                 </span>
-                <span className="grid gap-1">
+                {/* Bloco textual centrado no espaço útil do botão; ícone fica
+                    à esquerda sem empurrar o texto para margens mágicas. */}
+                <span className="grid flex-1 justify-items-center gap-1 text-center">
                   <strong>{t("onboarding.chooseFolder")}</strong>
                   <small className="font-mono text-[0.68rem] text-muted-foreground">
                     {runtime === "desktop"
@@ -426,10 +430,23 @@ export function App() {
     };
   }, []);
 
-  const currentStep = useMemo(() => onboardingSteps[stepIndex], [stepIndex]);
+  const currentStep = useMemo(() => {
+    const steps = visibleOnboardingSteps(!startWithoutWorkspace);
+    return steps[clampOnboardingStep(stepIndex, steps.length)];
+  }, [startWithoutWorkspace, stepIndex]);
+  const visibleSteps = useMemo(
+    () => visibleOnboardingSteps(!startWithoutWorkspace),
+    [startWithoutWorkspace],
+  );
+
+  // A lista de etapas pode encolher (ex.: "iniciar sem workspace" remove o
+  // contexto do workspace); mantém o índice dentro dos limites visíveis.
+  useEffect(() => {
+    if (stepIndex > visibleSteps.length - 1) setStepIndex(visibleSteps.length - 1);
+  }, [stepIndex, visibleSteps.length]);
 
   function navigate(nextStep: number, animate: boolean) {
-    const safeStep = clampOnboardingStep(nextStep);
+    const safeStep = clampOnboardingStep(nextStep, visibleSteps.length);
     if (safeStep === stepIndex || pendingRef.current !== null) return;
     if (!animate) {
       setStepIndex(safeStep);
@@ -449,7 +466,7 @@ export function App() {
 
   function advance(animate: boolean) {
     if (pendingRef.current !== null) return;
-    if (stepIndex === onboardingSteps.length - 1) {
+    if (stepIndex >= visibleSteps.length - 1) {
       void completeOnboarding();
       return;
     }
@@ -558,11 +575,12 @@ export function App() {
         permissionMode: "ask",
         profileName,
         profileSoul: soul,
-        workspaceName,
-        workspaceRootPath,
-        workspaceFiles: folderSelection?.files,
+        // Modo sem workspace nunca grava um contexto de workspace fictício.
+        workspaceName: workspaceMode === "none" ? "" : workspaceName,
+        workspaceRootPath: workspaceMode === "none" ? "" : workspaceRootPath,
+        workspaceFiles: workspaceMode === "none" ? undefined : folderSelection?.files,
         workspaceMode,
-        workspaceSoul,
+        workspaceSoul: workspaceMode === "none" ? "" : workspaceSoul,
       });
       setAppState(state);
       setAvailableProfiles(state.profiles);
@@ -591,33 +609,21 @@ export function App() {
         event.key !== "Enter" ||
         isComplete ||
         pendingRef.current !== null ||
-        onboardingSteps[stepIndex].id === "provider"
+        currentStep?.id === "provider"
       )
         return;
-      if (onboardingSteps[stepIndex].id === "profile" && !profileName.trim()) return;
-      if (onboardingSteps[stepIndex].id === "workspace" && !workspaceName.trim()) return;
-      if (onboardingSteps[stepIndex].id === "folder" && !folderSelection && !startWithoutWorkspace)
-        return;
+      // Mesma máquina de navegação do clique: validações por etapa + advance.
+      if (currentStep?.id === "profile" && !profileName.trim()) return;
+      if (currentStep?.id === "workspace" && !workspaceName.trim()) return;
+      if (currentStep?.id === "folder" && !folderSelection && !startWithoutWorkspace) return;
       if (event.target instanceof HTMLTextAreaElement) return;
       event.preventDefault();
-      if (stepIndex === onboardingSteps.length - 1) {
-        void completeOnboarding();
-        return;
-      }
-      setStepIndex(clampOnboardingStep(stepIndex + 1));
+      advance(false);
     }
 
     window.addEventListener("keydown", advanceWithEnter);
     return () => window.removeEventListener("keydown", advanceWithEnter);
-  }, [
-    completeOnboarding,
-    folderSelection,
-    isComplete,
-    profileName,
-    startWithoutWorkspace,
-    stepIndex,
-    workspaceName,
-  ]);
+  });
 
   if (!isReady) return <LoadingSkeleton />;
   if (showProfileChooser) {

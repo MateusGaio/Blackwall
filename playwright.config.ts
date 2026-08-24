@@ -2,7 +2,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
-  fullyParallel: true,
+  // O sidecar E2E usa um único SQLite/diretório de dados compartilhado por
+  // run (scripts/dev-web.mjs); testes paralelos criariam perfis/sessões
+  // concorrentes no mesmo estado. Serializa tudo.
+  fullyParallel: false,
+  workers: 1,
   retries: process.env.CI ? 2 : 0,
   testDir: "./e2e",
   reporter: process.env.BLACKWALL_E2E_CI ? [["list"], ["./scripts/no-skips-reporter.mjs"]] : "list",

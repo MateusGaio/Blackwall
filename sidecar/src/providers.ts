@@ -314,8 +314,10 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
   readonly kind = "openai-compatible" as const;
 
   async validate(request: FetchLike = fetch) {
-    if (!this.provider.name.trim() || !this.provider.model.trim() || !this.provider.apiKey?.trim())
-      throw new Error("Informe nome, modelo e chave de API para continuar.");
+    // O modelo padrão é opcional: a validação testa credencial/endpoint pela
+    // própria listagem de modelos (/models), não por um modelo específico.
+    if (!this.provider.name.trim() || !this.provider.apiKey?.trim())
+      throw new Error("Informe nome e chave de API para continuar.");
     await this.checked(
       await this.request("/models", request, { headers: this.headers() }, "validar o provedor"),
       "validar o provedor",
@@ -444,8 +446,9 @@ class OllamaProvider extends BaseProviderAdapter {
   }
 
   async validate(request: FetchLike = fetch) {
-    if (!this.provider.name.trim() || !this.provider.model.trim())
-      throw new Error("Informe nome e modelo para continuar.");
+    // O modelo padrão é opcional para Ollama também: /api/tags valida o
+    // endpoint e lista os modelos disponíveis.
+    if (!this.provider.name.trim()) throw new Error("Informe o nome do provedor para continuar.");
     await this.checked(
       await this.request("/api/tags", request, { headers: this.headers() }, "validar o provedor"),
       "validar o provedor",

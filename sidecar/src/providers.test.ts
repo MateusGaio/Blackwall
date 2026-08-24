@@ -60,6 +60,54 @@ describe("providers", () => {
     expect(normalizeBaseUrl("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
   });
 
+  it("valida a conexão sem exigir modelo padrão", async () => {
+    const request = vi.fn().mockImplementation(async (url: string | URL) => {
+      const target = String(url);
+      if (target.endsWith("/api/tags"))
+        return new Response(JSON.stringify({ models: [{ name: "llama3.2" }] }), {
+          status: 200,
+        }) as unknown as Response;
+      return new Response(JSON.stringify({ data: [{ id: "gpt-mini" }] }), {
+        status: 200,
+      }) as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    // OpenAI-compatible: credencial validada pela listagem /models.
+    await expect(
+      validateProvider(
+        {
+          apiKey: "key",
+          baseUrl: "https://api.example.com/v1",
+          model: "",
+          name: "Example",
+        },
+        request,
+      ),
+    ).resolves.toBeUndefined();
+
+    // Ollama: endpoint validado por /api/tags, modelo opcional.
+    await expect(
+      validateProvider(
+        { baseUrl: "http://127.0.0.1:11434", model: "", name: "Ollama", type: "ollama" },
+        request,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("salva provedor com modelo padrão vazio sem quebrar leituras antigas", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-nomodel-"));
+    directories.push(directory);
+    const saved = await saveProvider(
+      { baseUrl: "http://127.0.0.1:11434", model: "", name: "Ollama local", type: "ollama" },
+      directory,
+    );
+    expect(saved.model).toBe("");
+    await expect(getProvider(saved.id, directory)).resolves.toMatchObject({
+      model: "",
+      name: "Ollama local",
+    });
+  });
+
   it("mostra erro acionável para uma chave recusada", async () => {
     const request = vi
       .fn()
