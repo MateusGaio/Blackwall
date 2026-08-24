@@ -415,6 +415,14 @@ export class SidecarChatStore {
             this.toolApproval = approval;
             setStatus(labels.waitingForPermission);
           },
+          onApprovalResolved: () => {
+            // Resolução sem o botão (transição de modo/stop no sidecar):
+            // remove o card imediatamente — zero órfãos.
+            if (!this.matchesRun(sessionId, runEpoch)) return;
+            this.approvalResolver = null;
+            this.toolApproval = null;
+            this.notify();
+          },
           onCompacting: () => {
             if (!this.matchesRun(sessionId, runEpoch)) return;
             setStatus(labels.summarizingContext);

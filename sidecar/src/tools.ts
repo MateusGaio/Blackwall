@@ -5,6 +5,12 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { dataDirectory, openSharedDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
+import {
+  classifyTool,
+  evaluateToolPolicy,
+  type PermissionMode,
+  type PolicyDecision,
+} from "./tool-policy.js";
 
 const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
@@ -91,16 +97,32 @@ export type ApprovalRequest = {
 
 type ToolExecutionOptions = {
   onApproval?: (approval: ApprovalRequest) => void;
+  /** Evento para o cliente remover o ApprovalCard mesmo sem ação do botão. */
+  onApprovalResolved?: (event: { requestId: string; status: string }) => void;
 };
+
+/** Negação de POLÍTICA (não de execução): carrega código estável + mensagem. */
+export class ToolPolicyDenied extends Error {
+  readonly code: string;
+
+  constructor(code: string, userMessage: string) {
+    super(userMessage);
+    this.name = "ToolPolicyDenied";
+    this.code = code;
+  }
+}
 
 type Workspace = typeof workspaces.$inferSelect;
 type PendingApproval = {
   resolve: (decision: ApprovalDecision) => void;
   timer: NodeJS.Timeout;
+  workspaceId: string;
 };
 
 const pendingApprovals = new Map<string, PendingApproval>();
 const sessionApprovals = new Set<string>();
+/** Motivo de política quando a negação veio de transição de modo (#209). */
+const policyDeniedMessages = new Map<string, string>();
 
 function clipped(value: string) {
   return value.length > maxCommandOutput
@@ -152,10 +174,6 @@ async function safePath(root: string, requested: string, allowMissing = false) {
   return candidate;
 }
 
-function isDestructive(tool: ToolName) {
-  return tool === "apply_patch" || tool === "create_or_update_file" || tool === "execute_command";
-}
-
 async function requestApproval(
   input: ToolInput,
   storageDirectory: string,
@@ -184,7 +202,11 @@ async function requestApproval(
       pendingApprovals.delete(requestId);
       resolveDecision("deny");
     }, 5 * 60_000);
-    pendingApprovals.set(requestId, { resolve: resolveDecision, timer });
+    pendingApprovals.set(requestId, {
+      resolve: resolveDecision,
+      timer,
+      workspaceId: input.workspaceId,
+    });
   });
 }
 
@@ -196,6 +218,7 @@ export async function resolveApproval(
   if (decision !== "allow_once" && decision !== "allow_session" && decision !== "deny") {
     throw new Error("Decisão de autorização inválida.");
   }
+  const status = decision === "deny" ? "denied" : "allowed";
   const database = openSharedDatabase(storageDirectory);
   const approval = database.db
     .select()
@@ -211,12 +234,14 @@ export async function resolveApproval(
     .set({
       resolvedAt: Date.now(),
       scope: decision === "allow_session" ? "session" : "once",
-      status: decision === "deny" ? "denied" : "allowed",
+      status,
     })
     .where(eq(approvals.id, approval.id))
     .run();
   database.close();
-  if (decision === "allow_session" && !isDestructive(approval.tool as ToolName)) {
+  // Grant de sessão limitado a leitura (capacidade explicitada): nunca
+  // cobre mutação/comando e jamais supera um deny reavaliado depois.
+  if (decision === "allow_session" && classifyTool(approval.tool) === "read") {
     sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
   }
   const pending = pendingApprovals.get(requestId);
@@ -226,6 +251,74 @@ export async function resolveApproval(
     pending.resolve(decision);
   }
   return { requestId, decision };
+}
+
+/**
+ * Reavalia TODAS as aprovações pendentes do workspace após troca de modo:
+ * allow → executa uma vez; caso contrário → nega com motivo. Cada card é
+ * resolvido EXATAMENTE uma vez e o status terminal persiste.
+ */
+export function notifyWorkspacePolicyChanged(
+  changedWorkspaceId: string,
+  storageDirectory = dataDirectory(),
+  options: { onApprovalResolved?: (event: { requestId: string; status: string }) => void } = {},
+) {
+  const mode = workspaceModeOf(changedWorkspaceId, storageDirectory);
+  if (!mode) return;
+  for (const [pendingRequestId, pending] of [...pendingApprovals]) {
+    if (pending.workspaceId !== changedWorkspaceId) continue;
+    const toolClass = classifyTool(
+      (databaseToolOf(pendingRequestId, storageDirectory) ?? "execute_command") as ToolName,
+    );
+    const decision = evaluateToolPolicy(mode, toolClass);
+    const next: ApprovalDecision = decision.kind === "allow" ? "allow_once" : "deny";
+    if (next === "deny" && decision.kind === "deny") {
+      policyDeniedMessages.set(pendingRequestId, decision.userMessage);
+    }
+    void resolveApproval(pendingRequestId, next, storageDirectory)
+      .then((result) => {
+        const event = {
+          requestId: result.requestId,
+          status: result.decision === "deny" ? "denied" : "allowed",
+        };
+        policyChangeListeners.forEach((listener) => {
+          listener(event);
+        });
+        options?.onApprovalResolved?.(event);
+      })
+      .catch(() => undefined);
+  }
+}
+
+const policyChangeListeners = new Set<(event: { requestId: string; status: string }) => void>();
+
+
+function workspaceModeOf(workspaceId: string, storageDirectory: string): PermissionMode | null {
+  const database = openSharedDatabase(storageDirectory);
+  try {
+    const row = database.db
+      .select({ permissionMode: workspaces.permissionMode })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .get();
+    return row?.permissionMode as PermissionMode | null;
+  } finally {
+    database.close();
+  }
+}
+
+function databaseToolOf(requestId: string, storageDirectory: string): string | null {
+  const database = openSharedDatabase(storageDirectory);
+  try {
+    const row = database.db
+      .select({ tool: approvals.tool })
+      .from(approvals)
+      .where(and(eq(approvals.requestId, requestId), eq(approvals.status, "pending")))
+      .get();
+    return row?.tool ?? null;
+  } finally {
+    database.close();
+  }
 }
 
 /**
@@ -240,7 +333,6 @@ export function cancelPendingApprovals(requestId: string, storageDirectory = dat
       "UPDATE approvals SET resolved_at = ?, status = 'denied' WHERE status = 'pending' AND (request_id = ? OR request_id LIKE ?)",
     )
     .run(Date.now(), requestId, `${requestId}:%`);
-  database.close();
 
   for (const [pendingRequestId, pending] of pendingApprovals) {
     if (pendingRequestId !== requestId && !pendingRequestId.startsWith(`${requestId}:`)) continue;
@@ -248,6 +340,7 @@ export function cancelPendingApprovals(requestId: string, storageDirectory = dat
     pendingApprovals.delete(pendingRequestId);
     pending.resolve("deny");
   }
+  database.close();
 }
 
 export async function executeTool(
@@ -255,27 +348,46 @@ export async function executeTool(
   storageDirectory = dataDirectory(),
   options: ToolExecutionOptions = {},
 ) {
+  // Commit point da política (Issue #209): o modo é RELIDO imediatamente
+  // antes do efeito — nem o modo em cache, nem o modo de cinco minutos atrás.
+  const toolClass = classifyTool(input.tool);
   const workspace = await workspaceFor(input.workspaceId, storageDirectory);
-  if (workspace.permissionMode === "read-only" && isDestructive(input.tool)) {
-    throw new Error("O workspace está em modo somente leitura; esta ação foi bloqueada.");
+  let decision: PolicyDecision = evaluateToolPolicy(
+    workspace.permissionMode as PermissionMode,
+    toolClass,
+  );
+  if (decision.kind === "deny") {
+    throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
   }
-  const key = `${workspace.id}:${input.sessionId ?? ""}:${input.tool}`;
-  const requiresApproval =
-    workspace.permissionMode === "ask" ||
-    (workspace.permissionMode === "automatic" && isDestructive(input.tool));
-  if (requiresApproval && !sessionApprovals.has(key)) {
-    const requestId = input.requestId ?? randomUUID();
-    const approval: ApprovalRequest = {
-      id: randomUUID(),
-      requestId,
-      sessionId: input.sessionId ?? null,
-      tool: input.tool,
-      workspaceId: input.workspaceId,
-    };
-    options.onApproval?.(approval);
-    const decisionPromise = requestApproval({ ...input, requestId }, storageDirectory, approval);
-    const decision = await decisionPromise;
-    if (decision === "deny") throw new Error("A ação foi negada pelo usuário.");
+
+  if (decision.kind === "prompt") {
+    const key = `${workspace.id}:${input.sessionId ?? ""}:${input.tool}`;
+    if (!sessionApprovals.has(key)) {
+      const requestId = input.requestId ?? randomUUID();
+      const approval: ApprovalRequest = {
+        id: randomUUID(),
+        requestId,
+        sessionId: input.sessionId ?? null,
+        tool: input.tool,
+        workspaceId: input.workspaceId,
+      };
+      options.onApproval?.(approval);
+      const decided = await requestApproval({ ...input, requestId }, storageDirectory, approval);
+      if (decided === "deny") {
+        const policyMessage = policyDeniedMessages.get(requestId);
+        policyDeniedMessages.delete(requestId);
+        throw policyMessage
+          ? new ToolPolicyDenied("POLICY_CHANGED_DURING_APPROVAL", policyMessage)
+          : new ToolPolicyDenied("APPROVAL_DENIED", "A ação foi negada pelo usuário.");
+      }
+      // Reavaliação pós-espera (fecha a janela TOCTOU): se o modo mudou
+      // enquanto o card estava aberto, a política ATUAL decide o efeito.
+      const fresh = await workspaceFor(input.workspaceId, storageDirectory);
+      decision = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+      if (decision.kind === "deny") {
+        throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
+      }
+    }
   }
 
   const root = await workspaceRoot(workspace);

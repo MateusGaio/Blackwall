@@ -28,6 +28,36 @@ por conta própria.
   arquivos rastreados e os artefatos gerados. Se um segredo aparecer no
   histórico, interrompa o push e faça a rotação antes de qualquer publicação.
 
+## Matriz de política de ferramentas (#209)
+
+A decisão canônica vive em `sidecar/src/tool-policy.ts` (`evaluateToolPolicy`).
+Nenhum outro módulo decide permissão por conta própria.
+
+| Modo | Ler/listar/buscar | Criar/editar/patch | Executar comando |
+|---|---|---|---|
+| `ask` | prompt | prompt | prompt |
+| `automatic` | allow | allow após validações de caminho/schema | **deny tipado** `AUTOMATIC_COMMAND_NOT_CONFINED` (sem card) |
+| `read-only` | allow | deny `READ_ONLY_MUTATION` | deny `READ_ONLY_COMMAND` |
+
+Invariantes em todos os modos: bloqueio de absoluto/traversal/symlink externo,
+schema estrito, `shell: false`, ambiente sanitizado, limites de tempo e saída,
+grant `allow_session` restrito a leitura da mesma sessão/workspace e revogável.
+Troca de modo reavalia imediatamente cards pendentes (allow executa uma vez;
+caso contrário nega com motivo) e emite `approval.resolved` para o cliente
+remover o card — sem órfãos. O modo é relido imediatamente antes de qualquer
+efeito (fecha a janela TOCTOU da espera por aprovação).
+
+## Confinamento de comandos — estado honesto
+
+`execute_command` valida o `cwd`, mas um processo ainda pode acessar recursos
+fora do workspace por argumentos, código executado ou subprocessos. Por isso o
+modo Automático NÃO executa comandos: ele retorna
+`POLICY_DENIED/AUTOMATIC_COMMAND_NOT_CONFINED` sem abrir card e sem execução
+degradada. Allowlists de executáveis (node/python/npm/git) NÃO são sandbox.
+Um confinamento real multiplataforma (filesystem/subprocessos/rede negada/
+kill de árvore) exige ADR próprio com ameaças, opções e custo aprovados pelo
+owner antes de qualquer dependência nova.
+
 ## Relato responsável
 
 Não abra uma Issue pública contendo segredos ou uma reprodução com dados reais.

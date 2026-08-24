@@ -69,7 +69,9 @@ import {
   type ApprovalDecision,
   cancelPendingApprovals,
   executeTool,
+  notifyWorkspacePolicyChanged,
   resolveApproval,
+  ToolPolicyDenied,
 } from "./tools.js";
 import {
   clearUsageHistory,
@@ -212,6 +214,13 @@ export async function createSidecar(
     );
   }
   const store = createStore(database, storageDirectory);
+  // Registro de sockets para eventos push globais (ex.: approval.resolved).
+  const connectedSockets = new Set<import("ws").WebSocket>();
+  function broadcast(payload: string) {
+    for (const socket of connectedSockets) {
+      if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  }
   const server = createServer(async (request, response) => {
     allowOrigin(request, response);
     if (request.method === "OPTIONS") return response.writeHead(204).end();
@@ -378,8 +387,15 @@ export async function createSidecar(
         /^\/v1\/workspaces\/[^/]+\/permission-mode$/.test(pathname)
       ) {
         const input = (await requestBody(request)) as { mode: PermissionMode };
+        const workspaceId = pathname.split("/")[3];
         writeJson(response, 200, {
-          workspace: store.setWorkspacePermissionMode(pathname.split("/")[3], input.mode),
+          workspace: store.setWorkspacePermissionMode(workspaceId, input.mode),
+        });
+        // Transição de modo reavalia cards pendentes AGORA (#209): allow
+        // executa uma vez; caso contrário nega com motivo — sem card órfão.
+        notifyWorkspacePolicyChanged(workspaceId, storageDirectory, {
+          onApprovalResolved: (event) =>
+            broadcast(JSON.stringify({ ...event, type: "approval.resolved" })),
         });
         return;
       }
@@ -1218,12 +1234,29 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                               type: "approval.requested",
                             }),
                           ),
+                        onApprovalResolved: (event) => {
+                          // Card pode ser resolvido sem o botão (troca de
+                          // modo/stop): cliente precisa remover o card.
+                          socket.send(
+                            JSON.stringify({
+                              ...event,
+                              callId: normalizedCall.id,
+                              requestId: event.requestId,
+                              sessionId: input.sessionId,
+                              tool: normalizedCall.name,
+                              type: "approval.resolved",
+                            }),
+                          );
+                        },
                       },
                     );
               } catch (error) {
                 toolError = true;
                 toolResult = {
-                  error: error instanceof Error ? error.message : "A ferramenta falhou.",
+                  error: {
+                    code: error instanceof ToolPolicyDenied ? error.code : "tool_execution_failed",
+                    message: error instanceof Error ? error.message : "A ferramenta falhou.",
+                  },
                 };
               }
               if (!toolError) successfulToolResults.set(executionSignature, toolResult);
@@ -1380,6 +1413,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
   }
 
   socketServer.on("connection", (socket) => {
+    connectedSockets.add(socket);
     socket.send(JSON.stringify({ topic: "system:ready", ...healthPayload() }));
     // Sem este listener, erro de transporte (reset abrupto, frame inválido ou
     // send após close) vira exceção não tratada e derruba o processo inteiro.
@@ -1429,6 +1463,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       }
     });
     socket.on("close", () => {
+      connectedSockets.delete(socket);
       for (const [requestId, active] of activeRequests) {
         if (active.socket !== socket) continue;
         active.controller.abort();

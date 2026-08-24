@@ -9,6 +9,7 @@ import {
   type ApprovalRequest,
   cancelPendingApprovals,
   executeTool,
+  notifyWorkspacePolicyChanged,
   resolveApproval,
 } from "./tools.js";
 
@@ -199,5 +200,162 @@ describe("ferramentas locais e permissões", () => {
       if (previousSecret === undefined) delete process.env.BLACKWALL_TEST_SECRET;
       else process.env.BLACKWALL_TEST_SECRET = previousSecret;
     }
+  });
+});
+
+describe("modo automático e transições de política (#209)", () => {
+  it("automático escreve arquivo SEM abrir card", async () => {
+    const { directory, state, workspaceRoot } = await fixture("automatic");
+    let approvals = 0;
+    const result = await executeTool(
+      {
+        args: { content: "auto", path: "auto.txt" },
+        requestId: "req-auto-write",
+        sessionId: state.activeSessionId,
+        tool: "create_or_update_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => (approvals += 1) },
+    );
+    expect(approvals).toBe(0);
+    expect(result).toMatchObject({ path: "auto.txt" });
+    await expect(readFile(join(workspaceRoot, "auto.txt"), "utf8")).resolves.toBe("auto");
+  });
+
+  it("automático nega comando com AUTOMATIC_COMMAND_NOT_CONFINED sem card e sem execução", async () => {
+    const { directory, state, workspaceRoot } = await fixture("automatic");
+    let approvals = 0;
+    await expect(
+      executeTool(
+        {
+          args: {
+            args: ["-e", "require('fs').writeFileSync('escape-proof.txt','x')"],
+            command: process.execPath,
+            cwd: ".",
+          },
+          requestId: "req-auto-cmd",
+          sessionId: state.activeSessionId,
+          tool: "execute_command",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        {
+          onApproval: () => (approvals += 1),
+          onApprovalResolved: () => (approvals += 100),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "AUTOMATIC_COMMAND_NOT_CONFINED" });
+    expect(approvals).toBe(0);
+    // Nenhum subprocesso rodou: o efeito colateral não existe no disco.
+    await expect(readFile(join(workspaceRoot, "escape-proof.txt"))).rejects.toThrow();
+  });
+
+  it("mudança para read-only durante a espera nega ANTES do efeito (TOCTOU)", async () => {
+    const { directory, state, workspaceRoot } = await fixture("ask");
+    const execution = executeTool(
+      {
+        args: { content: "late", path: "toctou.txt" },
+        requestId: "req-toctou",
+        sessionId: state.activeSessionId,
+        tool: "create_or_update_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => undefined },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Usuário troca o modo enquanto o card está pendente…
+    const database = openDatabase(directory);
+    createStore(database).setWorkspacePermissionMode(
+      state.activeWorkspaceId as string,
+      "read-only",
+    );
+    database.close();
+    // …e só então aprova. A releitura pré-efeito precisa negar.
+    await resolveApproval("req-toctou", "allow_once", directory);
+    await expect(execution).rejects.toThrow("somente leitura");
+    await expect(readFile(join(workspaceRoot, "toctou.txt"))).rejects.toThrow();
+  });
+
+  it("troca ask→read-only reavalia card pendente: nega e persiste terminal", async () => {
+    const { directory, state, workspaceRoot } = await fixture("ask");
+    const execution = executeTool(
+      {
+        args: { content: "never", path: "transition.txt" },
+        requestId: "req-transition",
+        sessionId: state.activeSessionId,
+        tool: "create_or_update_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => undefined },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const database = openDatabase(directory);
+    createStore(database).setWorkspacePermissionMode(
+      state.activeWorkspaceId as string,
+      "read-only",
+    );
+    database.close();
+    notifyWorkspacePolicyChanged(state.activeWorkspaceId as string, directory);
+    await expect(execution).rejects.toThrow("somente leitura");
+    await expect(readFile(join(workspaceRoot, "transition.txt"))).rejects.toThrow();
+
+    const row = openDatabase(directory)
+      .client.prepare("SELECT status FROM approvals WHERE request_id = 'req-transition'")
+      .get() as { status: string };
+    expect(row.status).toBe("denied");
+  });
+
+  it("troca ask→automático executa a pendência exatamente uma vez", async () => {
+    const { directory, state, workspaceRoot } = await fixture("ask");
+    const execution = executeTool(
+      {
+        args: { content: "once", path: "once.txt" },
+        requestId: "req-once",
+        sessionId: state.activeSessionId,
+        tool: "create_or_update_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => undefined },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const database = openDatabase(directory);
+    createStore(database).setWorkspacePermissionMode(
+      state.activeWorkspaceId as string,
+      "automatic",
+    );
+    database.close();
+    notifyWorkspacePolicyChanged(state.activeWorkspaceId as string, directory);
+    await expect(execution).resolves.toMatchObject({ path: "once.txt" });
+    await expect(readFile(join(workspaceRoot, "once.txt"), "utf8")).resolves.toBe("once");
+
+    const rows = openDatabase(directory)
+      .client.prepare("SELECT status FROM approvals WHERE request_id = 'req-once'")
+      .all() as Array<{ status: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("allowed");
+  });
+
+  it("resolução dupla do mesmo pedido é rejeitada (exactly-once)", async () => {
+    const { directory, state } = await fixture("ask");
+    const execution = executeTool(
+      {
+        args: { content: "x", path: "double.txt" },
+        requestId: "req-double",
+        sessionId: state.activeSessionId,
+        tool: "create_or_update_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => undefined },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await resolveApproval("req-double", "deny", directory);
+    await resolveApproval("req-double", "allow_once", directory).catch(() => null);
+    await expect(execution).rejects.toThrow("negada");
+    cancelPendingApprovals("req-double", directory);
   });
 });
