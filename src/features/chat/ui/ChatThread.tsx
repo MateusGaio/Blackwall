@@ -3,13 +3,13 @@
 import { ThreadPrimitive } from "@assistant-ui/react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ConversationSummaryCard } from "../../../app/ConversationSummaryCard";
 import type { ChatMessage } from "../../../shared/api/sidecar";
 import { EnterExit } from "../../../shared/components/motion/EnterExit";
 import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 import { Button } from "../../../shared/components/ui/button";
 import { Textarea } from "../../../shared/components/ui/textarea";
 import { cn } from "../../../shared/lib/utils";
+import { ConversationSummaryCard } from "./ConversationSummaryCard";
 import { ExitingMessage } from "./thread/ExitingMessage";
 import { groupThreadItems } from "./thread/groupThreadItems";
 import { MessageActions } from "./thread/MessageActions";

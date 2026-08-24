@@ -25,9 +25,7 @@
 
 ## Em voo (owner)
 
-- **#173** — U4: estética terminal na thread/composer
-- **#175** — U5: cromo de sessão estilo Claude (status line, chip, passos)
-- **#171** — spec da fase U5
+- **Épico Chat v2 — padrão Codex híbrido** (spec #181, plano em `docs/plans/2026-08-23-plano-chat-v2-codex.md`): PRs abertos em cadeia — #187 spec · #188 limpeza · #189 thread nas primitivas assistant-ui · #190 passos agênticos + ApprovalCard · #191 composer bottom pane + fila com preview · #186 co-localização/varredura final. Merge somente com autorização do owner, na ordem da cadeia.
 
 ## Próxima fase de produto — Fase 2: RAG semântico + MCP
 

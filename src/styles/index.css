@@ -235,15 +235,6 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.form-error {
-  border: 1px solid #747479;
-  color: #d6d6d9;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  margin: 0;
-  padding: 10px 12px;
-}
-
 .button {
   border: 1px solid transparent;
   border-radius: var(--radius-control);
@@ -1022,9 +1013,6 @@ button:disabled {
   transform: translateY(-5px);
 }
 
-.chat-error {
-  margin-top: 10px;
-}
 .workspace-shell header {
   align-items: center;
   display: flex;

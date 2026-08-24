@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ProgressIndicator } from "@/shared/components/motion/ProgressIndicator";
 import { Button } from "@/shared/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
-import type { ChatMessage, UsageSummary } from "../shared/api/sidecar";
+import type { ChatMessage, UsageSummary } from "../../../shared/api/sidecar";
 
 type SessionUsageDialogProps = {
   messages: ChatMessage[];
