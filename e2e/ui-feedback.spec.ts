@@ -410,3 +410,104 @@ test.describe("feedback de UI — composer e provedores", () => {
     expect(Math.abs(yBackToBaseline - yWithSidebarOpen)).toBeLessThanOrEqual(2);
   });
 });
+
+test.describe("feedback de UI — Vault", () => {
+  test("toggle do painel abre/recolhe o Vault; árvore filtra internas e abre nota", async ({
+    page,
+  }) => {
+    const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    await resetToOnboarding(page);
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await page.getByLabel(/Nome do perfil|Profile name/).fill("Perfil Vault");
+    const continueButton = page.getByRole("button", { name: /Continuar|Continue/ });
+    await continueButton.click();
+    await page.getByLabel(/Nome do workspace|Workspace name/).fill("Workspace Vault");
+    await continueButton.click();
+    await page.getByRole("button", { name: startWithoutRegex }).click();
+    await continueButton.click();
+    await continueButton.click();
+    await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
+    await page
+      .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
+      .fill("http://127.0.0.1:17999/v1");
+    await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
+    await page.getByLabel(/Chave de API|API key/).fill("test-key");
+    await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
+    await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
+
+    // Workspace real com notas aninhadas + diretórios internos que devem ser filtrados.
+    const root = await mkdtemp(join(tmpdir(), "blackwall-e2e-vault-"));
+    await mkdir(join(root, "notas", "profunda"), { recursive: true });
+    await writeFile(join(root, "notas", "visivel.md"), "# Nota Visível\n\nConteúdo sintético.\n");
+    await writeFile(join(root, "notas", "profunda", "fundo.md"), "# Fundo\n");
+    await mkdir(join(root, ".venv"));
+    await writeFile(join(root, ".venv", "secreta.md"), "# Ignorada\n");
+    await mkdir(join(root, ".pytest_cache"));
+    await writeFile(join(root, ".pytest_cache", "cache.md"), "# Ignorada 2\n");
+
+    const state = (await (await page.request.get("http://127.0.0.1:1423/v1/state")).json()) as {
+      activeProfileId: string;
+    };
+    const created = (await (
+      await page.request.post("http://127.0.0.1:1423/v1/workspaces", {
+        data: { name: "Vault WS", profileId: state.activeProfileId, rootPath: root, soul: "" },
+      })
+    ).json()) as { workspace: { id: string } };
+    await page.request.post(
+      `http://127.0.0.1:1423/v1/workspaces/${created.workspace.id}/select`,
+    );
+
+    await page.reload();
+    await page.getByTestId("profile-option").filter({ hasText: "Perfil Vault" }).click();
+    await expect(page.getByTestId("chat-composer")).toBeVisible();
+
+    // Toggle direito espelhado abre o painel.
+    const vaultToggle = page
+      .locator("header")
+      .getByRole("button", { name: /painel do Vault|Vault panel/ })
+      .first();
+    if ((await page.locator(".vault-slot").count()) === 0) await vaultToggle.click();
+    await expect(page.locator(".vault-slot")).toHaveCount(1);
+    await expect(vaultToggle).toHaveAttribute("aria-expanded", "true");
+
+    // Diretórios internos não aparecem; pasta visível inicia recolhida.
+    const nav = page.locator(".vault-slot");
+    await expect(nav.getByText(".venv")).toHaveCount(0);
+    await expect(nav.getByText(".pytest_cache")).toHaveCount(0);
+    const notesFolder = nav.getByRole("button", { name: /Expandir notas/i });
+    await expect(notesFolder).toBeVisible();
+    await expect(nav.getByText("Visível")).toBeHidden();
+
+    // Expandir revela subpasta recolhida; abrir nota exibe caminho no preview.
+    await notesFolder.click();
+    await nav.getByRole("button", { name: /Expandir profunda/i }).click();
+    await nav.getByRole("button", { name: "Fundo" }).click();
+    await expect(nav.getByText(/^notas\/profunda\/fundo\.md$/)).toBeVisible();
+
+    // Recolher o painel pelo mesmo toggle.
+    await vaultToggle.click();
+    await expect(page.locator(".vault-slot")).toHaveCount(0);
+  });
+
+  test("sem workspace, o botão do Vault permanece visível e explica o bloqueio", async ({
+    page,
+  }) => {
+    await resetToOnboarding(page);
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await completeOnboarding(page, "Perfil SemWS");
+    const vaultToggle = page
+      .locator("header")
+      .getByRole("button", { name: /painel do Vault|Vault panel/ })
+      .first();
+    await expect(vaultToggle).toBeVisible();
+    await vaultToggle.click();
+    // Bloqueio explicado sem reservar coluna direita vazia.
+    await expect(page.locator(".vault-slot")).toHaveCount(0);
+    await expect(
+      page.getByText(/selecione uma pasta|select a folder/i),
+    ).toBeVisible();
+  });
+});

@@ -5,23 +5,25 @@ import { WindowControls } from "./WindowControls";
 
 type ChatHeaderProps = {
   onToggleSidebar: () => void;
-  onVaultClick: () => void;
+  onToggleVault: () => void;
   sessionTitle: string | undefined;
   sidebarCollapsed: boolean;
-  vaultActive: boolean;
+  vaultOpen: boolean;
+  vaultBlocked: boolean;
 };
 
 /**
  * Barra de título da janela frameless: zona de arrasto nativa do Tauri v2,
- * toggle de sidebar, título da sessão, Vault e controles de janela.
- * Nada aqui duplica o que a sidebar já exibe (perfil, workspaces, caminhos).
+ * toggles espelhados de sidebar/Vault (ícones de painel), título da sessão e
+ * controles de janela. Nada aqui duplica o que a sidebar já exibe.
  */
 export function ChatHeader({
   onToggleSidebar,
-  onVaultClick,
+  onToggleVault,
   sessionTitle,
   sidebarCollapsed,
-  vaultActive,
+  vaultBlocked,
+  vaultOpen,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   return (
@@ -45,12 +47,17 @@ export function ChatHeader({
       </h1>
       <div className="flex shrink-0 items-center gap-1">
         <button
-          aria-pressed={vaultActive}
-          className={`header-toggle ${vaultActive ? "is-active" : ""}`}
-          onClick={onVaultClick}
+          aria-expanded={vaultOpen}
+          aria-label={vaultOpen ? t("chat.hideVault") : t("chat.showVault")}
+          aria-pressed={vaultOpen}
+          className={`header-toggle ${vaultOpen ? "is-active" : ""} ${
+            vaultBlocked ? "opacity-50" : ""
+          }`}
+          onClick={onToggleVault}
+          title={vaultOpen ? t("chat.hideVault") : t("chat.showVault")}
           type="button"
         >
-          Vault
+          <CompactIcon kind="panel-right" />
         </button>
         <WindowControls />
       </div>

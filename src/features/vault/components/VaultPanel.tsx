@@ -121,21 +121,72 @@ export function buildFileTree(files: ReadonlyArray<{ path: string; title: string
 }
 
 const treeRowClass =
-  "flex w-full items-center gap-1.5 rounded py-[3px] pr-2 text-left text-[0.8rem] text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/40 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none";
+  "flex w-full items-center gap-1.5 rounded py-1 pr-2 text-left text-[0.8rem] leading-none text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/40 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none";
 
-/** Árvore de arquivos estilo explorador do Obsidian: pastas colapsáveis, guias de indentação. */
+/** Pastas ancestrais de um caminho ("a/b/nota.md" → ["a", "a/b"]). */
+function ancestorsOf(path: string): string[] {
+  const segments = path.split("/").filter(Boolean).slice(0, -1);
+  const ancestors: string[] = [];
+  let accumulated = "";
+  for (const segment of segments) {
+    accumulated = accumulated ? `${accumulated}/${segment}` : segment;
+    ancestors.push(accumulated);
+  }
+  return ancestors;
+}
+
+/** Ícones compactos de pasta/arquivo da árvore (14px). */
+function TreeGlyph({ kind }: { kind: "file" | "folder-open" | "folder-closed" }) {
+  const paths =
+    kind === "file"
+      ? "M5 4h9l4 4v12H5V4Zm9 0v4h4"
+      : kind === "folder-open"
+        ? "M3 6h5l2 2h11v10H3V6Zm0 8h18"
+        : "M3 6h5l2 2h11v10H3V6Z";
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-3.5 shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      viewBox="0 0 24 24"
+    >
+      <path d={paths} />
+    </svg>
+  );
+}
+
+/**
+ * Árvore estilo explorador do Obsidian: pastas iniciam RECOLHIDAS (exceto os
+ * ancestrais do arquivo ativo), ícones compactos e tooltip nos nomes truncados.
+ */
 function FileTree({
+  activePath,
   files,
   onOpenFile,
 }: {
+  activePath: string | null;
   files: VaultGraph["files"];
   onOpenFile: (path: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const tree = useMemo(() => buildFileTree(files), [files]);
 
+  // Ao abrir uma nota (inclusive pelo grafo), revela seus ancestrais.
+  useEffect(() => {
+    if (!activePath) return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      for (const ancestor of ancestorsOf(activePath)) next.add(ancestor);
+      return next;
+    });
+  }, [activePath]);
+
   function toggleFolder(path: string) {
-    setCollapsed((current) => {
+    setExpanded((current) => {
       const next = new Set(current);
       if (next.has(path)) {
         next.delete(path);
@@ -149,26 +200,28 @@ function FileTree({
   function renderNodes(nodes: VaultTreeNode[], depth: number): ReactNode {
     return nodes.map((node) => {
       if (node.kind === "folder") {
-        const expanded = !collapsed.has(node.path);
+        const isOpen = expanded.has(node.path);
         return (
           <li key={`folder:${node.path}`}>
             <button
-              aria-expanded={expanded}
+              aria-expanded={isOpen}
+              aria-label={`${isOpen ? "Recolher" : "Expandir"} ${node.name}`}
               className={treeRowClass}
               onClick={() => toggleFolder(node.path)}
-              style={{ paddingLeft: depth * 12 + 6 }}
+              style={{ paddingLeft: depth * 11 + 6 }}
+              title={node.path}
               type="button"
             >
               <span
                 aria-hidden="true"
                 className={cn(
-                  "shrink-0 transition-transform duration-[120ms]",
-                  expanded && "rotate-90",
+                  "shrink-0 transition-transform duration-[120ms] motion-reduce:transition-none",
+                  isOpen && "rotate-90",
                 )}
               >
                 <svg
                   aria-hidden="true"
-                  className="size-3.5"
+                  className="size-3"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
@@ -179,12 +232,13 @@ function FileTree({
                   <path d="m6 9 6 6 6-6" />
                 </svg>
               </span>
+              <TreeGlyph kind={isOpen ? "folder-open" : "folder-closed"} />
               <span className="truncate">{node.name}</span>
             </button>
-            {expanded && node.children.length > 0 && (
+            {isOpen && node.children.length > 0 && (
               <ul
                 className="m-0 list-none border-l border-neutral-800/50 p-0"
-                style={{ marginLeft: depth * 12 + 15 }}
+                style={{ marginLeft: depth * 11 + 15 }}
               >
                 {renderNodes(node.children, depth + 1)}
               </ul>
@@ -198,9 +252,12 @@ function FileTree({
             aria-label={node.name}
             className={treeRowClass}
             onClick={() => onOpenFile(node.path)}
-            style={{ paddingLeft: depth * 12 + 6 }}
+            style={{ paddingLeft: depth * 11 + 6 }}
+            title={node.path}
             type="button"
           >
+            <span aria-hidden="true" className="w-3 shrink-0" />
+            <TreeGlyph kind="file" />
             <span className="truncate">{node.name}</span>
           </button>
         </li>
@@ -791,7 +848,7 @@ export function VaultPanel({
         ) : graph.files.length ? (
           <div ref={fileListWrapRef} className="min-h-0 flex-1" onScrollCapture={trackListScroll}>
             <ScrollArea className="h-full">
-              <FileTree files={graph.files} onOpenFile={openNote} />
+              <FileTree activePath={selectedNotePath} files={graph.files} onOpenFile={openNote} />
             </ScrollArea>
           </div>
         ) : (

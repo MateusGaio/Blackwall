@@ -57,7 +57,11 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
       page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }),
     ).toBeVisible({ timeout: 5_000 });
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
-    const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
+    // Toggle do Vault virou ícone de painel direito (com. 14 do lote de UI).
+    const vaultToggle = page
+      .locator("header")
+      .getByRole("button", { name: /painel do Vault|Vault panel/ })
+      .first();
     await expect(vaultToggle).toBeVisible();
     // Sidebar v2: o workspace ativo aparece como grupo expandido na árvore.
     await expect(

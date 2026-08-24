@@ -37,4 +37,24 @@ describe("árvore de arquivos do Vault", () => {
       { kind: "file", name: "B", path: "docs/b.md" },
     ]);
   });
+
+  it("lida com profundidade profunda sem perder nenhum nível", () => {
+    const deepPath = ["n1", "n2", "n3", "n4", "n5", "nota-profunda.md"].join("/");
+    const tree = buildFileTree([
+      { path: deepPath, title: "Profunda" },
+      { path: "raiz.md", title: "Raiz" },
+    ]);
+
+    let nodes = tree;
+    let depth = 0;
+    while (nodes.length > 0 && nodes[0].kind === "folder") {
+      const folder = nodes.find((node) => node.kind === "folder");
+      if (folder?.kind !== "folder") break;
+      expect(folder.name).toBe(`n${depth + 1}`);
+      nodes = folder.children;
+      depth += 1;
+    }
+    expect(depth).toBe(5);
+    expect(nodes).toEqual([{ kind: "file", name: "Profunda", path: deepPath }]);
+  });
 });

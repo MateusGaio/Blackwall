@@ -15,7 +15,27 @@ type VaultGraph = {
   nodes: Array<{ id: string; label: string; path: string }>;
 };
 
-const ignoredDirectories = new Set([".git", ".blackwall", "node_modules", "dist", "target"]);
+/**
+ * Diretórios internos ignorados no scan: VCS, caches, ambientes virtuais,
+ * dependências e artefatos de build. Nada de usuário (notas .md) vive aí.
+ */
+const ignoredDirectories = new Set([
+  ".blackwall",
+  ".git",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".tox",
+  ".venv",
+  "__pycache__",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+  "target",
+  "venv",
+]);
 const maxFiles = 5000;
 const maxFileSize = 2_000_000;
 

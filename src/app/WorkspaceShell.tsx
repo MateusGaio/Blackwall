@@ -847,8 +847,9 @@ export default function WorkspaceShell({
       >
         <ChatHeader
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
-          onVaultClick={() => {
+          onToggleVault={() => {
             if (!workspace) {
+              // Sem workspace o botão permanece visível e explica o bloqueio.
               setResourceNotice(t("chat.selectAFolderToConfigure"));
               return;
             }
@@ -860,7 +861,8 @@ export default function WorkspaceShell({
           }}
           sessionTitle={activeSession?.title}
           sidebarCollapsed={sidebarCollapsed}
-          vaultActive={Boolean(workspace && showVault)}
+          vaultBlocked={!workspace}
+          vaultOpen={Boolean(workspace && showVault && !vaultCollapsed)}
         />
 
         <div className="flex min-h-0 w-full flex-1">
