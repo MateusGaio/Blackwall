@@ -80,6 +80,7 @@ export default function WorkspaceShell({
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"default" | "providers">("default");
   const [showVault, setShowVault] = useState(Boolean(appState?.activeWorkspaceId));
   const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null);
   const [sessionMenuPosition, setSessionMenuPosition] = useState<{
@@ -269,6 +270,7 @@ export default function WorkspaceShell({
       setOpenSessionMenuId(null);
       setSessionMenuPosition(null);
       setShowSettings(false);
+      setSettingsSection("default");
     }
     document.addEventListener("click", closeFloatingMenus);
     document.addEventListener("keydown", closeWithEscape);
@@ -498,6 +500,12 @@ export default function WorkspaceShell({
 
   function newWorkspace() {
     setResourceNotice("");
+    setSettingsSection("default");
+    setShowSettings(true);
+  }
+
+  function openProvidersCenter() {
+    setSettingsSection("providers");
     setShowSettings(true);
   }
 
@@ -676,7 +684,9 @@ export default function WorkspaceShell({
   const isEmpty = !switchingSession && visibleMessages.length === 0;
 
   const chatArea = (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+    // h-full garante ancoragem inferior estável também dentro do painel
+    // redimensionável (sem ela, o composer sobe com o conteúdo ao abrir o Vault).
+    <section className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 md:px-6">
           {switchingSession && (
@@ -765,6 +775,7 @@ export default function WorkspaceShell({
               if (next !== null) setDraft(next);
               composerRef.current?.focus();
             }}
+            onOpenProviders={openProvidersCenter}
             onOpenUsage={() => setShowUsageDetails(true)}
             onSubmit={(event) => {
               event.preventDefault();
@@ -947,7 +958,11 @@ export default function WorkspaceShell({
             activeSessionId={state?.activeSessionId ?? null}
             activeWorkspaceId={state?.activeWorkspaceId ?? null}
             activeProviderId={activeProvider?.id ?? null}
-            onClose={() => setShowSettings(false)}
+            initialSection={settingsSection}
+            onClose={() => {
+              setShowSettings(false);
+              setSettingsSection("default");
+            }}
             onDeleteProfile={onDeleteProfile}
             onProvidersChange={(next) => {
               setProviders(next);

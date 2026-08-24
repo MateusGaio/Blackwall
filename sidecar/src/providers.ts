@@ -337,30 +337,32 @@ export class OpenAICompatibleProvider extends BaseProviderAdapter {
         supported_parameters?: string[];
       }>;
     };
-    return (body.data ?? [])
-      .map((model) => {
-        const id = model.id ?? model.name ?? "";
-        const capabilities = Array.isArray(model.supported_parameters)
-          ? model.supported_parameters.filter((item): item is string => typeof item === "string")
-          : [];
-        return {
-          capabilities,
-          ...(Number.isFinite(model.context_length) && Number(model.context_length) > 0
-            ? { contextLimit: Number(model.context_length) }
-            : {}),
-          id,
-          name: id,
-          ...(capabilities.length
-            ? {
-                toolSupport: capabilities.includes("tools")
-                  ? ("native" as const)
-                  : ("unsupported" as const),
-                toolSupportSource: "metadata" as const,
-              }
-            : {}),
-        };
-      })
-      .filter((model) => model.id);
+    return dedupeModels(
+      (body.data ?? [])
+        .map((model) => {
+          const id = model.id ?? model.name ?? "";
+          const capabilities = Array.isArray(model.supported_parameters)
+            ? model.supported_parameters.filter((item): item is string => typeof item === "string")
+            : [];
+          return {
+            capabilities,
+            ...(Number.isFinite(model.context_length) && Number(model.context_length) > 0
+              ? { contextLimit: Number(model.context_length) }
+              : {}),
+            id,
+            name: id,
+            ...(capabilities.length
+              ? {
+                  toolSupport: capabilities.includes("tools")
+                    ? ("native" as const)
+                    : ("unsupported" as const),
+                  toolSupportSource: "metadata" as const,
+                }
+              : {}),
+          };
+        })
+        .filter((model) => model.id),
+    );
   }
 
   chatRequest(
@@ -529,7 +531,7 @@ class OllamaProvider extends BaseProviderAdapter {
         }
       }),
     );
-    return enriched;
+    return dedupeModels(enriched);
   }
 
   chatRequest(
@@ -570,6 +572,35 @@ export function normalizeBaseUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
+/**
+ * Endpoint canônico para comparação: host minúsculo + porta + caminho sem
+ * barras finais e sem sufixos /api ou /v1 repetidos (Ollama aceita os três
+ * formatos e isso gerava cadastros duplicados do mesmo servidor).
+ */
+export function canonicalEndpoint(value: string): string {
+  const url = new URL(normalizeBaseUrl(value));
+  const path = url.pathname.replace(/\/(?:api|v1)(?:\/(?:api|v1))*$/i, "").replace(/\/$/, "");
+  return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ""}${path}`;
+}
+
+function timingSafeEqualStrings(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1)
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return mismatch === 0;
+}
+
+/** Alguns endpoints retornam o mesmo id duas vezes; renderizar/salvar duplicado confunde o catálogo. */
+function dedupeModels(listed: ProviderModel[]): ProviderModel[] {
+  const seen = new Set<string>();
+  return listed.filter((model) => {
+    if (!model.id || seen.has(model.id)) return false;
+    seen.add(model.id);
+    return true;
+  });
+}
+
 export async function validateProvider(
   input: ProviderInput,
   request: FetchLike = fetch,
@@ -606,23 +637,70 @@ async function writeDocument(dataDirectory: string, document: ProviderDocument) 
   });
 }
 
+/**
+ * Encontra um provedor existente que represente a MESMA conexão, tornando o
+ * cadastro idempotente:
+ * - Ollama: tipo + endpoint canônico iguais (o mesmo servidor nunca vira dois
+ *   cards; novos modelos pertencem ao catálogo do provedor existente);
+ * - OpenAI-compatible: só mescla quando tipo, endpoint canônico, nome
+ *   normalizado e credencial são comprovadamente iguais — contas ou chaves
+ *   diferentes permanecem registros separados. A comparação de chave é feita
+ *   em memória, sem registrar hash nem segredo em log.
+ */
+async function findSameConnection(
+  document: ProviderDocument,
+  input: ProviderInput,
+  dataDirectory: string,
+): Promise<Provider | null> {
+  const type = input.type ?? "openai-compatible";
+  let canonical: string;
+  try {
+    canonical = canonicalEndpoint(input.baseUrl);
+  } catch {
+    return null;
+  }
+  const name = input.name.trim().toLowerCase();
+  for (const candidate of document.providers) {
+    if (candidate.type !== type) continue;
+    let candidateCanonical: string;
+    try {
+      candidateCanonical = canonicalEndpoint(candidate.baseUrl);
+    } catch {
+      continue;
+    }
+    if (candidateCanonical !== canonical) continue;
+    if (type === "ollama") return candidate;
+    if (candidate.name.trim().toLowerCase() !== name) continue;
+    const existingKey = await providerApiKey(candidate.id, dataDirectory);
+    const providedKey = input.apiKey?.trim() ?? "";
+    // Sem chave fornecida e sem chave armazenada: mesma conexão "anônima".
+    if (!providedKey && !existingKey) return candidate;
+    if (providedKey && existingKey && timingSafeEqualStrings(providedKey, existingKey))
+      return candidate;
+    return null; // Mesmo endpoint/nome, credenciais distintas: NÃO mesclar.
+  }
+  return null;
+}
+
 export async function saveProvider(
   input: ProviderInput,
   dataDirectory = providerDataDirectory(),
 ): Promise<Provider> {
   await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
   const document = await readDocument(dataDirectory);
-  const existing = input.id
+  const existingById = input.id
     ? document.providers.find((candidate) => candidate.id === input.id)
     : null;
+  const existingConnection =
+    existingById ?? (await findSameConnection(document, { ...input }, dataDirectory));
   const provider: Provider = {
     baseUrl: normalizeBaseUrl(input.baseUrl),
-    id: input.id ?? randomUUID(),
+    id: existingConnection?.id ?? input.id ?? randomUUID(),
     model: input.model.trim(),
     name: input.name.trim(),
-    type: input.type ?? existing?.type ?? "openai-compatible",
+    type: input.type ?? existingConnection?.type ?? "openai-compatible",
   };
-  document.providers = existing
+  document.providers = existingConnection
     ? document.providers.map((candidate) => (candidate.id === provider.id ? provider : candidate))
     : [...document.providers, provider];
   if (input.apiKey?.trim()) {
@@ -668,6 +746,161 @@ export async function getProvider(
   const provider = document.providers.find((candidate) => candidate.id === id);
   if (!provider) throw new Error("O provedor selecionado não existe mais neste dispositivo.");
   return provider;
+}
+
+/**
+ * Reconciliação determinística de duplicatas legadas (execução idempotente):
+ * - Ollama: mesmo endpoint canônico → mescla no registro mais antigo;
+ * - OpenAI-compatible: só mescla quando nome E credencial são comprovadamente
+ *   iguais; configurações ambíguas NUNCA são apagadas automaticamente.
+ * Referências (models, router_entries, sessões, mensagens, uso/limites) são
+ * re-apontadas para o keeper dentro de uma transação; o segredo órfão é
+ * removido e o providers.json é reescrito somente após o commit.
+ */
+export async function reconcileProviderDuplicates(
+  dataDirectory = providerDataDirectory(),
+): Promise<Array<{ duplicateId: string; keeperId: string }>> {
+  const document = await readDocument(dataDirectory);
+  const keepers: Provider[] = [];
+  const groups = new Map<string, Provider>();
+  const merges: Array<{ duplicateId: string; keeperId: string }> = [];
+
+  for (const provider of document.providers) {
+    let key: string;
+    try {
+      const canonical = canonicalEndpoint(provider.baseUrl);
+      key =
+        provider.type === "ollama"
+          ? `ollama:${canonical}`
+          : `openai:${canonical}:${provider.name.trim().toLowerCase()}`;
+    } catch {
+      keepers.push(provider);
+      continue;
+    }
+    const current = groups.get(key);
+    if (!current) {
+      groups.set(key, provider);
+      keepers.push(provider);
+      continue;
+    }
+    if (provider.type !== "ollama") {
+      // Não-Ollama exige identidade de credencial comprovada em memória.
+      const currentKey = await providerApiKey(current.id, dataDirectory);
+      const candidateKey = await providerApiKey(provider.id, dataDirectory);
+      if (!timingSafeEqualStrings(currentKey, candidateKey)) {
+        keepers.push(provider); // Ambígua: preserva ambos.
+        continue;
+      }
+    }
+    merges.push({ duplicateId: provider.id, keeperId: current.id });
+  }
+  if (!merges.length) return [];
+
+  const database = openSharedDatabase(dataDirectory);
+  const client = database.client;
+  const applyMerge = client.transaction((duplicateId: string, keeperId: string) => {
+    // Models: conflito de model_id cai fora; caso contrário, muda de dono.
+    const duplicateModels = client
+      .prepare("SELECT id, model_id AS modelId FROM models WHERE provider_id = ?")
+      .all(duplicateId) as Array<{ id: string; modelId: string }>;
+    const keeperModelIds = new Set(
+      (
+        client
+          .prepare("SELECT model_id AS modelId FROM models WHERE provider_id = ?")
+          .all(keeperId) as Array<{ modelId: string }>
+      ).map((row) => row.modelId),
+    );
+    for (const row of duplicateModels) {
+      if (keeperModelIds.has(row.modelId)) {
+        client.prepare("DELETE FROM models WHERE id = ?").run(row.id);
+      } else {
+        client
+          .prepare("UPDATE models SET id = ?, provider_id = ? WHERE id = ?")
+          .run(`${keeperId}:${row.modelId}`, keeperId, row.id);
+      }
+    }
+    // Router entries: re-aponta e remove repetições exatas (mantém menor posição).
+    client
+      .prepare("UPDATE router_entries SET provider_id = ? WHERE provider_id = ?")
+      .run(keeperId, duplicateId);
+    client
+      .prepare(
+        `DELETE FROM router_entries WHERE provider_id = ? AND id NOT IN (
+           SELECT MIN(id) FROM router_entries WHERE provider_id = ?
+           GROUP BY workspace_id, model_id, position)`,
+      )
+      .run(keeperId, keeperId);
+    client
+      .prepare("UPDATE sessions SET selected_provider_id = ? WHERE selected_provider_id = ?")
+      .run(keeperId, duplicateId);
+    client
+      .prepare("UPDATE messages SET provider_id = ? WHERE provider_id = ?")
+      .run(keeperId, duplicateId);
+    client
+      .prepare("UPDATE provider_usage_events SET provider_id = ? WHERE provider_id = ?")
+      .run(keeperId, duplicateId);
+    client
+      .prepare("UPDATE provider_usage_limits SET provider_id = ? WHERE provider_id = ?")
+      .run(keeperId, duplicateId);
+    // Uso diário: soma as agregações da duplicata nas linhas do keeper.
+    const dailyRows = client
+      .prepare(
+        "SELECT profile_id AS profileId, model_id AS modelId, date_key AS dateKey, requests, input_tokens AS inputTokens, output_tokens AS outputTokens, cached_input_tokens AS cachedInputTokens, reasoning_tokens AS reasoningTokens, total_tokens AS totalTokens FROM provider_usage_daily WHERE provider_id = ?",
+      )
+      .all(duplicateId) as Array<{
+      cachedInputTokens: number;
+      dateKey: string;
+      inputTokens: number;
+      modelId: string;
+      outputTokens: number;
+      profileId: string;
+      reasoningTokens: number;
+      requests: number;
+      totalTokens: number;
+    }>;
+    for (const row of dailyRows) {
+      client
+        .prepare(
+          `INSERT INTO provider_usage_daily (profile_id, provider_id, model_id, date_key, requests, input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(profile_id, provider_id, model_id, date_key) DO UPDATE SET
+             requests = requests + excluded.requests,
+             input_tokens = input_tokens + excluded.input_tokens,
+             output_tokens = output_tokens + excluded.output_tokens,
+             cached_input_tokens = cached_input_tokens + excluded.cached_input_tokens,
+             reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+             total_tokens = total_tokens + excluded.total_tokens,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          row.profileId,
+          keeperId,
+          row.modelId,
+          row.dateKey,
+          row.requests,
+          row.inputTokens,
+          row.outputTokens,
+          row.cachedInputTokens,
+          row.reasoningTokens,
+          row.totalTokens,
+          Date.now(),
+        );
+    }
+    client.prepare("DELETE FROM provider_usage_daily WHERE provider_id = ?").run(duplicateId);
+    // Só agora remove a linha do provedor (FKs cascade já não têm o que apagar).
+    client.prepare("DELETE FROM providers WHERE id = ?").run(duplicateId);
+  });
+
+  for (const merge of merges) applyMerge(merge.duplicateId, merge.keeperId);
+  database.close();
+
+  // Segredo órfão sai antes da reescrita do documento.
+  await Promise.all(merges.map((merge) => removeSecret(dataDirectory, merge.duplicateId)));
+  document.providers = keepers.filter(
+    (provider) => !merges.some((merge) => merge.duplicateId === provider.id),
+  );
+  await writeDocument(dataDirectory, document);
+  return merges;
 }
 
 export async function listProviders(dataDirectory = providerDataDirectory()): Promise<Provider[]> {

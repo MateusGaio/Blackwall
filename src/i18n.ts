@@ -194,6 +194,7 @@ void i18n.use(initReactI18next).init({
           stop: "Parar",
           stopGenerating: "Parar geração",
           writeAMessage: "Escreva uma mensagem…",
+          providers: "Provedores",
         },
         sessions: {
           actions: "Ações",
@@ -650,6 +651,7 @@ void i18n.use(initReactI18next).init({
           stop: "Stop",
           stopGenerating: "Stop generating",
           writeAMessage: "Write a message…",
+          providers: "Providers",
         },
         sessions: {
           actions: "Actions",

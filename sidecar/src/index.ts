@@ -35,6 +35,7 @@ import {
   type ParallelToolCallsMode,
   type ProviderInput,
   providerApiKey,
+  reconcileProviderDuplicates,
   removeProvider,
   resolveProviderModelInput,
   routeCandidates,
@@ -192,12 +193,24 @@ function appendToolExchange(
   ];
 }
 
-export function createSidecar(
+export async function createSidecar(
   port = 0,
   storageDirectory = dataDirectory(),
 ): Promise<{ port: number; server: Server }> {
   const database = openDatabase(storageDirectory);
   pruneUsage(database.client);
+  // Reconciliação legada e idempotente de duplicatas de provedores (ADR-12:
+  // sem geração automática de schema; só dados). Nunca derruba o sidecar.
+  try {
+    const merges = await reconcileProviderDuplicates(storageDirectory);
+    if (merges.length)
+      console.info(`[blackwall] ${merges.length} provedor(es) duplicado(s) reconciliado(s).`);
+  } catch (error) {
+    console.error(
+      "[blackwall] reconciliação de provedores falhou:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   const store = createStore(database, storageDirectory);
   const server = createServer(async (request, response) => {
     allowOrigin(request, response);

@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -35,6 +35,8 @@ type ProviderManagerProps = {
   activeSessionId?: string | null;
   activeWorkspaceId: string | null;
   activeProviderId?: string | null;
+  /** Seção inicial: "providers" abre o diálogo direto na área de provedores. */
+  initialSection?: "default" | "providers";
   onClose: () => void;
   onDeleteProfile: (profileId: string) => Promise<void>;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
@@ -53,6 +55,7 @@ export function ProviderManager({
   activeSessionId,
   activeWorkspaceId,
   activeProviderId,
+  initialSection = "default",
   onClose,
   onDeleteProfile,
   onProvidersChange,
@@ -67,6 +70,7 @@ export function ProviderManager({
   workspaces,
 }: ProviderManagerProps) {
   const { t } = useTranslation();
+  const providersSectionRef = useRef<HTMLDivElement | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
   const [status, setStatus] = useState("");
@@ -77,6 +81,15 @@ export function ProviderManager({
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+
+  // Abertura direta na seção de provedores (atalho do composer).
+  useEffect(() => {
+    if (initialSection !== "providers") return;
+    const frame = requestAnimationFrame(() => {
+      providersSectionRef.current?.scrollIntoView({ block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialSection]);
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -189,7 +202,7 @@ export function ProviderManager({
       >
         <DialogContent
           aria-busy={isSaving || profileSettings.isSavingProfile}
-          className="flex max-h-[85vh] w-full flex-col overflow-hidden sm:max-w-2xl"
+          className="flex h-[85vh] w-full flex-col overflow-hidden sm:max-w-2xl"
         >
           <DialogHeader>
             <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
@@ -239,28 +252,30 @@ export function ProviderManager({
                 workspaceSoul={workspaceSettings.workspaceSoul}
                 workspaceStatus={workspaceSettings.workspaceStatus}
               />
-              <ProviderList
-                onEdit={edit}
-                onRemoveRequest={setProviderToRemove}
-                onSelect={onSelect}
-                providers={providers}
-              />
-              <ProviderFormSection
-                editingId={editingId}
-                error={error}
-                form={form}
-                isDeletingProfile={profileSettings.isDeletingProfile}
-                isSaving={isSaving}
-                modelOptions={modelOptions}
-                onSignOut={onSignOut}
-                onSubmit={submit}
-                onTest={testCurrent}
-                profile={profile}
-                requestDeleteProfile={() => profileSettings.setProfileToDelete(profile)}
-                reset={reset}
-                setFormField={updateForm}
-                status={status}
-              />
+              <div className="grid gap-6" ref={providersSectionRef}>
+                <ProviderList
+                  onEdit={edit}
+                  onRemoveRequest={setProviderToRemove}
+                  onSelect={onSelect}
+                  providers={providers}
+                />
+                <ProviderFormSection
+                  editingId={editingId}
+                  error={error}
+                  form={form}
+                  isDeletingProfile={profileSettings.isDeletingProfile}
+                  isSaving={isSaving}
+                  modelOptions={modelOptions}
+                  onSignOut={onSignOut}
+                  onSubmit={submit}
+                  onTest={testCurrent}
+                  profile={profile}
+                  requestDeleteProfile={() => profileSettings.setProfileToDelete(profile)}
+                  reset={reset}
+                  setFormField={updateForm}
+                  status={status}
+                />
+              </div>
             </div>
           </ScrollArea>
         </DialogContent>

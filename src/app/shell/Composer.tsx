@@ -33,6 +33,7 @@ type ComposerProps = {
   models: ProviderModel[];
   onAttachFile: (file: File) => void;
   onEditQueued?: () => void;
+  onOpenProviders?: () => void;
   onOpenUsage: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   permissionError: string;
@@ -69,6 +70,7 @@ export function Composer({
   models,
   onAttachFile,
   onEditQueued,
+  onOpenProviders,
   onOpenUsage,
   onSubmit,
   permissionError,
@@ -172,6 +174,22 @@ export function Composer({
           >
             <CompactIcon kind="clip" />
           </Button>
+          {/* Segundo controle: central de provedores (selecionar/cadastrar). */}
+          {onOpenProviders && (
+            <Button
+              aria-label={t("composer.providers")}
+              className="gap-1.5 px-2"
+              disabled={isSending}
+              onClick={onOpenProviders}
+              size="sm"
+              title={t("composer.providers")}
+              type="button"
+              variant="ghost"
+            >
+              <CompactIcon kind="providers" />
+              <span className="hidden text-xs md:inline">{t("composer.providers")}</span>
+            </Button>
+          )}
           {workspace && (
             <Popover onOpenChange={setPermissionOpen} open={permissionOpen}>
               <PopoverTrigger asChild>

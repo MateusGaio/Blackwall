@@ -10,6 +10,8 @@ type CompactIconKind =
   | "minimize"
   | "new-thread"
   | "panel"
+  | "panel-right"
+  | "providers"
   | "refresh"
   | "search"
   | "send"
@@ -33,6 +35,10 @@ const paths = {
   minimize: <path d="M5 12h14" />,
   "new-thread": <path d="M12 5v14M5 12h14" />,
   panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
+  "panel-right": <path d="M4 5h16v14H4V5Zm15 0v14M12 9l3 3-3 3" />,
+  providers: (
+    <path d="M5 4h14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm0 9h14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Zm2.5-7h.01M7.5 17h.01" />
+  ),
   refresh: <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v5h-5" />,
   search: <path d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />,
   send: <path d="M12 19V5M5 12l7-7 7 7" />,

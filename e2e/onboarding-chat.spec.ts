@@ -59,7 +59,12 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
     const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
     await expect(vaultToggle).toBeVisible();
-    await expect(page.getByLabel(/Workspace atual|Current workspace/)).toBeVisible();
+    // Sidebar v2: o workspace ativo aparece como grupo expandido na árvore.
+    await expect(
+      page
+        .getByRole("navigation", { name: /Lista de conversas|Thread list/ })
+        .getByText("Workspace E2E"),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Abrir configurações da Soul do workspace/i }),
     ).toHaveCount(0);

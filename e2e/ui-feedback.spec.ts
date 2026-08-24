@@ -295,3 +295,118 @@ test.describe("feedback de UI — sidebar agrupada", () => {
     await expect(page.getByText("✳")).toHaveCount(0);
   });
 });
+
+test.describe("feedback de UI — composer e provedores", () => {
+  /** Perfil com workspace ativo para permitir Vault e medições de layout. */
+  async function shellWithWorkspace(page: Page, profileName: string) {
+    await resetToOnboarding(page);
+    await page.getByRole("button", { name: /Continuar|Continue/ }).click();
+    await page.getByLabel(/Nome do perfil|Profile name/).fill(profileName);
+    const continueButton = page.getByRole("button", { name: /Continuar|Continue/ });
+    await continueButton.click();
+    await page.getByLabel(/Nome do workspace|Workspace name/).fill(`${profileName}-ws`);
+    await continueButton.click();
+    await page.getByRole("button", { name: startWithoutRegex }).click();
+    await continueButton.click();
+    await continueButton.click();
+    await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
+    await page
+      .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
+      .fill("http://127.0.0.1:17999/v1");
+    await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
+    await page.getByLabel(/Chave de API|API key/).fill("test-key");
+    await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
+    await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
+    // Cria um workspace real (temporário) pela API e abre-o.
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const state = (await (await page.request.get("http://127.0.0.1:1423/v1/state")).json()) as {
+      activeProfileId: string;
+    };
+    const created = (await (
+      await page.request.post("http://127.0.0.1:1423/v1/workspaces", {
+        data: {
+          name: `${profileName} Workspace`,
+          profileId: state.activeProfileId,
+          rootPath: await mkdtemp(join(tmpdir(), "blackwall-e2e-ws-")),
+          soul: "",
+        },
+      })
+    ).json()) as { workspace: { id: string } };
+    await page.request.post(`http://127.0.0.1:1423/v1/workspaces/${created.workspace.id}/select`);
+    await page.reload();
+    await page
+      .getByTestId("profile-option")
+      .filter({ hasText: profileName })
+      .click();
+    await expect(page.getByTestId("chat-composer")).toBeVisible();
+  }
+
+  test("diálogo de configurações rola até a última ação com a roda do mouse", async ({
+    page,
+  }) => {
+    await shellWithWorkspace(page, "Perfil Scroll");
+    await page.getByRole("button", { name: /Abrir configurações|Open settings/ }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const viewport = dialog.locator('[data-slot="scroll-area-viewport"]');
+    await expect(viewport).toBeVisible();
+
+    const initialTop = await viewport.evaluate((element) => element.scrollTop);
+    const scrollable = await viewport.evaluate(
+      (element) => element.scrollHeight - element.clientHeight,
+    );
+    expect(scrollable).toBeGreaterThan(50); // conteúdo realmente maior que o diálogo
+
+    await viewport.hover();
+    for (let index = 0; index < 12; index += 1) await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(200);
+    const afterWheel = await viewport.evaluate((element) => element.scrollTop);
+    expect(afterWheel).toBeGreaterThan(initialTop);
+
+    // A última ação do diálogo (botão Excluir perfil) fica alcançável.
+    await expect(
+      dialog.getByRole("button", { name: /Excluir perfil|Delete profile/ }),
+    ).toBeVisible();
+  });
+
+  test("atalho Provedores abre o diálogo direto na seção de provedores", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Atalho");
+    await expect(
+      page.getByRole("button", { name: /Provedores|Providers/ }).first(),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Provedores|Providers/ }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    // A seção de provedores está visível sem rolagem manual do usuário.
+    await expect(
+      dialog.getByText(/Adicionar provedor|Add provider/).first(),
+    ).toBeInViewport({ ratio: 0.5 });
+  });
+
+  test("composer mantém a ancoragem vertical ao alternar painéis", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Estavel");
+    const composer = page.getByTestId("chat-composer");
+
+    const yWithSidebarOpen = (await composer.boundingBox())?.y ?? 0;
+
+    // Recolhe a sidebar esquerda.
+    await page.getByRole("button", { name: /Esconder sidebar|Hide sidebar/ }).click();
+    const yWithSidebarClosed = (await composer.boundingBox())?.y ?? 0;
+    expect(Math.abs(yWithSidebarClosed - yWithSidebarOpen)).toBeLessThanOrEqual(2);
+
+    // Abre o Vault à direita.
+    const vaultToggle = page.locator("header").getByRole("button", { name: /Vault/i }).first();
+    if ((await page.locator(".vault-slot").count()) === 0) await vaultToggle.click();
+    await expect(page.locator(".vault-slot")).toHaveCount(1);
+    const yWithBothOpen = (await composer.boundingBox())?.y ?? 0;
+    expect(Math.abs(yWithBothOpen - yWithSidebarOpen)).toBeLessThanOrEqual(2);
+
+    // Volta ao estado inicial.
+    await vaultToggle.click();
+    await expect(page.locator(".vault-slot")).toHaveCount(0);
+    const yBackToBaseline = (await composer.boundingBox())?.y ?? 0;
+    expect(Math.abs(yBackToBaseline - yWithSidebarOpen)).toBeLessThanOrEqual(2);
+  });
+});
