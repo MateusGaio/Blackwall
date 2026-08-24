@@ -100,7 +100,8 @@ describe("ChatThread", () => {
         { content: "", id: "a1", role: "assistant" },
       ],
     });
-    expect(html).toContain("passos de ferramenta");
+    expect(html).toContain("agiu · 1 ação");
+    expect(html).toContain("ver detalhes");
     expect(html).not.toContain("read_file");
   });
 });
