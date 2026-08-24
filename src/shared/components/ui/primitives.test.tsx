@@ -58,47 +58,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./select";
-import { Separator } from "./separator";
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "./sheet";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupAction,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInput,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuAction,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSkeleton,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
-  SidebarProvider,
-  SidebarRail,
-  SidebarSeparator,
-  SidebarTrigger,
-  useSidebar,
-} from "./sidebar";
 import { Skeleton } from "./skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger, tabsListVariants } from "./tabs";
 import { Textarea } from "./textarea";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./tooltip";
 
 function markup(element: React.ReactElement) {
   return renderToStaticMarkup(element);
@@ -136,8 +98,7 @@ describe("primitivas shadcn (fundação U1)", () => {
     expect(html).toContain('data-slot="input-group"');
   });
 
-  it("Separator e Skeleton renderizam", () => {
-    expect(markup(<Separator />)).toContain("separator");
+  it("Skeleton renderiza", () => {
     expect(markup(<Skeleton />)).toContain("skeleton");
   });
 
@@ -220,48 +181,6 @@ describe("primitivas shadcn (fundação U1)", () => {
     expect(markup(<CommandDialog open />)).toBeDefined();
   });
 
-  it("Sidebar compõe estrutura de navegação", () => {
-    const html = markup(
-      <TooltipProvider>
-        <SidebarProvider>
-          <Sidebar>
-            <SidebarHeader />
-            <SidebarContent>
-              <SidebarGroup>
-                <SidebarGroupLabel>Sessões</SidebarGroupLabel>
-                <SidebarGroupAction />
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton>Conversa</SidebarMenuButton>
-                      <SidebarMenuAction />
-                      <SidebarMenuBadge>3</SidebarMenuBadge>
-                    </SidebarMenuItem>
-                  </SidebarMenu>
-                  <SidebarMenuSkeleton />
-                  <SidebarMenuSub>
-                    <SidebarMenuSubItem>
-                      <SidebarMenuSubButton>Sub</SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  </SidebarMenuSub>
-                </SidebarGroupContent>
-              </SidebarGroup>
-              <SidebarSeparator />
-            </SidebarContent>
-            <SidebarFooter />
-            <SidebarRail />
-          </Sidebar>
-          <SidebarInset>
-            <SidebarTrigger />
-            <SidebarInput placeholder="Buscar sessão..." />
-          </SidebarInset>
-        </SidebarProvider>
-      </TooltipProvider>,
-    );
-    expect(html).toContain('data-slot="sidebar-wrapper"');
-    expect(typeof useSidebar).toBe("function");
-  });
-
   it("Dialog expõe gatilho e close; overlay/portal são client-only", () => {
     const html = markup(
       <Dialog>
@@ -283,24 +202,6 @@ describe("primitivas shadcn (fundação U1)", () => {
     expect(html).toContain("Fechar");
   });
 
-  it("Sheet expõe gatilho; conteúdo é portal (não vira SSR)", () => {
-    const html = markup(
-      <Sheet>
-        <SheetTrigger>Abrir painel</SheetTrigger>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>Painel</SheetTitle>
-            <SheetDescription>Descrição do painel</SheetDescription>
-          </SheetHeader>
-          <SheetFooter>
-            <SheetClose>Fechar</SheetClose>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>,
-    );
-    expect(html).toContain("Abrir painel");
-  });
-
   it("Popover expõe gatilho e âncora", () => {
     const html = markup(
       <Popover>
@@ -315,17 +216,5 @@ describe("primitivas shadcn (fundação U1)", () => {
       </Popover>,
     );
     expect(html).toContain("Abrir menu");
-  });
-
-  it("Tooltip renderiza dentro do provider", () => {
-    const html = markup(
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger>Gatilho</TooltipTrigger>
-          <TooltipContent>Dica</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>,
-    );
-    expect(html).toContain("Gatilho");
   });
 });

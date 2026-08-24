@@ -806,49 +806,6 @@ button:disabled {
   outline: none;
 }
 
-.usage-indicator-wrap {
-  position: relative;
-}
-.usage-indicator {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-control);
-  color: #9ea0a7;
-  cursor: pointer;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  padding: 7px 8px;
-  transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
-}
-.usage-indicator:hover,
-.usage-indicator:focus-visible,
-.usage-indicator[aria-expanded="true"] {
-  background: #17181d;
-  border-color: #363842;
-  color: #f2f2f3;
-}
-.usage-popover {
-  background: #17181d;
-  border: 1px solid #363842;
-  border-radius: var(--radius-panel);
-  box-shadow: 0 14px 36px rgb(0 0 0 / 35%);
-  display: grid;
-  gap: 8px;
-  min-width: 220px;
-  padding: 14px;
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 20;
-}
-.usage-popover span {
-  color: #a6a8b1;
-  font-size: 12px;
-}
-
 .header-toggle {
   background: transparent;
   border: 1px solid #353539;

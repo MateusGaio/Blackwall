@@ -33,17 +33,33 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 
 ---
 
-## 3. Interface de chat (estética terminal)
+## 3. Interface de chat (padrão Codex híbrido — v2)
 
-Elementos obrigatórios, replicando a mecânica que você pediu:
-- **Mensagens sem bolha** (Fase U4 do plano): usuário alinhado à direita, respostas do assistente à esquerda — ambos texto flat, com marcador de papel em monoespaçada (`›` para você, `●` para o agente) e largura máxima por mensagem (~640px). Nenhuma superfície de fundo ou borda de balão.
-- **Efeito de streaming token a token**, com um **cursor de bloco** (`▊`) piscando no fim do texto sendo gerado, acompanhado de uma linha de status em mono.
-- Botão **Parar geração** enquanto está streaming.
-- Botão **Regenerar resposta** e **Editar mensagem** (do usuário) após o fim da resposta.
-- Blocos de código com syntax highlight + botão de copiar.
-- Composer (caixa de digitação) no formato de **linha de prompt**: borda 1px, raio `--radius-control`, prefixo mono `❯`, auto-resize, seletor de modelo/Soul visível acima ou ao lado dele, e um indicador de "na fila" (ADR-21) quando aplicável. Anexos aparecem como tokens `[arquivo.md]` removíveis.
-- Em workspaces, o compositor exibe um escudo discreto ao lado do anexo para escolher `Perguntar sempre`, `Automático` ou `Somente leitura`; no modo sem workspace esse controle não aparece.
-- Pill de "rolar para o final" quando o usuário rola pra cima durante um streaming.
+> **Contrato v2 (2026-08-23, Issue #181).** Referência: transcript do Codex App + rodapé/status do Codex CLI (TUI). Substitui integralmente a versão anterior desta seção (Fases U4/U5), que descrevia a estética terminal inicial. Implementação rastreada nas Issues #182–#186.
+
+### 3.1 Transcript
+- **Mensagens sem bolha** — usuário alinhado à direita com marcador mono `❯ você`; assistente à esquerda em **bloco único** por turno, com marcador mono `● blackwall`. Largura máxima ~640px; nenhuma superfície de fundo ou borda de balão.
+- **Passos agênticos colapsados** — o trabalho de ferramentas de um turno não polui o transcript: aparece como um grupo recolhido (`agiu · N ações`, com duração quando conhecida) entre a mensagem do usuário e a resposta final. Expandido, revela linhas mono com nome da ferramenta e trecho cru truncado. Colapsado por padrão; estado respeita `prefers-reduced-motion`.
+- **Streaming token a token** com cursor de bloco piscando e linha de status em mono no cabeçalho do bloco ativo (`▸ pensando…` → `▸ gerando…`).
+- **Resumo automático** aparece como card próprio (`conversation-summary-card`), nunca como mensagem comum.
+- Ações pós-resposta: copiar mensagem, regenerar resposta, editar mensagem do usuário (com salvar/regenerar).
+
+### 3.2 Bottom pane (composer)
+- Composer único no formato de **linha de prompt**: borda 1px, raio `--radius-control`, prefixo mono `❯`, auto-resize.
+- **Botão enviar↔parar na mesma posição** (`↑` ↔ `⏹` conforme estado) — nunca dois botões disputando lugares diferentes.
+- **Chips inline**: escudo de permissões (`Perguntar sempre` / `Automático` / `Somente leitura` — ausente sem workspace), chip provedor › modelo (popover), anexos como tokens `[arquivo.md]` removíveis.
+- **Fila visível** (ADR-21): pill `N na fila` com preview da próxima mensagem enfileirada.
+- **Status line como rodapé** (herança U5): provedor › modelo · contexto `▓▓░ %` (botão que abre o dialog de uso) · janela mais restritiva do roteador · fila. Formato mono, discreta, sempre abaixo do composer.
+- Erros de envio como linha mono discreta com ação de retry — nunca modal bloqueante.
+
+### 3.3 Aprovação de ferramentas
+- Card de aprovação **inline entre thread e composer**, destacado por borda 1px, com as três ações (`Permitir uma vez` / `Permitir nesta sessão` / `Negar`) e foco visível. Equivalente ao ApprovalOverlay do TUI do Codex.
+
+### 3.4 Preservações obrigatórias (não negociável)
+- Contrato do `SidecarChatStore`/adaptador intacto; fila FIFO; guards de sessão/epoch.
+- Modos ask/automatic/read-only; anexos textuais/PDF; resumo automático; usage dialog; command palette.
+- Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `provider-chip`, `session-statusline`, `menuitemradio` de permissões.
+- Labels i18n pt/en conforme tabela registrada no plano da fase C (`docs/plans/`).
 
 ---
 
