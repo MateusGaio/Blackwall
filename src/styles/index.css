@@ -410,11 +410,72 @@ button:disabled {
 }
 
 .vault-rail {
-  height: 100%;
+  border-left: 1px solid #26262b;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 12px;
-  padding: 24px 9px;
+  height: 100%;
+  padding: 24px 0;
+  width: 42px;
+}
+
+.vault-rail button {
+  position: relative;
+}
+
+/* Tooltip real do trilho (hover E focus): title isolado não basta. */
+.rail-tooltip {
+  background: #1a1a1d;
+  border: 1px solid #353539;
+  border-radius: 6px;
+  color: #f2f2f3;
+  font-size: 0.68rem;
+  left: calc(100% + 8px);
+  line-height: 1.2;
+  opacity: 0;
+  padding: 3px 7px;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-2px, -50%);
+  transition:
+    opacity 120ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  white-space: nowrap;
+  z-index: 30;
+}
+
+.vault-rail button:hover .rail-tooltip,
+.vault-rail button:focus-visible .rail-tooltip {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-tooltip {
+    transition: opacity 1ms linear;
+    transform: translate(0, -50%);
+  }
+}
+
+/*
+ * Contenção do preview Markdown (comentário 1): o wrapper interno da
+ * ScrollArea do Radix usa `display: table; min-width: 100%` (estilo inline),
+ * o que faz o artigo crescer até a linha mais larga e ser recortado em
+ * painéis estreitos. A sobrescrita fica ESCOPADA ao Vault — o chat continua
+ * com o comportamento original.
+ */
+.vault-slot [data-slot="scroll-area-viewport"] > div {
+  /* biome-ignore lint/complexity/noImportantStyles: o Radix define display/min-width via estilo inline; !important é a única forma de sobrescrevê-lo sem mutar a lib. */
+  display: block !important;
+  /* biome-ignore lint/complexity/noImportantStyles: mesma razão da linha acima. */
+  min-width: 0 !important;
+}
+
+.vault-slot .safe-markdown img {
+  height: auto;
+  max-width: 100%;
 }
 
 .safe-markdown p {

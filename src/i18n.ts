@@ -168,6 +168,7 @@ void i18n.use(initReactI18next).init({
           selectAFolderToConfigure:
             "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
           selectModel: "Escolher modelo",
+          switchingModel: "Trocando modelo…",
           selectProvider: "Selecionar provedor",
           showSidebar: "Mostrar sidebar",
           theFileAndItsLocal: "O arquivo e seu índice local serão removidos deste dispositivo.",
@@ -204,6 +205,8 @@ void i18n.use(initReactI18next).init({
           addWorkspace: "Adicionar workspace",
           cancel: "Cancelar",
           commandPalette: "Paleta de comandos",
+          goToAgents: "Ir para Agentes",
+          comingSoon: "em breve",
           conversationWithoutFileContext: "Conversa sem contexto de arquivos.",
           createWorkspace: "Criar workspace",
           currentWorkspace: "Workspace atual",
@@ -627,6 +630,7 @@ void i18n.use(initReactI18next).init({
           selectAFolderToConfigure:
             "Select a folder to configure your workspace and use the Vault and graph.",
           selectModel: "Choose a model",
+          switchingModel: "Switching model…",
           selectProvider: "Select provider",
           showSidebar: "Show sidebar",
           theFileAndItsLocal: "The file and its local index will be removed from this device.",
@@ -663,6 +667,8 @@ void i18n.use(initReactI18next).init({
           addWorkspace: "Add workspace",
           cancel: "Cancel",
           commandPalette: "Command palette",
+          goToAgents: "Go to Agents",
+          comingSoon: "coming soon",
           conversationWithoutFileContext: "Conversation without file context.",
           createWorkspace: "Create workspace",
           currentWorkspace: "Current workspace",

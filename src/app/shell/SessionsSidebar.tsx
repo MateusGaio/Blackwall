@@ -169,7 +169,7 @@ export function SessionsSidebar({
                 </button>
                 {group.workspace ? (
                   <button
-                    className={`min-w-0 flex-1 truncate py-1 text-[0.82rem] focus-visible:outline-none ${
+                    className={`min-w-0 flex-1 truncate py-1 text-left text-[0.82rem] focus-visible:outline-none ${
                       isActiveGroup
                         ? "font-medium text-foreground"
                         : "text-muted-foreground hover:text-foreground"

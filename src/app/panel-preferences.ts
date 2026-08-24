@@ -1,6 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 export const sidebarCollapsedPreference = "blackwall:sidebar-collapsed";
-export const vaultCollapsedPreference = "blackwall:vault-collapsed";
 export const vaultPanelWidthPreference = "blackwall:vault-panel-width";
 
 export function readBooleanPreference(key: string) {

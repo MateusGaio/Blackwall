@@ -8,7 +8,8 @@ type ChatHeaderProps = {
   onToggleVault: () => void;
   sessionTitle: string | undefined;
   sidebarCollapsed: boolean;
-  vaultOpen: boolean;
+  /** "expanded" = painel completo; "rail" = trilho recolhido com atalhos. */
+  vaultMode: "expanded" | "rail";
   vaultBlocked: boolean;
 };
 
@@ -23,9 +24,10 @@ export function ChatHeader({
   sessionTitle,
   sidebarCollapsed,
   vaultBlocked,
-  vaultOpen,
+  vaultMode,
 }: ChatHeaderProps) {
   const { t } = useTranslation();
+  const vaultExpanded = vaultMode === "expanded";
   return (
     <header className="flex h-11 w-full shrink-0 items-center gap-2 px-3" data-tauri-drag-region="">
       <button
@@ -46,15 +48,17 @@ export function ChatHeader({
         {sessionTitle ?? t("chat.newConversation")}
       </h1>
       <div className="flex shrink-0 items-center gap-1">
+        {/* Controle ÚNICO do Vault (comentários 4–5): alterna painel completo
+        ↔ trilho; o painel não tem mais botão de recolher próprio. */}
         <button
-          aria-expanded={vaultOpen}
-          aria-label={vaultOpen ? t("chat.hideVault") : t("chat.showVault")}
-          aria-pressed={vaultOpen}
-          className={`header-toggle ${vaultOpen ? "is-active" : ""} ${
+          aria-controls="bw-vault-panel"
+          aria-expanded={vaultExpanded}
+          aria-label={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
+          className={`header-toggle ${vaultExpanded ? "is-active" : ""} ${
             vaultBlocked ? "opacity-50" : ""
           }`}
           onClick={onToggleVault}
-          title={vaultOpen ? t("chat.hideVault") : t("chat.showVault")}
+          title={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
           type="button"
         >
           <CompactIcon kind="panel-right" />
