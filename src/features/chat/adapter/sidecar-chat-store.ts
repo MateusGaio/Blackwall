@@ -39,6 +39,7 @@ type SidecarChatSnapshot = {
   isRunning: boolean;
   messages: readonly SidecarChatMessage[];
   queuedCount: number;
+  queuedPreview: string | null;
   status: string;
   streamingId: string | null;
   toolApproval: WorkspaceToolApproval | null;
@@ -115,6 +116,7 @@ export class SidecarChatStore {
     isRunning: false,
     messages: [],
     queuedCount: 0,
+    queuedPreview: null,
     status: "",
     streamingId: null,
     toolApproval: null,
@@ -153,6 +155,7 @@ export class SidecarChatStore {
         isRunning: this.isRunning,
         messages: [...this.messages],
         queuedCount: this.queue.length,
+        queuedPreview: this.queue[0] ?? null,
         status: this.status,
         streamingId: this.streamingId,
         toolApproval: this.toolApproval,
@@ -199,6 +202,18 @@ export class SidecarChatStore {
     if (!this.error) return;
     this.error = "";
     this.notify();
+  };
+
+  /**
+   * Tira o próximo da fila (ADR-21) para edição no composer, sem disparar —
+   * equivalente ao "pending input preview" do bottom pane do Codex TUI.
+   */
+  pullQueuedDraft = (): string | null => {
+    if (this.queue.length === 0) return null;
+    const [next, ...rest] = this.queue;
+    this.queue = rest;
+    this.notify();
+    return next;
   };
 
   send = (content: string): void => {

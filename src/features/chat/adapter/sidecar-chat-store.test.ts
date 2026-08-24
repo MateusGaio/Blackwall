@@ -391,4 +391,26 @@ describe("SidecarChatStore", () => {
     harness.streams[0].complete({ content: "streaming… final", persisted: true });
     await until(() => !harness.store.getSnapshot().isRunning);
   });
+
+  it("pullQueuedDraft devolve o primeiro da fila para edição sem disparar execução", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("primeira");
+    await until(() => harness.streams.length === 1);
+    harness.store.send("segunda");
+    harness.store.send("terceira");
+
+    expect(harness.store.getSnapshot().queuedCount).toBe(2);
+    expect(harness.store.getSnapshot().queuedPreview).toBe("segunda");
+
+    expect(harness.store.pullQueuedDraft()).toBe("segunda");
+    expect(harness.store.pullQueuedDraft()).toBe("terceira");
+    expect(harness.store.pullQueuedDraft()).toBeNull();
+    expect(harness.store.getSnapshot().queuedCount).toBe(0);
+    expect(harness.store.getSnapshot().queuedPreview).toBeNull();
+
+    // Nada novo disparou: a fila foi consumida para edição, não execução.
+    await tick();
+    expect(harness.streams.length).toBe(1);
+  });
 });

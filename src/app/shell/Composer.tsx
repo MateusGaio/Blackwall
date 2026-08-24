@@ -1,6 +1,13 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { type FormEvent, type KeyboardEvent, type RefObject, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/shared/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
@@ -20,10 +27,14 @@ type ComposerProps = {
   modelName: string;
   models: ProviderModel[];
   onAttachFile: (file: File) => void;
+  onEditQueued?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   permissionError: string;
+  queuedCount?: number;
+  queuedPreview?: string | null;
   selectedModel: string;
   setDraft: (draft: string) => void;
+  statusFooter?: ReactNode;
   stopGeneration: () => void;
   workspace: Workspace | undefined;
 };
@@ -50,10 +61,14 @@ export function Composer({
   modelName,
   models,
   onAttachFile,
+  onEditQueued,
   onSubmit,
   permissionError,
+  queuedCount = 0,
+  queuedPreview = null,
   selectedModel,
   setDraft,
+  statusFooter,
   stopGeneration,
   workspace,
 }: ComposerProps) {
@@ -240,6 +255,16 @@ export function Composer({
               </PopoverContent>
             </Popover>
           )}
+          {queuedCount > 0 && onEditQueued && (
+            <button
+              className="rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-[0.68rem] text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={onEditQueued}
+              title={queuedPreview ?? undefined}
+              type="button"
+            >
+              {t("chat.inQueue", { count: queuedCount })} · {t("chat.editQueued")}
+            </button>
+          )}
         </div>
         {isSending ? (
           <Button
@@ -265,6 +290,7 @@ export function Composer({
           </Button>
         )}
       </div>
+      {statusFooter && <div className="border-t border-border/60 px-3 py-1.5">{statusFooter}</div>}
     </form>
   );
 }
