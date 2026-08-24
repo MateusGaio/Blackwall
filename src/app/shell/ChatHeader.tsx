@@ -25,7 +25,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const { t } = useTranslation();
   return (
-    <header className="workspace-header" data-tauri-drag-region="">
+    <header className="flex h-11 w-full shrink-0 items-center gap-2 px-3" data-tauri-drag-region="">
       <button
         aria-expanded={!sidebarCollapsed}
         aria-label={sidebarCollapsed ? t("chat.showSidebar") : t("chat.hideSidebar")}
@@ -36,10 +36,14 @@ export function ChatHeader({
       >
         <CompactIcon kind="panel" />
       </button>
-      <h1 className="thread-title" data-tauri-drag-region="" title={sessionTitle}>
+      <h1
+        className="min-w-0 flex-1 truncate text-center text-xs font-medium text-muted-foreground"
+        data-tauri-drag-region=""
+        title={sessionTitle}
+      >
         {sessionTitle ?? t("chat.newConversation")}
       </h1>
-      <div className="chat-controls">
+      <div className="flex shrink-0 items-center gap-1">
         <button
           aria-pressed={vaultActive}
           className={`header-toggle ${vaultActive ? "is-active" : ""}`}

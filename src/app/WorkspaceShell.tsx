@@ -10,7 +10,6 @@ import {
 import { ChatRuntimeProvider, useSidecarChat } from "../features/chat/adapter/use-sidecar-runtime";
 import { ApprovalCard } from "../features/chat/ui/ApprovalCard";
 import { ChatThread } from "../features/chat/ui/ChatThread";
-import { SessionStatusLine } from "../features/chat/ui/SessionStatusLine";
 import { SessionUsageDialog } from "../features/chat/ui/SessionUsageDialog";
 import { ProviderManager } from "../features/config/components/ProviderManager";
 import {
@@ -624,166 +623,171 @@ export default function WorkspaceShell({
     (message) =>
       !(message.role === "assistant" && !message.content.trim() && message.toolCalls?.length),
   );
+  const isEmpty = !switchingSession && visibleMessages.length === 0;
 
   const chatArea = (
-    <section className="workspace-main">
-      <section
-        className={`chat-shell ${visibleMessages.length === 0 ? "is-empty" : ""}`}
-        aria-label={t("chat.conversation")}
-      >
-        {switchingSession && (
-          <EnterExit className="px-1 pt-2" offsetPx={4} show>
-            <div aria-busy="true" role="status">
-              <Skeleton className="h-4 w-1/3" />
-              <Skeleton className="mt-4 h-16" />
-              <Skeleton className="mt-4 h-10 w-2/3" />
-            </div>
-          </EnterExit>
-        )}
-        {!switchingSession && visibleMessages.length === 0 ? (
-          <div className="empty-state">
-            <h1>
-              {greeting}, {name}
-            </h1>
-            <p>{workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}</p>
-          </div>
-        ) : (
-          <ChatThread
-            copiedMessageId={copiedMessageId}
-            copyMessage={(message) => void copyMessage(message)}
-            editingMessageDraft={editingMessageDraft}
-            editingMessageId={editingMessageId}
-            listRef={messageListRef}
-            onEditCancel={() => setEditingMessageId(null)}
-            onEditChange={setEditingMessageDraft}
-            onEditSubmit={(messageId, editDraft) => {
-              setEditingMessageId(null);
-              void editMessage(messageId, editDraft);
-            }}
-            onEditingStart={(message) => {
-              setEditingMessageDraft(message.content);
-              setEditingMessageId(message.id);
-            }}
-            regenerate={() => void regenerate()}
-            streamingId={streamingId}
-            streamingStatus={streamingStatus}
-            visibleMessages={visibleMessages}
-          />
-        )}
-        {attachments.length > 0 && (
-          <ul
-            className="m-0 flex list-none flex-wrap items-center gap-1.5 p-0"
-            aria-label={t("chat.indexedAttachments")}
-          >
-            {attachments.map((attachment) => (
-              <li
-                className="flex items-center gap-0.5 font-mono text-xs text-muted-foreground"
-                key={attachment.id}
+    <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 md:px-6">
+          {switchingSession && (
+            <EnterExit className="px-1 pt-2" offsetPx={4} show>
+              <div aria-busy="true" role="status">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="mt-4 h-16" />
+                <Skeleton className="mt-4 h-10 w-2/3" />
+              </div>
+            </EnterExit>
+          )}
+          {isEmpty ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-16 text-center">
+              <span
+                aria-hidden="true"
+                className="mb-5 text-2xl leading-none text-neutral-500 select-none"
               >
-                <span>[{attachment.filename}</span>
+                ✳
+              </span>
+              <h1 className="text-2xl font-medium tracking-tight text-foreground">
+                {greeting}, {name}
+              </h1>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {workspace ? t("chat.whatWillWeBuildToday") : t("chat.chatFreelyAddAFolder")}
+              </p>
+            </div>
+          ) : (
+            <ChatThread
+              copiedMessageId={copiedMessageId}
+              copyMessage={(message) => void copyMessage(message)}
+              editingMessageDraft={editingMessageDraft}
+              editingMessageId={editingMessageId}
+              listRef={messageListRef}
+              onEditCancel={() => setEditingMessageId(null)}
+              onEditChange={setEditingMessageDraft}
+              onEditSubmit={(messageId, editDraft) => {
+                setEditingMessageId(null);
+                void editMessage(messageId, editDraft);
+              }}
+              onEditingStart={(message) => {
+                setEditingMessageDraft(message.content);
+                setEditingMessageId(message.id);
+              }}
+              regenerate={() => void regenerate()}
+              streamingId={streamingId}
+              streamingStatus={streamingStatus}
+              visibleMessages={visibleMessages}
+            />
+          )}
+        </div>
+      </div>
+      <div className="w-full px-4 pb-4 md:px-6">
+        <div className="mx-auto w-full max-w-3xl">
+          {attachments.length > 0 && (
+            <ul
+              className="m-0 mb-2 flex list-none flex-wrap items-center gap-1.5 p-0"
+              aria-label={t("chat.indexedAttachments")}
+            >
+              {attachments.map((attachment) => (
+                <li
+                  className="flex items-center gap-0.5 font-mono text-xs text-muted-foreground"
+                  key={attachment.id}
+                >
+                  <span>[{attachment.filename}</span>
+                  <button
+                    aria-label={`${t("chat.remove")} ${attachment.filename}`}
+                    className="transition-colors duration-[120ms] hover:text-destructive focus-visible:outline-none"
+                    onClick={() => setAttachmentToRemove(attachment)}
+                    type="button"
+                  >
+                    ×]
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {toolApproval && <ApprovalCard onResolve={resolveToolDecision} request={toolApproval} />}
+          <Composer
+            activeProvider={activeProvider}
+            activeSessionId={activeSession?.id}
+            changeModel={(model) => void changeModel(model)}
+            changePermissionMode={(mode) => void changePermissionMode(mode)}
+            composerRef={composerRef}
+            draft={draft}
+            isSending={isSending}
+            modelName={modelName}
+            models={models}
+            onAttachFile={(file) => void attachFile(file)}
+            onEditQueued={() => {
+              const next = pullQueuedDraft();
+              if (next !== null) setDraft(next);
+              composerRef.current?.focus();
+            }}
+            onOpenUsage={() => setShowUsageDetails(true)}
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitDraft();
+            }}
+            permissionError={permissionError}
+            queuedCount={queuedCount}
+            queuedPreview={queuedPreview}
+            selectedModel={selectedModel}
+            setDraft={setDraft}
+            stopGeneration={stopGeneration}
+            streamingStatus={streamingId !== null ? streamingStatus : ""}
+            usageSummary={usageSummary}
+            workspace={workspace}
+          />
+          {attachmentStatus && (
+            <p className="mt-2 font-mono text-xs text-muted-foreground">{attachmentStatus}</p>
+          )}
+          {resourceNotice && (
+            <div className="resource-gate" role="alert">
+              <span>{resourceNotice}</span>
+              <button className="text-button" onClick={newWorkspace} type="button">
+                {t("chat.addAWorkspaceInSettings")}
+              </button>
+            </div>
+          )}
+          {(error || chatError) && (
+            <div
+              className="mt-2 flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground"
+              role="alert"
+            >
+              <span aria-hidden="true">⚠</span>
+              <span className="min-w-0 flex-1 truncate">{error || chatError}</span>
+              {!isSending && messages.length > 0 && (
                 <button
-                  aria-label={`${t("chat.remove")} ${attachment.filename}`}
-                  className="transition-colors duration-[120ms] hover:text-destructive focus-visible:outline-none"
-                  onClick={() => setAttachmentToRemove(attachment)}
+                  className="transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
+                  onClick={() => {
+                    setError("");
+                    clearError();
+                    regenerate();
+                  }}
                   type="button"
                 >
-                  ×]
+                  {t("chat.retry")}
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {toolApproval && <ApprovalCard onResolve={resolveToolDecision} request={toolApproval} />}
-        <Composer
-          activeProvider={activeProvider}
-          activeSessionId={activeSession?.id}
-          changeModel={(model) => void changeModel(model)}
-          changePermissionMode={(mode) => void changePermissionMode(mode)}
-          composerRef={composerRef}
-          draft={draft}
-          isSending={isSending}
-          modelName={modelName}
-          models={models}
-          onAttachFile={(file) => void attachFile(file)}
-          onEditQueued={() => {
-            const next = pullQueuedDraft();
-            if (next !== null) setDraft(next);
-            composerRef.current?.focus();
-          }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitDraft();
-          }}
-          permissionError={permissionError}
-          queuedCount={queuedCount}
-          queuedPreview={queuedPreview}
-          selectedModel={selectedModel}
-          setDraft={setDraft}
-          statusFooter={
-            <SessionStatusLine
-              activeProvider={activeProvider}
-              modelName={modelName}
-              onOpenDetails={() => setShowUsageDetails(true)}
-              queuedCount={0}
-              streamingStatus={streamingId !== null ? streamingStatus : ""}
-              summary={usageSummary}
-            />
-          }
-          stopGeneration={stopGeneration}
-          workspace={workspace}
-        />
-        {attachmentStatus && (
-          <p className="font-mono text-xs text-muted-foreground">{attachmentStatus}</p>
-        )}
-        {resourceNotice && (
-          <div className="resource-gate" role="alert">
-            <span>{resourceNotice}</span>
-            <button className="text-button" onClick={newWorkspace} type="button">
-              {t("chat.addAWorkspaceInSettings")}
-            </button>
-          </div>
-        )}
-        {(error || chatError) && (
-          <div
-            className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground"
-            role="alert"
-          >
-            <span aria-hidden="true">⚠</span>
-            <span className="min-w-0 flex-1 truncate">{error || chatError}</span>
-            {!isSending && messages.length > 0 && (
+              )}
               <button
+                aria-label={t("chat.dismiss")}
                 className="transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
                 onClick={() => {
                   setError("");
                   clearError();
-                  regenerate();
                 }}
                 type="button"
               >
-                {t("chat.retry")}
+                ✕
               </button>
-            )}
-            <button
-              aria-label={t("chat.dismiss")}
-              className="transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
-              onClick={() => {
-                setError("");
-                clearError();
-              }}
-              type="button"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-      </section>
+            </div>
+          )}
+        </div>
+      </div>
     </section>
   );
 
   return (
     <ChatRuntimeProvider runtime={runtime}>
       <main
-        className={`workspace-shell ${showVault && workspace ? "has-vault" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${vaultCollapsed ? "vault-collapsed" : ""}`}
+        className={`flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
       >
         <ChatHeader
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
@@ -803,95 +807,98 @@ export default function WorkspaceShell({
           vaultActive={Boolean(workspace && showVault)}
         />
 
-        <SessionsSidebar
-          activeProfile={activeProfile}
-          activeSessionId={activeSession?.id}
-          collapsed={sidebarCollapsed}
-          expandSidebar={expandSidebar}
-          hasActiveProfile={Boolean(state?.activeProfileId)}
-          isCreatingSession={isCreatingSession}
-          name={name}
-          newSession={() => void newSession()}
-          newWorkspace={() => void newWorkspace()}
-          onDeleteRequest={(session) =>
-            setSessionToDelete({ id: session.id, title: session.title })
-          }
-          onRenameRequest={(session) => {
-            setRenameDraft(session.title);
-            setSessionToRename({ id: session.id, title: session.title });
-          }}
-          onRequestCloseMenu={() => {
-            setOpenSessionMenuId(null);
-            setSessionMenuPosition(null);
-          }}
-          onToggleSessionMenu={(sessionId, position) => {
-            setOpenSessionMenuId(sessionId);
-            setSessionMenuPosition(position);
-          }}
-          openSession={(sessionId) => void openSession(sessionId)}
-          openSessionMenuId={openSessionMenuId}
-          openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
-          recentSessions={recentSessions}
-          recentSessionsRef={recentSessionsRef}
-          sessionMenuPosition={sessionMenuPosition}
-          settingsButtonRef={settingsButtonRef}
-          setShowSettings={setShowSettings}
-          workspace={workspace}
-          workspacePickerRef={workspacePickerRef}
-          workspaces={state?.workspaces ?? []}
-        />
+        <div className="flex min-h-0 w-full flex-1">
+          <SessionsSidebar
+            activeProfile={activeProfile}
+            activeSessionId={activeSession?.id}
+            collapsed={sidebarCollapsed}
+            expandSidebar={expandSidebar}
+            hasActiveProfile={Boolean(state?.activeProfileId)}
+            isCreatingSession={isCreatingSession}
+            name={name}
+            newSession={() => void newSession()}
+            newWorkspace={() => void newWorkspace()}
+            onDeleteRequest={(session) =>
+              setSessionToDelete({ id: session.id, title: session.title })
+            }
+            onRenameRequest={(session) => {
+              setRenameDraft(session.title);
+              setSessionToRename({ id: session.id, title: session.title });
+            }}
+            onRequestCloseMenu={() => {
+              setOpenSessionMenuId(null);
+              setSessionMenuPosition(null);
+            }}
+            onToggleSessionMenu={(sessionId, position) => {
+              setOpenSessionMenuId(sessionId);
+              setSessionMenuPosition(position);
+            }}
+            onTogglePalette={() => setPaletteOpen(true)}
+            openSession={(sessionId) => void openSession(sessionId)}
+            openSessionMenuId={openSessionMenuId}
+            openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
+            recentSessions={recentSessions}
+            recentSessionsRef={recentSessionsRef}
+            sessionMenuPosition={sessionMenuPosition}
+            settingsButtonRef={settingsButtonRef}
+            setShowSettings={setShowSettings}
+            workspace={workspace}
+            workspacePickerRef={workspacePickerRef}
+            workspaces={state?.workspaces ?? []}
+          />
 
-        {(() => {
-          const vaultOpen = Boolean(showVault && workspace && !vaultCollapsed);
-          if (!workspace) {
-            return chatArea;
-          }
-          if (vaultOpen) {
-            return (
-              <ResizablePanelGroup
-                className="workspace-body"
-                orientation="horizontal"
-                onLayoutChanged={handleSplitLayout}
-              >
-                <ResizablePanel className="min-w-0" id="bw-main" minSize={360}>
-                  {chatArea}
-                </ResizablePanel>
-                <ResizableHandle aria-label={t("vault.resizeVaultPanel")} />
-                <ResizablePanel
-                  defaultSize={vaultWidth}
-                  id="bw-vault"
-                  maxSize={maximumVaultWidth}
-                  minSize={minimumVaultWidth}
+          {(() => {
+            const vaultOpen = Boolean(showVault && workspace && !vaultCollapsed);
+            if (!workspace) {
+              return chatArea;
+            }
+            if (vaultOpen) {
+              return (
+                <ResizablePanelGroup
+                  className="min-h-0 flex-1"
+                  orientation="horizontal"
+                  onLayoutChanged={handleSplitLayout}
                 >
-                  <VaultSlot
-                    onCollapse={() => setVaultCollapsed(true)}
-                    onTabChange={setVaultTab}
-                    refreshKey={vaultRefreshKey}
-                    tab={vaultTab}
-                    workspaceId={workspace.id}
+                  <ResizablePanel className="min-w-0" id="bw-main" minSize={360}>
+                    {chatArea}
+                  </ResizablePanel>
+                  <ResizableHandle aria-label={t("vault.resizeVaultPanel")} />
+                  <ResizablePanel
+                    defaultSize={vaultWidth}
+                    id="bw-vault"
+                    maxSize={maximumVaultWidth}
+                    minSize={minimumVaultWidth}
+                  >
+                    <VaultSlot
+                      onCollapse={() => setVaultCollapsed(true)}
+                      onTabChange={setVaultTab}
+                      refreshKey={vaultRefreshKey}
+                      tab={vaultTab}
+                      workspaceId={workspace.id}
+                    />
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              );
+            }
+            return (
+              <>
+                {chatArea}
+                {showVault && workspace && vaultCollapsed && (
+                  <VaultRail
+                    onOpenFiles={() => {
+                      setVaultTab("files");
+                      setVaultCollapsed(false);
+                    }}
+                    onOpenGraph={() => {
+                      setVaultTab("graph");
+                      setVaultCollapsed(false);
+                    }}
                   />
-                </ResizablePanel>
-              </ResizablePanelGroup>
+                )}
+              </>
             );
-          }
-          return (
-            <>
-              {chatArea}
-              {showVault && workspace && vaultCollapsed && (
-                <VaultRail
-                  onOpenFiles={() => {
-                    setVaultTab("files");
-                    setVaultCollapsed(false);
-                  }}
-                  onOpenGraph={() => {
-                    setVaultTab("graph");
-                    setVaultCollapsed(false);
-                  }}
-                />
-              )}
-            </>
-          );
-        })()}
+          })()}
+        </div>
         {showSettings && (
           <ProviderManager
             activeSessionId={state?.activeSessionId ?? null}

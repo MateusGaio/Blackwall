@@ -171,7 +171,7 @@ export function ChatThread({
           onScroll={handleScroll}
           ref={listRef}
         >
-          <ol className="flex flex-col gap-6 px-1 pb-7 pt-5">
+          <ol className="flex flex-col gap-6 px-1 pb-7 pt-5 md:px-2">
             {groupThreadItems(visibleMessages).map((item) => {
               if (item.kind === "steps") {
                 return (

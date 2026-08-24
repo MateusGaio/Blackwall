@@ -3,8 +3,8 @@
 import {
   type FormEvent,
   type KeyboardEvent,
-  type ReactNode,
   type RefObject,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -12,7 +12,12 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/shared/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
 import { cn } from "@/shared/lib/utils";
-import type { ConnectedProvider, ProviderModel, Workspace } from "../../shared/api/sidecar";
+import type {
+  ConnectedProvider,
+  ProviderModel,
+  UsageSummary,
+  Workspace,
+} from "../../shared/api/sidecar";
 import { isSubmitShortcut } from "../composer";
 import { CompactIcon } from "./CompactIcon";
 
@@ -28,14 +33,16 @@ type ComposerProps = {
   models: ProviderModel[];
   onAttachFile: (file: File) => void;
   onEditQueued?: () => void;
+  onOpenUsage: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   permissionError: string;
   queuedCount?: number;
   queuedPreview?: string | null;
   selectedModel: string;
   setDraft: (draft: string) => void;
-  statusFooter?: ReactNode;
   stopGeneration: () => void;
+  streamingStatus: string;
+  usageSummary: UsageSummary | null;
   workspace: Workspace | undefined;
 };
 
@@ -49,7 +56,7 @@ const menuItem =
 
 const popoverContent = "w-64 p-1";
 
-/** Linha de prompt (U4): borda 1px, prefixo ❯ e uma linha de controles no rodapé. */
+/** Card flutuante estilo Claude: textarea expansível + rodapé único de controles. */
 export function Composer({
   activeProvider,
   activeSessionId,
@@ -62,20 +69,36 @@ export function Composer({
   models,
   onAttachFile,
   onEditQueued,
+  onOpenUsage,
   onSubmit,
   permissionError,
   queuedCount = 0,
   queuedPreview = null,
   selectedModel,
   setDraft,
-  statusFooter,
   stopGeneration,
+  streamingStatus,
+  usageSummary,
   workspace,
 }: ComposerProps) {
   const { t } = useTranslation();
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
+
+  const last = usageSummary?.lastRequest;
+  const ctxLabel = useMemo(() => {
+    if (!last || last.totalTokens <= 0) return null;
+    const compact = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 1,
+      notation: "compact",
+    });
+    const percent =
+      last.contextLimit && last.contextLimit > 0
+        ? ` ${Math.min(100, Math.round((last.totalTokens / last.contextLimit) * 100))}%`
+        : "";
+    return `${t("chat.ctx")}${percent} ${compact.format(last.totalTokens)}`;
+  }, [last, t]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
@@ -94,7 +117,7 @@ export function Composer({
 
   return (
     <form
-      className="relative z-10 rounded-lg border border-input bg-muted transition-colors duration-150 focus-within:border-ring"
+      className="relative z-10 rounded-2xl border border-neutral-800 bg-[#121215] transition-colors duration-150 focus-within:border-neutral-700"
       onSubmit={onSubmit}
     >
       <input
@@ -108,31 +131,23 @@ export function Composer({
         ref={fileInput}
         type="file"
       />
-      <div className="flex items-start gap-2 px-3 pt-2.5">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 font-mono text-sm leading-6 text-muted-foreground select-none"
-        >
-          ❯
-        </span>
-        <textarea
-          aria-label={t("composer.message")}
-          className="max-h-[180px] flex-1 resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-          data-testid="chat-composer"
-          disabled={!activeProvider || !activeSessionId || isSending}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            resizeComposer(event.target);
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={t("composer.writeAMessage")}
-          ref={composerRef}
-          rows={1}
-          value={draft}
-        />
-      </div>
-      <div className="flex items-center justify-between gap-1 px-1.5 pb-1.5 pt-1">
-        <div className="flex items-center gap-0.5">
+      <textarea
+        aria-label={t("composer.message")}
+        className="max-h-[180px] min-h-[44px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        data-testid="chat-composer"
+        disabled={!activeProvider || !activeSessionId || isSending}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          resizeComposer(event.target);
+        }}
+        onKeyDown={handleKeyDown}
+        placeholder={t("composer.writeAMessage")}
+        ref={composerRef}
+        rows={2}
+        value={draft}
+      />
+      <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+        <div className="flex min-w-0 items-center gap-0.5">
           <Button
             aria-label={t("composer.attachFile")}
             disabled={!activeSessionId || !workspace || isSending}
@@ -207,6 +222,37 @@ export function Composer({
               </PopoverContent>
             </Popover>
           )}
+          {queuedCount > 0 && onEditQueued && (
+            <button
+              className="rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-[0.68rem] text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={onEditQueued}
+              title={queuedPreview ?? undefined}
+              type="button"
+            >
+              {t("chat.inQueue", { count: queuedCount })} · {t("chat.editQueued")}
+            </button>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {streamingStatus && (
+            <span
+              aria-live="polite"
+              className="hidden font-mono text-[0.68rem] text-muted-foreground sm:inline"
+            >
+              {streamingStatus}
+            </span>
+          )}
+          {ctxLabel && (
+            <button
+              aria-haspopup="dialog"
+              className="rounded px-1.5 py-1 font-mono text-[0.68rem] text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
+              onClick={onOpenUsage}
+              title={t("chat.viewFullUsage")}
+              type="button"
+            >
+              {ctxLabel}
+            </button>
+          )}
           {activeProvider && (
             <Popover onOpenChange={setModelOpen} open={modelOpen}>
               <PopoverTrigger asChild>
@@ -224,7 +270,7 @@ export function Composer({
                   <span aria-hidden="true" className="hidden text-muted-foreground sm:inline">
                     ›
                   </span>
-                  <span className="truncate">{modelName}</span>
+                  <span className="max-w-[20ch] truncate">{modelName}</span>
                   <CompactIcon kind="chevron" />
                 </Button>
               </PopoverTrigger>
@@ -255,42 +301,31 @@ export function Composer({
               </PopoverContent>
             </Popover>
           )}
-          {queuedCount > 0 && onEditQueued && (
-            <button
-              className="rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-[0.68rem] text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={onEditQueued}
-              title={queuedPreview ?? undefined}
+          {isSending ? (
+            <Button
+              aria-label={t("composer.stopGenerating")}
+              onClick={stopGeneration}
+              size="icon-sm"
+              title={t("composer.stop")}
               type="button"
+              variant="destructive"
             >
-              {t("chat.inQueue", { count: queuedCount })} · {t("chat.editQueued")}
-            </button>
+              <CompactIcon kind="stop" />
+            </Button>
+          ) : (
+            <Button
+              aria-label={t("composer.sendMessage")}
+              disabled={!draft.trim() || !activeProvider || !activeSessionId}
+              size="icon-sm"
+              title={t("composer.sendMessage")}
+              type="submit"
+              variant="secondary"
+            >
+              <CompactIcon kind="send" />
+            </Button>
           )}
         </div>
-        {isSending ? (
-          <Button
-            aria-label={t("composer.stopGenerating")}
-            onClick={stopGeneration}
-            size="icon-sm"
-            title={t("composer.stop")}
-            type="button"
-            variant="destructive"
-          >
-            <CompactIcon kind="stop" />
-          </Button>
-        ) : (
-          <Button
-            aria-label={t("composer.sendMessage")}
-            disabled={!draft.trim() || !activeProvider || !activeSessionId}
-            size="icon-sm"
-            title={t("composer.sendMessage")}
-            type="submit"
-            variant="secondary"
-          >
-            <CompactIcon kind="send" />
-          </Button>
-        )}
       </div>
-      {statusFooter && <div className="border-t border-border/60 px-3 py-1.5">{statusFooter}</div>}
     </form>
   );
 }

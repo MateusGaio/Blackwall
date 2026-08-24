@@ -604,11 +604,11 @@ export function VaultPanel({
         </Button>
       </header>
       <Tabs
-        className="px-3 pb-1"
+        className="border-b border-neutral-800/60 px-3 pb-1"
         value={tab}
         onValueChange={(value) => onTabChange(value as VaultTab)}
       >
-        <TabsList aria-label={t("vault.vaultView")} className="w-full">
+        <TabsList aria-label={t("vault.vaultView")} className="w-full bg-transparent">
           <TabsTrigger value="files">{t("vault.files")}</TabsTrigger>
           <TabsTrigger value="graph">{t("vault.graph")}</TabsTrigger>
         </TabsList>
@@ -657,12 +657,12 @@ export function VaultPanel({
         ) : graph.files.length ? (
           <div ref={fileListWrapRef} className="min-h-0 flex-1" onScrollCapture={trackListScroll}>
             <ScrollArea className="h-full">
-              <ul className="m-0 grid list-none gap-1 p-2">
+              <ul className="m-0 grid list-none gap-1.5 p-3">
                 {graph.files.map((file) => (
                   <li key={file.path}>
                     <button
                       aria-label={file.title}
-                      className="w-full rounded-lg border border-transparent px-3 py-2.5 text-left transition-colors duration-150 hover:border-border hover:bg-muted focus-visible:border-ring focus-visible:outline-none"
+                      className="w-full rounded-lg border border-neutral-800 bg-[#121215] px-3 py-2.5 text-left transition-colors duration-150 hover:border-neutral-700 focus-visible:border-ring focus-visible:outline-none"
                       onClick={() => openNote(file.path)}
                       type="button"
                     >

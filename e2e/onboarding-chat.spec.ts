@@ -59,11 +59,10 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
     const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
     await expect(vaultToggle).toBeVisible();
-    await expect(page.getByText(/Workspace atual|Current workspace/, { exact: true })).toBeVisible();
+    await expect(page.getByLabel(/Workspace atual|Current workspace/)).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Abrir configurações da Soul do workspace/i }),
     ).toHaveCount(0);
-    await expect(page.getByRole("img", { name: "Blackwall" })).toBeVisible();
     // Com um workspace ativo, o Vault já inicia aberto. Só alternamos o
     // botão quando o painel não estiver presente (por exemplo, após uma
     // preferência de recolhimento persistida).
