@@ -12,6 +12,7 @@ import {
 } from "d3-force";
 import {
   type PointerEvent,
+  type ReactNode,
   type UIEvent,
   useEffect,
   useMemo,
@@ -32,6 +33,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { cn } from "@/shared/lib/utils";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
 import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 import {
@@ -76,6 +78,138 @@ function GraphIcon({ kind }: { kind: "settings" }) {
 }
 
 const graphFieldLabel = "grid gap-1 font-mono text-[0.7rem] text-muted-foreground";
+
+type VaultTreeNode =
+  | { children: VaultTreeNode[]; kind: "folder"; name: string; path: string }
+  | { kind: "file"; name: string; path: string };
+
+/** Converte paths planos do Vault ("pasta/sub/nota.md") em árvore ordenada. */
+export function buildFileTree(files: ReadonlyArray<{ path: string; title: string }>) {
+  const root: VaultTreeNode[] = [];
+  const folderByPath = new Map<string, Extract<VaultTreeNode, { kind: "folder" }>>();
+  const ordered = [...files].sort((left, right) => left.path.localeCompare(right.path));
+  for (const file of ordered) {
+    const segments = file.path.split("/").filter(Boolean);
+    let container = root;
+    let accumulated = "";
+    for (const segment of segments.slice(0, -1)) {
+      accumulated = accumulated ? `${accumulated}/${segment}` : segment;
+      let folder = folderByPath.get(accumulated);
+      if (!folder) {
+        folder = { children: [], kind: "folder", name: segment, path: accumulated };
+        folderByPath.set(accumulated, folder);
+        container.push(folder);
+      }
+      container = folder.children;
+    }
+    const name = segments.at(-1) ?? file.path;
+    container.push({ kind: "file", name: file.title || name, path: file.path });
+  }
+  const sortNodes = (nodes: VaultTreeNode[]): VaultTreeNode[] =>
+    nodes
+      .map((node) =>
+        node.kind === "folder" ? { ...node, children: sortNodes(node.children) } : node,
+      )
+      .sort((left, right) =>
+        left.kind === right.kind
+          ? left.name.localeCompare(right.name)
+          : left.kind === "folder"
+            ? -1
+            : 1,
+      );
+  return sortNodes(root);
+}
+
+const treeRowClass =
+  "flex w-full items-center gap-1.5 rounded py-[3px] pr-2 text-left text-[0.8rem] text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/40 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none";
+
+/** Árvore de arquivos estilo explorador do Obsidian: pastas colapsáveis, guias de indentação. */
+function FileTree({
+  files,
+  onOpenFile,
+}: {
+  files: VaultGraph["files"];
+  onOpenFile: (path: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  const tree = useMemo(() => buildFileTree(files), [files]);
+
+  function toggleFolder(path: string) {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }
+
+  function renderNodes(nodes: VaultTreeNode[], depth: number): ReactNode {
+    return nodes.map((node) => {
+      if (node.kind === "folder") {
+        const expanded = !collapsed.has(node.path);
+        return (
+          <li key={`folder:${node.path}`}>
+            <button
+              aria-expanded={expanded}
+              className={treeRowClass}
+              onClick={() => toggleFolder(node.path)}
+              style={{ paddingLeft: depth * 12 + 6 }}
+              type="button"
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "shrink-0 transition-transform duration-[120ms]",
+                  expanded && "rotate-90",
+                )}
+              >
+                <svg
+                  aria-hidden="true"
+                  className="size-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </span>
+              <span className="truncate">{node.name}</span>
+            </button>
+            {expanded && node.children.length > 0 && (
+              <ul
+                className="m-0 list-none border-l border-neutral-800/50 p-0"
+                style={{ marginLeft: depth * 12 + 15 }}
+              >
+                {renderNodes(node.children, depth + 1)}
+              </ul>
+            )}
+          </li>
+        );
+      }
+      return (
+        <li key={node.path}>
+          <button
+            aria-label={node.name}
+            className={treeRowClass}
+            onClick={() => onOpenFile(node.path)}
+            style={{ paddingLeft: depth * 12 + 6 }}
+            type="button"
+          >
+            <span className="truncate">{node.name}</span>
+          </button>
+        </li>
+      );
+    });
+  }
+
+  return <ul className="m-0 grid list-none gap-0.5 p-2">{renderNodes(tree, 0)}</ul>;
+}
 
 function GraphView({
   graph,
@@ -657,20 +791,7 @@ export function VaultPanel({
         ) : graph.files.length ? (
           <div ref={fileListWrapRef} className="min-h-0 flex-1" onScrollCapture={trackListScroll}>
             <ScrollArea className="h-full">
-              <ul className="m-0 grid list-none gap-1.5 p-3">
-                {graph.files.map((file) => (
-                  <li key={file.path}>
-                    <button
-                      aria-label={file.title}
-                      className="w-full rounded-lg border border-neutral-800 bg-[#121215] px-3 py-2.5 text-left transition-colors duration-150 hover:border-neutral-700 focus-visible:border-ring focus-visible:outline-none"
-                      onClick={() => openNote(file.path)}
-                      type="button"
-                    >
-                      <strong className="text-[0.86rem] font-medium">{file.title}</strong>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <FileTree files={graph.files} onOpenFile={openNote} />
             </ScrollArea>
           </div>
         ) : (
