@@ -26,14 +26,12 @@ const paths = {
   ),
   "new-thread": <path d="M12 5v14M5 12h14" />,
   panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
-  recent: <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6M4 4v4.6h4.6M12 7v5l3.5 2" />,
   refresh: <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v5h-5" />,
   send: <path d="M12 19V5M5 12l7-7 7 7" />,
   settings: (
     <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
   ),
   stop: <rect height="10" rx="1" width="10" x="7" y="7" />,
-  workspace: <path d="M3.5 7.5h6l1.8 2H20.5v9.8H3.5V7.5Zm0 0V5h6l1.8 2.5" />,
 } as const;
 
 export function CompactIcon({ kind }: { kind: CompactIconKind }) {
