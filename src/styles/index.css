@@ -291,7 +291,7 @@ button:disabled {
   border-right: 1px solid #252527;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 16px;
   height: auto;
   min-width: 0;
   min-height: 0;
@@ -307,7 +307,7 @@ button:disabled {
 }
 
 .sidebar-heading {
-  min-height: 52px;
+  min-height: 40px;
 }
 
 .sidebar-brand-mark {
@@ -316,21 +316,21 @@ button:disabled {
   border-radius: var(--radius-control);
   color: #0a0a0b;
   display: inline-flex;
-  flex: 0 0 28px;
+  flex: 0 0 22px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   font-weight: 800;
-  height: 28px;
+  height: 22px;
   justify-content: center;
   letter-spacing: -0.08em;
-  width: 28px;
+  width: 22px;
 }
 
 .sidebar-heading strong {
   display: block;
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -356,7 +356,7 @@ button:disabled {
 
 .sidebar-section {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .sidebar-section-heading {
@@ -487,9 +487,9 @@ button:disabled {
   border-radius: var(--radius-control);
   color: #a5a5aa;
   display: flex;
-  gap: 9px;
+  gap: 8px;
   overflow: hidden;
-  padding: 8px 9px;
+  padding: 5px 8px;
   text-align: left;
   width: 100%;
 }
@@ -624,7 +624,7 @@ button:disabled {
   color: #89898e;
   display: grid;
   font-size: 0.72rem;
-  gap: 8px;
+  gap: 6px;
   margin-top: auto;
   padding: 16px 0 0;
 }
@@ -1293,11 +1293,11 @@ button:disabled {
   cursor: pointer;
   display: flex;
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 500;
-  gap: 9px;
+  gap: 8px;
   justify-content: flex-start;
-  padding: 9px 12px;
+  padding: 7px 10px;
   transition:
     background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
     border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
