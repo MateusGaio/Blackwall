@@ -1,22 +1,28 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
+import { ThreadPrimitive } from "@assistant-ui/react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { EnterExit } from "@/shared/components/motion/EnterExit";
-import { Button } from "@/shared/components/ui/button";
-import { Textarea } from "@/shared/components/ui/textarea";
-import { cn } from "@/shared/lib/utils";
 import { ConversationSummaryCard } from "../../../app/ConversationSummaryCard";
-import { CompactIcon } from "../../../app/shell/CompactIcon";
 import type { ChatMessage } from "../../../shared/api/sidecar";
+import { EnterExit } from "../../../shared/components/motion/EnterExit";
 import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
+import { Button } from "../../../shared/components/ui/button";
+import { Textarea } from "../../../shared/components/ui/textarea";
+import { cn } from "../../../shared/lib/utils";
+import { ExitingMessage } from "./thread/ExitingMessage";
+import { groupThreadItems } from "./thread/groupThreadItems";
+import { MessageActions } from "./thread/MessageActions";
+import { messageClasses, streamingMinHeight } from "./thread/messageClasses";
+import { RoleMarker } from "./thread/RoleMarker";
+import { ToolStepsCard } from "./thread/ToolStepsCard";
 
 type ChatThreadProps = {
   copiedMessageId: string | null;
   copyMessage: (message: ChatMessage) => void;
   editingMessageDraft: string;
   editingMessageId: string | null;
-  listRef: RefObject<HTMLOListElement | null>;
+  listRef: RefObject<HTMLDivElement | null>;
   onEditCancel: () => void;
   onEditChange: (draft: string) => void;
   onEditSubmit: (messageId: string, draft: string) => void;
@@ -29,116 +35,78 @@ type ChatThreadProps = {
 
 type GhostItem = { key: string; message: ChatMessage };
 
-type ThreadItem =
-  | { kind: "message"; message: ChatMessage }
-  | { kind: "steps"; steps: ChatMessage[] };
-
-/** Agrupa mensagens de ferramenta consecutivas em um bloco colapsável (U5/Cowork). */
-function groupThreadItems(messages: readonly ChatMessage[]): ThreadItem[] {
-  const items: ThreadItem[] = [];
-  let steps: ChatMessage[] = [];
-  for (const message of messages) {
-    if (message.role === "tool") {
-      steps.push(message);
-      continue;
-    }
-    if (steps.length > 0) {
-      items.push({ kind: "steps", steps });
-      steps = [];
-    }
-    items.push({ kind: "message", message });
-  }
-  if (steps.length > 0) items.push({ kind: "steps", steps });
-  return items;
-}
-
-/** Bloco "N passos de ferramenta" — recolhido por padrão, linhas mono ao expandir. */
-function ToolSteps({ steps }: { steps: readonly ChatMessage[] }) {
+function EditMessageForm({
+  draft,
+  onCancel,
+  onChange,
+  onSubmit,
+}: {
+  draft: string;
+  onCancel: () => void;
+  onChange: (draft: string) => void;
+  onSubmit: () => void;
+}) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   return (
-    <li>
-      <EnterExit offsetPx={4} show>
-        <div className="font-mono text-xs text-muted-foreground">
-          <button
-            aria-expanded={open}
-            className="rounded px-1 py-0.5 transition-colors duration-[120ms] hover:bg-accent hover:text-foreground focus-visible:outline-none"
-            onClick={() => setOpen((current) => !current)}
-            type="button"
-          >
-            <span aria-hidden="true">{open ? "▾" : "▸"} </span>
-            {t("chat.toolSteps", { count: steps.length })}
-          </button>
-          <EnterExit show={open}>
-            <ul className="m-0 mt-1 grid list-none gap-0.5 p-0 pl-3">
-              {steps.map((step) => (
-                <li className="truncate" key={step.id}>
-                  <span aria-hidden="true">├─ </span>
-                  {step.toolName ?? step.toolCallId ?? t("chat.toolFallbackName")}
-                  {step.content.trim() ? ` · ${step.content.slice(0, 80)}` : ""}
-                </li>
-              ))}
-              <li aria-hidden="true">└─</li>
-            </ul>
-          </EnterExit>
-        </div>
-      </EnterExit>
-    </li>
-  );
-}
-
-/** Mensagens flat do §3/U4: usuário à direita, agente à esquerda, sem bolha. */
-function messageClasses(role: ChatMessage["role"]) {
-  return cn(
-    "max-w-[min(85%,640px)] leading-relaxed",
-    role === "user" && "message-user flex flex-col items-end gap-1 self-end text-right",
-    role === "assistant" &&
-      "message-assistant flex flex-col items-start gap-1 self-start px-1 text-foreground/90",
-    role === "system" &&
-      "self-start border-l-2 border-border px-3 font-mono text-xs text-muted-foreground",
-  );
-}
-
-/** Marcador de papel em mono (U4): › você · ● agente. */
-function RoleMarker({ role }: { role: ChatMessage["role"] }) {
-  const { t } = useTranslation();
-  if (role !== "user" && role !== "assistant") return null;
-  return (
-    <p
-      aria-hidden="true"
-      className={`font-mono text-[0.68rem] tracking-[0.08em] text-muted-foreground uppercase ${
-        role === "user" ? "text-right" : ""
-      }`}
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
     >
-      {role === "user" ? `› ${t("chat.you")}` : `● ${t("chat.assistantLabel")}`}
-    </p>
+      <Textarea
+        aria-label={t("chat.editMessage")}
+        className="min-h-[100px] resize-y"
+        onChange={(event) => onChange(event.target.value)}
+        value={draft}
+      />
+      <div className="flex gap-2">
+        <Button onClick={onCancel} size="sm" type="button" variant="secondary">
+          {t("chat.cancel")}
+        </Button>
+        <Button size="sm" type="submit">
+          {t("chat.saveAndRegenerate")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
-const actionBar =
-  "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-[120ms] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+/** Pílula de rolar para o final — aparece ao rolar para cima durante streaming. */
+function ScrollBottomPill({
+  atBottom,
+  listRef,
+  streaming,
+}: {
+  atBottom: boolean;
+  listRef: RefObject<HTMLDivElement | null>;
+  streaming: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+      <EnterExit offsetPx={6} show={streaming && !atBottom}>
+        <button
+          className="pointer-events-auto rounded-full border border-border bg-popover/90 py-1.5 pl-3 pr-3 font-mono text-xs text-muted-foreground shadow-none backdrop-blur transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            const viewport = listRef.current;
+            viewport?.scrollTo({ behavior: "smooth", top: viewport.scrollHeight });
+          }}
+          type="button"
+        >
+          ↓ {t("chat.scrollToBottom")}
+        </button>
+      </EnterExit>
+    </div>
+  );
+}
 
 /**
- * Mensagem removida da lista (regenerar/editar) que permanece montada apenas
- * para executar a transição de saída (ADR-09 item 3) antes de desmontar.
+ * Transcript sobre as primitivas do assistant-ui: ThreadPrimitive.Root/Viewport
+ * dão auto-scroll/follow-bottom nativos; a lista em si continua alimentada pela
+ * visão canônica da store (passos de ferramenta agrupados, resumo, edição).
  */
-function ExitingMessage({ message, onExited }: { message: ChatMessage; onExited: () => void }) {
-  const [leaving, setLeaving] = useState(false);
-  useEffect(() => {
-    if (leaving) return;
-    const frame = requestAnimationFrame(() => setLeaving(true));
-    return () => cancelAnimationFrame(frame);
-  }, [leaving]);
-  return (
-    <EnterExit as="li" onExited={onExited} show={!leaving}>
-      <div className={messageClasses(message.role)}>
-        <RoleMarker role={message.role} />
-        <div className="whitespace-pre-wrap">{message.content}</div>
-      </div>
-    </EnterExit>
-  );
-}
-
 export function ChatThread({
   copiedMessageId,
   copyMessage,
@@ -154,7 +122,6 @@ export function ChatThread({
   streamingStatus,
   visibleMessages,
 }: ChatThreadProps) {
-  const { t } = useTranslation();
   const previousRef = useRef(visibleMessages);
   const ghostKey = useRef(0);
   const [ghosts, setGhosts] = useState<GhostItem[]>([]);
@@ -188,155 +155,100 @@ export function ChatThread({
   }, [visibleMessages]);
 
   function handleScroll() {
-    const list = listRef.current;
-    if (!list) return;
-    setAtBottom(list.scrollHeight - list.scrollTop - list.clientHeight < 48);
+    const viewport = listRef.current;
+    if (!viewport) return;
+    setAtBottom(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 48);
   }
 
-  function scrollToBottom() {
-    listRef.current?.scrollTo({ behavior: "smooth", top: listRef.current.scrollHeight });
-  }
-
-  const showPill = streamingId !== null && !atBottom;
+  const lastAssistantId = [...visibleMessages].reverse().find((m) => m.role === "assistant")?.id;
 
   return (
-    <div className="relative min-h-0">
-      <ol
-        className="flex h-full flex-col gap-6 overflow-y-auto overscroll-contain px-1 pb-7 pt-5 [scrollbar-color:#3d3d43_transparent] [scrollbar-width:thin]"
-        onScroll={handleScroll}
-        ref={listRef}
-      >
-        {groupThreadItems(visibleMessages).map((item) => {
-          if (item.kind === "steps") {
-            return <ToolSteps key={`steps-${item.steps[0]?.id ?? "empty"}`} steps={item.steps} />;
-          }
-          if (item.message.isSummary) {
-            return <ConversationSummaryCard content={item.message.content} key={item.message.id} />;
-          }
-          const message = item.message;
-          return (
-            <EnterExit
-              as="li"
-              className={cn(
-                messageClasses(message.role),
-                message.id === streamingId && "min-h-[1.6em]",
-              )}
-              key={message.id}
-              offsetPx={6}
-              show
-            >
-              {editingMessageId === message.id ? (
-                <form
-                  className="flex flex-col gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onEditSubmit(message.id, editingMessageDraft);
-                  }}
+    <ThreadPrimitive.Root className="relative min-h-0">
+      <div className="relative h-full min-h-0">
+        <ThreadPrimitive.Viewport
+          autoScroll
+          className="h-full overflow-y-auto overscroll-contain [scrollbar-color:#3d3d43_transparent] [scrollbar-width:thin]"
+          onScroll={handleScroll}
+          ref={listRef}
+        >
+          <ol className="flex flex-col gap-6 px-1 pb-7 pt-5">
+            {groupThreadItems(visibleMessages).map((item) => {
+              if (item.kind === "steps") {
+                return (
+                  <ToolStepsCard key={`steps-${item.steps[0]?.id ?? "empty"}`} steps={item.steps} />
+                );
+              }
+              if (item.message.isSummary) {
+                return (
+                  <ConversationSummaryCard content={item.message.content} key={item.message.id} />
+                );
+              }
+              const message = item.message;
+              const isStreaming = message.id === streamingId;
+              return (
+                <EnterExit
+                  as="li"
+                  className={cn(messageClasses(message.role), isStreaming && streamingMinHeight)}
+                  key={message.id}
+                  offsetPx={6}
+                  show
                 >
-                  <Textarea
-                    aria-label={t("chat.editMessage")}
-                    className="min-h-[100px] resize-y"
-                    onChange={(event) => onEditChange(event.target.value)}
-                    value={editingMessageDraft}
-                  />
-                  <div className="flex gap-2">
-                    <Button onClick={onEditCancel} size="sm" type="button" variant="secondary">
-                      {t("chat.cancel")}
-                    </Button>
-                    <Button size="sm" type="submit">
-                      {t("chat.saveAndRegenerate")}
-                    </Button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <RoleMarker role={message.role} />
-                  {message.content.trim() ? (
-                    <SafeMarkdown content={message.content} />
-                  ) : (
-                    message.id === streamingId && (
-                      <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-                        <span aria-hidden="true">▸</span>
-                        {streamingStatus}
-                      </p>
-                    )
-                  )}
-                  {message.id === streamingId && (
-                    <span
-                      aria-hidden="true"
-                      className="ml-1 inline-block h-[1em] w-[0.6em] translate-y-[2px] bg-foreground align-middle animate-[motion-caret-blink_900ms_steps(2,jump-none)_infinite]"
+                  {editingMessageId === message.id ? (
+                    <EditMessageForm
+                      draft={editingMessageDraft}
+                      onCancel={onEditCancel}
+                      onChange={onEditChange}
+                      onSubmit={() => onEditSubmit(message.id, editingMessageDraft)}
                     />
-                  )}
-                  {message.id !== streamingId && (
-                    <div className="mt-2 flex gap-1 opacity-70 transition-opacity duration-[120ms] hover:opacity-100">
-                      {message.role === "user" && (
-                        <button
-                          aria-label={t("chat.editMessage")}
-                          className={actionBar}
-                          onClick={() => onEditingStart(message)}
-                          title={t("chat.edit")}
-                          type="button"
-                        >
-                          <CompactIcon kind="edit" />
-                        </button>
+                  ) : (
+                    <>
+                      <RoleMarker role={message.role} />
+                      {message.content.trim() ? (
+                        <SafeMarkdown content={message.content} />
+                      ) : (
+                        isStreaming && (
+                          <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                            <span aria-hidden="true">▸</span>
+                            {streamingStatus}
+                          </p>
+                        )
                       )}
-                      {message.role === "assistant" &&
-                        message.id === visibleMessages.at(-1)?.id && (
-                          <>
-                            <button
-                              aria-label={t("chat.copyMessage")}
-                              className={actionBar}
-                              onClick={() => copyMessage(message)}
-                              title={
-                                copiedMessageId === message.id ? t("chat.copied") : t("chat.copy")
-                              }
-                              type="button"
-                            >
-                              {copiedMessageId === message.id ? (
-                                <span aria-hidden="true">✓</span>
-                              ) : (
-                                <CompactIcon kind="copy" />
-                              )}
-                            </button>
-                            <button
-                              aria-label={t("chat.regenerateResponse")}
-                              className={actionBar}
-                              onClick={regenerate}
-                              title={t("chat.regenerate")}
-                              type="button"
-                            >
-                              <CompactIcon kind="refresh" />
-                            </button>
-                          </>
-                        )}
-                    </div>
+                      {isStreaming && (
+                        <span
+                          aria-hidden="true"
+                          className="ml-1 inline-block h-[1em] w-[0.6em] translate-y-[2px] bg-foreground align-middle animate-[motion-caret-blink_900ms_steps(2,jump-none)_infinite]"
+                        />
+                      )}
+                      {!isStreaming && (
+                        <MessageActions
+                          copiedMessageId={copiedMessageId}
+                          copyMessage={copyMessage}
+                          isLastAssistant={
+                            message.role === "assistant" && message.id === lastAssistantId
+                          }
+                          message={message}
+                          onEditingStart={onEditingStart}
+                          regenerate={regenerate}
+                        />
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </EnterExit>
-          );
-        })}
-        {ghosts.map((ghost) => (
-          <ExitingMessage
-            key={ghost.key}
-            message={ghost.message}
-            onExited={() =>
-              setGhosts((current) => current.filter((item) => item.key !== ghost.key))
-            }
-          />
-        ))}
-      </ol>
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
-        <EnterExit offsetPx={6} show={showPill}>
-          <button
-            className="pointer-events-auto rounded-full border border-border bg-popover/90 py-1.5 pl-3 pr-3 font-mono text-xs text-muted-foreground shadow-none backdrop-blur transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={scrollToBottom}
-            type="button"
-          >
-            ↓ {t("chat.scrollToBottom")}
-          </button>
-        </EnterExit>
+                </EnterExit>
+              );
+            })}
+            {ghosts.map((ghost) => (
+              <ExitingMessage
+                key={ghost.key}
+                message={ghost.message}
+                onExited={() =>
+                  setGhosts((current) => current.filter((item) => item.key !== ghost.key))
+                }
+              />
+            ))}
+          </ol>
+        </ThreadPrimitive.Viewport>
+        <ScrollBottomPill atBottom={atBottom} listRef={listRef} streaming={streamingId !== null} />
       </div>
-    </div>
+    </ThreadPrimitive.Root>
   );
 }
