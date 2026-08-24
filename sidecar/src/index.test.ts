@@ -778,11 +778,7 @@ describe("harness resiliente (#210): cache coerente e exit codes", () => {
     // (deve reler FS e ver v2; cache devolveria v1) → r4 comando com exit 7
     // (falha estruturada) → r5 resposta final.
     let round = 0;
-    const toolCallPayload = (
-      id: string,
-      name: string,
-      args: Record<string, unknown>,
-    ) =>
+    const toolCallPayload = (id: string, name: string, args: Record<string, unknown>) =>
       responseWithLines([
         `data: ${JSON.stringify({
           choices: [
@@ -804,7 +800,8 @@ describe("harness resiliente (#210): cache coerente e exit codes", () => {
       ]);
     const fetchMock = (() => {
       round += 1;
-      if (round === 1) return Promise.resolve(toolCallPayload("call-read-1", "read_file", { path: "cache.txt" }));
+      if (round === 1)
+        return Promise.resolve(toolCallPayload("call-read-1", "read_file", { path: "cache.txt" }));
       if (round === 2)
         return Promise.resolve(
           toolCallPayload("call-patch-1", "apply_patch", {
@@ -813,7 +810,8 @@ describe("harness resiliente (#210): cache coerente e exit codes", () => {
             path: "cache.txt",
           }),
         );
-      if (round === 3) return Promise.resolve(toolCallPayload("call-read-2", "read_file", { path: "cache.txt" }));
+      if (round === 3)
+        return Promise.resolve(toolCallPayload("call-read-2", "read_file", { path: "cache.txt" }));
       if (round === 4)
         return Promise.resolve(
           toolCallPayload("call-cmd-1", "execute_command", {

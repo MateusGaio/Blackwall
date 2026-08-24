@@ -292,7 +292,6 @@ export function notifyWorkspacePolicyChanged(
 
 const policyChangeListeners = new Set<(event: { requestId: string; status: string }) => void>();
 
-
 function workspaceModeOf(workspaceId: string, storageDirectory: string): PermissionMode | null {
   const database = openSharedDatabase(storageDirectory);
   try {

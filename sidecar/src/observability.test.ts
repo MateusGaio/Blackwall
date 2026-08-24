@@ -20,12 +20,20 @@ describe("observability", () => {
   it("#210/item10: exceção registra success=false (não sucesso no finally)", async () => {
     const events: Array<{ name: string; success: boolean }> = [];
     expect(() =>
-      withInstrumentation("span.falho", () => {
-        throw new Error("boom");
-      }, (event) => events.push(event)),
+      withInstrumentation(
+        "span.falho",
+        () => {
+          throw new Error("boom");
+        },
+        (event) => events.push(event),
+      ),
     ).toThrow("boom");
     await expect(
-      withAsyncInstrumentation("span.ok", async () => "valor", (event) => events.push(event)),
+      withAsyncInstrumentation(
+        "span.ok",
+        async () => "valor",
+        (event) => events.push(event),
+      ),
     ).resolves.toBe("valor");
     expect(events).toEqual([
       { name: "span.falho", success: false },

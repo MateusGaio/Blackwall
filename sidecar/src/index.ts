@@ -65,6 +65,7 @@ import {
   toCompatibilityPrompt,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
+import { classifyTool } from "./tool-policy.js";
 import {
   type ApprovalDecision,
   cancelPendingApprovals,
@@ -73,7 +74,6 @@ import {
   resolveApproval,
   ToolPolicyDenied,
 } from "./tools.js";
-import { classifyTool } from "./tool-policy.js";
 import {
   clearUsageHistory,
   getUsageSummary,
