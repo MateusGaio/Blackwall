@@ -903,3 +903,165 @@ describe("harness resiliente (#210): cache coerente e exit codes", () => {
     }
   });
 });
+
+describe("harness resiliente (#210): side effect possível e fingerprints", () => {
+  it("comando que falha após escrever invalida cache; erros distintos não geram hard stop", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-sideeffect-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    await writeFile(join(workspaceRoot, "alvo.txt"), "v1", "utf8");
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const bootstrap = await fetch(`http://${SIDECAR_HOST}:${port}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "SideEffect",
+        profileSoul: "P",
+        workspaceName: "SE ws",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "W",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    // Automático nega comando; usar ask com auto-aprovação.
+    await fetch(`http://${SIDECAR_HOST}:${port}/v1/workspaces/${state.activeWorkspaceId}/permission-mode`, {
+      body: JSON.stringify({ mode: "ask" }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const provider = await saveProvider(
+      {
+        apiKey: "k",
+        baseUrl: "https://sideeffect.example/v1",
+        model: "m-se",
+        name: "SE provider",
+        type: "openai-compatible",
+      },
+      directory,
+    );
+
+    let round = 0;
+    const call = (id: string, name: string, args: Record<string, unknown>) =>
+      responseWithLines([
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    function: { arguments: JSON.stringify(args), name },
+                    id,
+                    index: 0,
+                    type: "function",
+                  },
+                ],
+              },
+            },
+          ],
+        })}`,
+        "data: [DONE]",
+      ]);
+    const fetchMock = (() => {
+      round += 1;
+      if (round === 1) return Promise.resolve(call("r1", "read_file", { path: "alvo.txt" }));
+      if (round === 2)
+        return Promise.resolve(
+          call("r2", "execute_command", {
+            args: ["-e", `require('fs').writeFileSync('alvo.txt','v2'); process.exit(7)`],
+            command: process.execPath,
+            cwd: ".",
+          }),
+        );
+      if (round === 3) return Promise.resolve(call("r3", "read_file", { path: "alvo.txt" }));
+      if (round === 4)
+        return Promise.resolve(call("r4", "read_file", { path: "faltando-a.md" }));
+      if (round === 5)
+        return Promise.resolve(call("r5", "read_file", { path: "faltando-b.md" }));
+      return Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: "final util apos erros recuperaveis" } }],
+          })}`,
+          "data: [DONE]",
+        ]),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const queued: Record<string, unknown>[] = [];
+      const waiters = new Map<string, Array<(m: Record<string, unknown>) => void>>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const key = String(message.type ?? message.topic);
+        if (key === "approval.requested") {
+          client?.send(
+            JSON.stringify({
+              decision: "allow_once",
+              requestId: message.requestId,
+              type: "approval.resolve",
+            }),
+          );
+        }
+        const queue = waiters.get(key);
+        if (queue && queue.length > 0) queue.shift()?.(message);
+        else queued.push(message);
+      });
+      const waitFor = (type: string) => {
+        const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+        if (index >= 0)
+          return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => {
+          const list = waiters.get(type) ?? [];
+          list.push(resolve);
+          waiters.set(type, list);
+        });
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "se", role: "user" }],
+          model: provider.model,
+          providerId: provider.id,
+          requestId: "req-sideeffect",
+          sessionId: state.activeSessionId,
+          toolBudget: 16,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+
+      const completed = (await waitFor("chat.completed")) as { content?: string };
+      expect(completed.content).toBe("final util apos erros recuperaveis");
+
+      // r3 devolveu o conteúdo PÓS-comando (cache invalidado pelo side effect).
+      const reads = queued.filter((m) => m.type === "tool.completed") as Array<{
+        result?: { content?: string };
+      }>;
+      const contents = reads.map((entry) => entry.result?.content).filter(Boolean);
+      expect(contents).toContain("v1");
+      expect(contents).toContain("v2");
+
+      // Dois erros DIFERENTES não dispararam chat.failed de repetição.
+      expect(
+        queued.some(
+          (message) =>
+            message.type === "chat.failed" && String(message.message ?? "").includes("repetiu"),
+        ),
+      ).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  }, 20_000);
+});

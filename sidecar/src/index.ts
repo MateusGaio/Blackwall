@@ -66,6 +66,7 @@ import {
   workspaceToolDefinitions,
 } from "./tool-contract.js";
 import { classifyTool } from "./tool-policy.js";
+import { errorFingerprint, extractErrorCode } from "./tool-outcome.js";
 import {
   type ApprovalDecision,
   cancelPendingApprovals,
@@ -1296,10 +1297,13 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   };
                 }
               }
-              // Cache só de leitura PURA (#210): comando e mutação nunca são
-              // cacheados; mutação/comando executado invalida leituras do
-              // turno (podem ter mudado o filesystem).
-              if (!toolError && classifyTool(normalizedCall.name) !== "read") {
+              // Política de cache (#210): somente leitura pura bem-sucedida
+              // é cacheável. Qualquer TENTATIVA de mutação/comando — mesmo
+              // falha com side effect possível (exit ≠ 0, timeout) —
+              // invalida as leituras anteriores do turno.
+              const attemptedNonRead =
+                !hasCachedResult && classifyTool(normalizedCall.name) !== "read";
+              if (attemptedNonRead) {
                 successfulToolResults.clear();
               } else if (!toolError) {
                 successfulToolResults.set(executionSignature, toolResult);
@@ -1342,16 +1346,19 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 }),
               );
               if (toolError) {
-                const errorMessage =
-                  typeof toolResult === "object" && toolResult && "error" in toolResult
-                    ? String((toolResult as { error?: unknown }).error)
-                    : "A ferramenta falhou.";
-                const signature = `${normalizedCall.name}:${errorMessage}`;
+                // Fingerprint canônico (#210): args + código — nunca
+                // String(objeto) que colapsava tudo em "[object Object]".
+                const signature = errorFingerprint(
+                  normalizedCall.name,
+                  args,
+                  extractErrorCode(toolResult),
+                );
                 const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
+                  const detail = extractErrorCode(toolResult);
                   throw new Error(
-                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha: ${errorMessage}. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
+                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha (${detail}) com os mesmos argumentos. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
                   );
                 }
               } else {
