@@ -29,7 +29,9 @@ export function judge(
     const passed = actual === expectation.value;
     return {
       passed,
-      detail: passed ? "" : `campo ${expectation.field}: ${String(actual)} ≠ ${String(expectation.value)}`,
+      detail: passed
+        ? ""
+        : `campo ${expectation.field}: ${String(actual)} ≠ ${String(expectation.value)}`,
     };
   }
   if (outcome.ok) return { passed: false, detail: "esperava negação/erro, veio sucesso" };
