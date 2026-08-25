@@ -35,6 +35,22 @@ describe("controle único do Vault no topo (#218)", () => {
     expect(html).toContain("-scale-x-100");
   });
 
+  it("BLOQUEADO: sem aria-controls/aria-expanded, rótulo acessível mantido", () => {
+    const html = renderToStaticMarkup(
+      <ChatHeader {...base} vaultBlocked vaultMode="rail" />,
+    );
+    const start = html.indexOf('data-testid="vault-toggle"');
+    expect(start).toBeGreaterThan(0);
+    // Escopo: apenas a tag do toggle do Vault (a sidebar usa aria-expanded).
+    const openTag = html.slice(html.lastIndexOf("<button", start), html.indexOf(">", start) + 1);
+    expect(openTag).not.toContain("aria-controls");
+    expect(openTag).not.toContain("aria-expanded");
+    expect(html.split('data-testid="vault-toggle"').length - 1).toBe(1);
+    // Rótulo continua explicando a ação bloqueada.
+    expect(html).toContain("Abrir painel do Vault");
+    expect(html).toContain("opacity-50");
+  });
+
   it("sem segundo botão de recolher dentro do painel (guarda de regressão)", () => {
     // A guarda real do VaultPanel vive no E2E; aqui garantimos que o header
     // não renderiza nenhum botão com o rótulo interno antigo.

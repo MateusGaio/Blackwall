@@ -58,7 +58,7 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 ### 3.4 Preservações obrigatórias (não negociável)
 - Contrato do `SidecarChatStore`/adaptador intacto; fila FIFO; guards de sessão/epoch.
 - Modos ask/automatic/read-only; anexos textuais/PDF; resumo automático; usage dialog; command palette.
-- Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `provider-chip`, `session-statusline`, `menuitemradio` de permissões.
+- Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `model-trigger` (antigo `provider-chip`), `session-statusline`, `menuitemradio` de permissões.
 - Labels i18n pt/en conforme tabela registrada no plano da fase C (`docs/plans/`).
 
 ---

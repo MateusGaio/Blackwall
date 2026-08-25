@@ -53,8 +53,6 @@ export function ChatHeader({
       </h1>
       <div className="flex shrink-0 items-center gap-1">
         <button
-          aria-controls="bw-vault-panel"
-          aria-expanded={vaultExpanded}
           aria-label={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
           className={`group relative inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/50 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none ${
             vaultBlocked ? "opacity-50" : ""
@@ -63,6 +61,13 @@ export function ChatHeader({
           onClick={onToggleVault}
           title={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
           type="button"
+          {...(vaultBlocked
+            ? {
+                // Sem workspace NÃO há alvo nem estado: omitir aria-controls/
+                // aria-expanded evita referência quebrada para leitores de
+                // tela; o rótulo acessível continua explicando a ação.
+              }
+            : { "aria-controls": "bw-vault-panel", "aria-expanded": vaultExpanded })}
         >
           {/* Ícone herdado do antigo controle interno: chevron à esquerda
           aponta para recolher o painel direito; espelhado quando rail. */}
