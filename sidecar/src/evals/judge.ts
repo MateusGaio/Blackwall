@@ -11,7 +11,7 @@ export type TaskExpect =
   | { kind: "deny"; code: string }
   | { kind: "error"; code?: string; messageIncludes?: string };
 
-export type JudgedOutcome =
+type JudgedOutcome =
   | { ok: true; data?: unknown }
   | { ok: false; errorCode?: string; message?: string };
 
