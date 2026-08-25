@@ -795,6 +795,26 @@ export function VaultPanel({
     return () => cancelAnimationFrame(frame);
   }, [graph, memory.fileListScrollTop, memory.noteScrollTop, selectedNote]);
 
+  // No desmonte (recolher para rail), captura a posição ATUAL do DOM —
+  // o último evento de scroll pode ter sido perdido antes do unmount.
+  const memoryRef = useRef(memory);
+  memoryRef.current = memory;
+  useEffect(
+    () => () => {
+      const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      );
+      const listViewport = fileListWrapRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      );
+      onMemoryChange({
+        fileListScrollTop: listViewport?.scrollTop ?? memoryRef.current.fileListScrollTop,
+        noteScrollTop: noteViewport?.scrollTop ?? memoryRef.current.noteScrollTop,
+      });
+    },
+    [onMemoryChange],
+  );
+
   function trackListScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
     if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
