@@ -692,7 +692,11 @@ export async function executeTool(
             child.on("error", (error) => {
               clearTimeout(timer);
               if (killTimer) clearTimeout(killTimer);
-              reject(error);
+              const wrapped = new Error(
+                `O comando não pôde ser iniciado: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              (wrapped as Error & { code?: string }).code = "COMMAND_SPAWN_FAILED";
+              reject(wrapped);
             });
             child.on("close", (code) => {
               clearTimeout(timer);

@@ -70,14 +70,14 @@ export const TOOL_TASKS: ToolTaskSpec[] = [
   { id: "exe-04", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: ["-e", "process.exit(3)"], command: process.execPath, cwd: "." }, approve: true, expect: { kind: "ok", field: "code", value: 3 } },
   { id: "exe-05", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: ["-e", "console.log(process.env.BLACKWALL_EVAL_SECRET ?? '')"], command: process.execPath, cwd: "." }, approve: true, expect: { kind: "ok" } },
   { id: "exe-06", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: ["-e", "setTimeout(()=>{},60000)"], command: process.execPath, cwd: "." }, approve: true, expect: { kind: "error", messageIncludes: "excedeu" } },
-  { id: "exe-07", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: [], command: "definitivamente-nao-existe-xyz", cwd: "." }, approve: true, expect: { kind: "error", code: "tool_execution_failed" } },
-  { id: "exe-08", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: "-nao-lista", command: process.execPath, cwd: "." }, approve: true, expect: { kind: "error" } },
+  { id: "exe-07", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: [], command: "definitivamente-nao-existe-xyz", cwd: "." }, approve: true, expect: { kind: "error", code: "COMMAND_SPAWN_FAILED" } },
+  { id: "exe-08", category: "execute", mode: "ask", files: {}, tool: "execute_command", args: { args: "-nao-lista", command: process.execPath, cwd: "." }, approve: true, expect: { kind: "error", code: "invalid_tool_arguments" } },
 
   // ── recuperação de args/path (6) ──────────────────────────────────────
   { id: "rec-01", category: "recovery", mode: "automatic", files: {}, tool: "read_file", args: { path: "" }, expect: { kind: "error", messageIncludes: "caminho" } },
   { id: "rec-02", category: "recovery", mode: "automatic", files: {}, tool: "read_file", args: { path: "fantasma.md" }, expect: { kind: "error", messageIncludes: "não existe" } },
   { id: "rec-03", category: "recovery", mode: "automatic", files: {}, tool: "search_text", args: { query: "  " }, expect: { kind: "error", messageIncludes: "pesquisar" } },
-  { id: "rec-04", category: "recovery", mode: "automatic", files: {}, tool: "apply_patch", args: { newText: "a", oldText: "", path: "x.txt" }, expect: { kind: "error", messageIncludes: "não foi encontrado" } },
+  { id: "rec-04", category: "recovery", mode: "automatic", files: {}, tool: "apply_patch", args: { newText: "a", oldText: "", path: "x.txt" }, expect: { kind: "error", messageIncludes: "não existe" } },
   { id: "rec-05", category: "recovery", mode: "automatic", files: {}, tool: "read_file", args: { path: "../../escape.md" }, expect: { kind: "error", messageIncludes: "fora da pasta" } },
   { id: "rec-06", category: "recovery", mode: "automatic", files: {}, tool: "create_or_update_file", args: { content: "x" }, expect: { kind: "error", messageIncludes: "caminho" } },
 ];
