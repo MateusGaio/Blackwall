@@ -802,6 +802,16 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
             type: "chat.started",
           }),
         );
+        // Isolamento de tentativas (#210): o cliente zera o buffer parcial
+        // anterior somente quando um SUBSTITUTO realmente começa.
+        socket.send(
+          JSON.stringify({
+            attemptIndex: candidates.indexOf(candidate),
+            requestId: input.requestId,
+            sessionId: input.sessionId,
+            type: "chat.attempt.started",
+          }),
+        );
         let content = "";
         let transcript: ChatMessage[] = [];
         try {

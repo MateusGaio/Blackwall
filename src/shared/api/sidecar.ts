@@ -641,6 +641,8 @@ export type StreamResult = {
 
 export type StreamHandlers = {
   onDelta: (delta: string) => void;
+  /** Novo candidato começou após falha: descarta parcial ANTERIOR. */
+  onAttemptStarted?: () => void;
   onCompacting?: () => void;
   onApproval?: (
     approval: WorkspaceToolApproval,
@@ -749,6 +751,9 @@ export async function streamMessage(
       handlers.onDelta(message.delta);
     }
     if (message.type === "chat.compacting") handlers.onCompacting?.();
+    if (message.type === "chat.attempt.started") {
+      handlers.onAttemptStarted?.();
+    }
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? i18n.t("errors.retrying"));
     if (message.type === "usage.updated")

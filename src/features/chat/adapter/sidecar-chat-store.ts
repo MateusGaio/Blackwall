@@ -406,6 +406,16 @@ export class SidecarChatStore {
         requestModel || undefined,
         requestWorkspaceId,
         {
+          onAttemptStarted: () => {
+            // Substituto começou: parcial do candidato anterior é descartado
+            // AGORA (nunca antes — se nenhum vencer, o parcial permanece).
+            if (!this.matchesRun(sessionId, runEpoch)) return;
+            this.streamingBuffer = "";
+            this.messages = this.messages.map((message) =>
+              message.id === placeholderId ? { ...message, content: "" } : message,
+            );
+            setStatus(labels.consulting);
+          },
           onApproval: (approval, resolveDecision) => {
             if (!this.matchesRun(sessionId, runEpoch)) {
               resolveDecision("deny");
