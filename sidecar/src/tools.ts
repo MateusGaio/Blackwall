@@ -170,9 +170,7 @@ async function withWorkspaceGate<T>(
  */
 let commitBarrierHook: ((workspaceId: string) => Promise<void>) | null = null;
 
-export function setCommitBarrierForTests(
-  hook: ((workspaceId: string) => Promise<void>) | null,
-) {
+export function setCommitBarrierForTests(hook: ((workspaceId: string) => Promise<void>) | null) {
   commitBarrierHook = hook;
 }
 
@@ -538,163 +536,167 @@ export async function executeTool(
 
   const runEffect = async (root: string): Promise<unknown> => {
     switch (input.tool) {
-    case "list_directory": {
-      const path = await safePath(root, String(input.args.path || "."));
-      const entries = await readdir(path, { withFileTypes: true });
-      return {
-        path: relative(root, path) || ".",
-        entries: await Promise.all(
-          entries
-            .filter(
-              (entry) =>
-                !entry.isSymbolicLink() &&
-                !(entry.isDirectory() && ignoredDirectoryNames.has(entry.name)),
-            )
-            .map(async (entry) => {
-              const child = join(path, entry.name);
-              const info = await stat(child).catch(() => null);
-              return {
-                name: entry.name,
-                path: relative(root, child).split("\\").join("/"),
-                size: entry.isFile() ? (info?.size ?? 0) : null,
-                type: entry.isDirectory() ? "directory" : "file",
-              };
-            }),
-        ),
-      };
-    }
-    case "read_file": {
-      const path = await safePath(root, String(input.args.path ?? ""));
-      const info = await stat(path);
-      if (!info.isFile()) throw new Error("O caminho solicitado não é um arquivo.");
-      const handle = await import("node:fs/promises").then(({ open }) => open(path, "r"));
-      try {
-        const length = Math.min(info.size, maxReadBytes);
-        const buffer = Buffer.alloc(length);
-        await handle.read(buffer, 0, length, 0);
-        if (buffer.includes(0))
-          throw new Error("O arquivo parece ser binário e não pode ser lido.");
+      case "list_directory": {
+        const path = await safePath(root, String(input.args.path || "."));
+        const entries = await readdir(path, { withFileTypes: true });
         return {
-          bytesRead: length,
-          content: buffer.toString("utf8"),
-          end: length,
-          path: relative(root, path).split("\\").join("/"),
-          size: info.size,
-          start: 0,
-          truncated: info.size > length,
+          path: relative(root, path) || ".",
+          entries: await Promise.all(
+            entries
+              .filter(
+                (entry) =>
+                  !entry.isSymbolicLink() &&
+                  !(entry.isDirectory() && ignoredDirectoryNames.has(entry.name)),
+              )
+              .map(async (entry) => {
+                const child = join(path, entry.name);
+                const info = await stat(child).catch(() => null);
+                return {
+                  name: entry.name,
+                  path: relative(root, child).split("\\").join("/"),
+                  size: entry.isFile() ? (info?.size ?? 0) : null,
+                  type: entry.isDirectory() ? "directory" : "file",
+                };
+              }),
+          ),
         };
-      } finally {
-        await handle.close();
       }
-    }
-    case "search_text": {
-      const query = String(input.args.query ?? "");
-      if (!query.trim()) throw new Error("Informe o texto a pesquisar.");
-      const start = await safePath(root, String(input.args.path || "."));
-      const matches: Array<{ line: number; path: string; text: string }> = [];
-      async function walk(directory: string) {
-        if (matches.length >= 100) return;
-        const entries = await readdir(directory, { withFileTypes: true });
-        for (const entry of entries) {
-          if (
-            matches.length >= 100 ||
-            entry.isSymbolicLink() ||
-            (entry.isDirectory() && ignoredDirectoryNames.has(entry.name))
-          )
-            continue;
-          const child = join(directory, entry.name);
-          if (entry.isDirectory()) await walk(child);
-          else if (entry.isFile()) {
-            const extension = entry.name.includes(".")
-              ? `.${entry.name.split(".").at(-1)?.toLocaleLowerCase()}`
-              : "";
-            // Race: o arquivo pode sumir entre readdir e stat — trata como
-            // skip (tamanho infinito) em vez de abortar a busca inteira.
-            const size = await stat(child)
-              .then((info) => info.size)
-              .catch(() => Number.POSITIVE_INFINITY);
-            if (binaryExtensions.has(extension) || size > maxReadBytes) continue;
-            const content = await readFile(child, "utf8").catch(() => "");
-            content.split("\n").forEach((line, index) => {
-              if (
-                line.toLocaleLowerCase().includes(query.toLocaleLowerCase()) &&
-                matches.length < 100
-              ) {
-                matches.push({ line: index + 1, path: relative(root, child), text: line });
-              }
-            });
-          }
+      case "read_file": {
+        const path = await safePath(root, String(input.args.path ?? ""));
+        const info = await stat(path);
+        if (!info.isFile()) throw new Error("O caminho solicitado não é um arquivo.");
+        const handle = await import("node:fs/promises").then(({ open }) => open(path, "r"));
+        try {
+          const length = Math.min(info.size, maxReadBytes);
+          const buffer = Buffer.alloc(length);
+          await handle.read(buffer, 0, length, 0);
+          if (buffer.includes(0))
+            throw new Error("O arquivo parece ser binário e não pode ser lido.");
+          return {
+            bytesRead: length,
+            content: buffer.toString("utf8"),
+            end: length,
+            path: relative(root, path).split("\\").join("/"),
+            size: info.size,
+            start: 0,
+            truncated: info.size > length,
+          };
+        } finally {
+          await handle.close();
         }
       }
-      await walk(start);
-      return { matches };
-    }
-    case "create_or_update_file": {
-      const written = await atomicWriteWithin(
-        root,
-        String(input.args.path ?? ""),
-        String(input.args.content ?? ""),
-      );
-      return {
-        path: relative(root, written),
-        bytes: Buffer.byteLength(String(input.args.content ?? "")),
-      };
-    }
-    case "apply_patch": {
-      const path = await safePath(root, String(input.args.path ?? ""));
-      const current = await readFile(path, "utf8");
-      const oldText = String(input.args.oldText ?? "");
-      const newText = String(input.args.newText ?? "");
-      if (!oldText || current.indexOf(oldText) === -1)
-        throw new Error("O trecho original não foi encontrado.");
-      if (current.indexOf(oldText) !== current.lastIndexOf(oldText))
-        throw new Error("O trecho original aparece mais de uma vez.");
-      await atomicWriteWithin(root, String(input.args.path ?? ""), current.replace(oldText, newText));
-      return { path: relative(root, path) };
-    }
-    case "execute_command": {
-      const command = String(input.args.command ?? "").trim();
-      const args = Array.isArray(input.args.args) ? input.args.args.map(String) : [];
-      if (!command) throw new Error("Informe um comando estruturado.");
-      const cwd = await safePath(root, String(input.args.cwd ?? "."));
-      const { spawn } = await import("node:child_process");
-      const env = Object.fromEntries(
-        commandEnvironmentKeys.flatMap((key) =>
-          process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
-        ),
-      );
-      return new Promise<{ code: number | null; stderr: string; stdout: string }>(
-        (resolveCommand, reject) => {
-          const child = spawn(command, args, { cwd, env, shell: false });
-          let stdout = "";
-          let stderr = "";
-          let killTimer: NodeJS.Timeout | undefined;
-          const timer = setTimeout(() => {
-            child.kill("SIGTERM");
-            // Processo que ignora SIGTERM não emite close — sem o SIGKILL de
-            // escalão a promessa (e o turno inteiro) fica pendurada para sempre.
-            killTimer = setTimeout(() => child.kill("SIGKILL"), commandKillGraceMs);
-            reject(new Error("O comando excedeu o limite de 15 segundos."));
-          }, commandTimeoutMs);
-          child.stdout.on("data", (chunk: Buffer) => {
-            if (stdout.length < maxCommandCaptureChars) stdout += chunk.toString();
-          });
-          child.stderr.on("data", (chunk: Buffer) => {
-            if (stderr.length < maxCommandCaptureChars) stderr += chunk.toString();
-          });
-          child.on("error", (error) => {
-            clearTimeout(timer);
-            if (killTimer) clearTimeout(killTimer);
-            reject(error);
-          });
-          child.on("close", (code) => {
-            clearTimeout(timer);
-            if (killTimer) clearTimeout(killTimer);
-            resolveCommand({ code, stderr: clipped(stderr), stdout: clipped(stdout) });
-          });
-        },
-      );
-    }
+      case "search_text": {
+        const query = String(input.args.query ?? "");
+        if (!query.trim()) throw new Error("Informe o texto a pesquisar.");
+        const start = await safePath(root, String(input.args.path || "."));
+        const matches: Array<{ line: number; path: string; text: string }> = [];
+        async function walk(directory: string) {
+          if (matches.length >= 100) return;
+          const entries = await readdir(directory, { withFileTypes: true });
+          for (const entry of entries) {
+            if (
+              matches.length >= 100 ||
+              entry.isSymbolicLink() ||
+              (entry.isDirectory() && ignoredDirectoryNames.has(entry.name))
+            )
+              continue;
+            const child = join(directory, entry.name);
+            if (entry.isDirectory()) await walk(child);
+            else if (entry.isFile()) {
+              const extension = entry.name.includes(".")
+                ? `.${entry.name.split(".").at(-1)?.toLocaleLowerCase()}`
+                : "";
+              // Race: o arquivo pode sumir entre readdir e stat — trata como
+              // skip (tamanho infinito) em vez de abortar a busca inteira.
+              const size = await stat(child)
+                .then((info) => info.size)
+                .catch(() => Number.POSITIVE_INFINITY);
+              if (binaryExtensions.has(extension) || size > maxReadBytes) continue;
+              const content = await readFile(child, "utf8").catch(() => "");
+              content.split("\n").forEach((line, index) => {
+                if (
+                  line.toLocaleLowerCase().includes(query.toLocaleLowerCase()) &&
+                  matches.length < 100
+                ) {
+                  matches.push({ line: index + 1, path: relative(root, child), text: line });
+                }
+              });
+            }
+          }
+        }
+        await walk(start);
+        return { matches };
+      }
+      case "create_or_update_file": {
+        const written = await atomicWriteWithin(
+          root,
+          String(input.args.path ?? ""),
+          String(input.args.content ?? ""),
+        );
+        return {
+          path: relative(root, written),
+          bytes: Buffer.byteLength(String(input.args.content ?? "")),
+        };
+      }
+      case "apply_patch": {
+        const path = await safePath(root, String(input.args.path ?? ""));
+        const current = await readFile(path, "utf8");
+        const oldText = String(input.args.oldText ?? "");
+        const newText = String(input.args.newText ?? "");
+        if (!oldText || current.indexOf(oldText) === -1)
+          throw new Error("O trecho original não foi encontrado.");
+        if (current.indexOf(oldText) !== current.lastIndexOf(oldText))
+          throw new Error("O trecho original aparece mais de uma vez.");
+        await atomicWriteWithin(
+          root,
+          String(input.args.path ?? ""),
+          current.replace(oldText, newText),
+        );
+        return { path: relative(root, path) };
+      }
+      case "execute_command": {
+        const command = String(input.args.command ?? "").trim();
+        const args = Array.isArray(input.args.args) ? input.args.args.map(String) : [];
+        if (!command) throw new Error("Informe um comando estruturado.");
+        const cwd = await safePath(root, String(input.args.cwd ?? "."));
+        const { spawn } = await import("node:child_process");
+        const env = Object.fromEntries(
+          commandEnvironmentKeys.flatMap((key) =>
+            process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
+          ),
+        );
+        return new Promise<{ code: number | null; stderr: string; stdout: string }>(
+          (resolveCommand, reject) => {
+            const child = spawn(command, args, { cwd, env, shell: false });
+            let stdout = "";
+            let stderr = "";
+            let killTimer: NodeJS.Timeout | undefined;
+            const timer = setTimeout(() => {
+              child.kill("SIGTERM");
+              // Processo que ignora SIGTERM não emite close — sem o SIGKILL de
+              // escalão a promessa (e o turno inteiro) fica pendurada para sempre.
+              killTimer = setTimeout(() => child.kill("SIGKILL"), commandKillGraceMs);
+              reject(new Error("O comando excedeu o limite de 15 segundos."));
+            }, commandTimeoutMs);
+            child.stdout.on("data", (chunk: Buffer) => {
+              if (stdout.length < maxCommandCaptureChars) stdout += chunk.toString();
+            });
+            child.stderr.on("data", (chunk: Buffer) => {
+              if (stderr.length < maxCommandCaptureChars) stderr += chunk.toString();
+            });
+            child.on("error", (error) => {
+              clearTimeout(timer);
+              if (killTimer) clearTimeout(killTimer);
+              reject(error);
+            });
+            child.on("close", (code) => {
+              clearTimeout(timer);
+              if (killTimer) clearTimeout(killTimer);
+              resolveCommand({ code, stderr: clipped(stderr), stdout: clipped(stdout) });
+            });
+          },
+        );
+      }
     }
   };
 

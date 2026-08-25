@@ -65,8 +65,8 @@ import {
   toCompatibilityPrompt,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
-import { classifyTool } from "./tool-policy.js";
 import { errorFingerprint, extractErrorCode } from "./tool-outcome.js";
+import { classifyTool } from "./tool-policy.js";
 import {
   type ApprovalDecision,
   cancelPendingApprovals,
@@ -75,8 +75,8 @@ import {
   resolveApproval,
   revokeGrants,
   setWorkspacePermissionModeGuarded,
-  terminateStaleApprovals,
   ToolPolicyDenied,
+  terminateStaleApprovals,
 } from "./tools.js";
 import {
   clearUsageHistory,
@@ -396,7 +396,11 @@ export async function createSidecar(
         const workspaceId = pathname.split("/")[3];
         // Guardada: epoch/gate + revogação de grants daquele workspace.
         writeJson(response, 200, {
-          workspace: await setWorkspacePermissionModeGuarded(workspaceId, input.mode, storageDirectory),
+          workspace: await setWorkspacePermissionModeGuarded(
+            workspaceId,
+            input.mode,
+            storageDirectory,
+          ),
         });
         // Transição de modo reavalia cards pendentes AGORA (#209): allow
         // executa uma vez; caso contrário nega com motivo — sem card órfão.

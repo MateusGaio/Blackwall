@@ -5,14 +5,18 @@ import { canonicalArgsString, errorFingerprint, extractErrorCode } from "./tool-
 describe("fingerprints estruturados (#210)", () => {
   it("erros diferentes da mesma ferramenta não compartilham assinatura", () => {
     const a = errorFingerprint("read_file", { path: "a.md" }, "O caminho não existe.");
-    const b = errorFingerprint("read_file", { path: "b.md" }, "O trecho original não foi encontrado.");
+    const b = errorFingerprint(
+      "read_file",
+      { path: "b.md" },
+      "O trecho original não foi encontrado.",
+    );
     expect(a).not.toBe(b);
   });
 
   it("mesma falha com os mesmos args produz a mesma assinatura", () => {
-    expect(
+    expect(errorFingerprint("apply_patch", { path: "x.ts" }, "PATH_NOT_FOUND")).toBe(
       errorFingerprint("apply_patch", { path: "x.ts" }, "PATH_NOT_FOUND"),
-    ).toBe(errorFingerprint("apply_patch", { path: "x.ts" }, "PATH_NOT_FOUND"));
+    );
   });
 
   it("ordem das chaves dos args é irrelevante", () => {

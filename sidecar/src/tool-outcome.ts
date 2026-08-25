@@ -12,12 +12,7 @@
  */
 type SideEffect = "none" | "confirmed" | "possible";
 
-type ToolErrorCategory =
-  | "validation"
-  | "policy"
-  | "execution"
-  | "timeout"
-  | "cancelled";
+type ToolErrorCategory = "validation" | "policy" | "execution" | "timeout" | "cancelled";
 
 type ToolOutcomeOk = {
   ok: true;

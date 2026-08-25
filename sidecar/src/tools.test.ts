@@ -16,7 +16,6 @@ import {
   terminateStaleApprovals,
 } from "./tools.js";
 
-
 const directories: string[] = [];
 
 afterEach(async () => {
@@ -398,9 +397,7 @@ describe("policyEpoch/gate e revogação de grants (P0/P1 auditoria)", () => {
       // Libera a barreira: o efeito de A conclui sob a política validada.
       releaseBarrier();
       await expect(opA).resolves.toMatchObject({ path: "race.txt" });
-      await expect(readFile(join(workspaceRoot, "race.txt"), "utf8")).resolves.toBe(
-        "committed",
-      );
+      await expect(readFile(join(workspaceRoot, "race.txt"), "utf8")).resolves.toBe("committed");
       await expect(modeChange).resolves.toBeTruthy();
 
       // Operação B começa DEPOIS da troca: negada pela política nova.
@@ -540,8 +537,8 @@ describe("policyEpoch/gate e revogação de grants (P0/P1 auditoria)", () => {
     db.close();
 
     terminateStaleApprovals(directory);
-    const row = openDatabase(directory).client
-      .prepare("SELECT status, resolved_at FROM approvals WHERE id='ghost'")
+    const row = openDatabase(directory)
+      .client.prepare("SELECT status, resolved_at FROM approvals WHERE id='ghost'")
       .get() as { status: string; resolved_at: number | null };
     expect(row.status).toBe("cancelled");
     expect(row.resolved_at).not.toBeNull();

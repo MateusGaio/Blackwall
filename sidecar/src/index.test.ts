@@ -931,11 +931,14 @@ describe("harness resiliente (#210): side effect possível e fingerprints", () =
       activeWorkspaceId: string;
     };
     // Automático nega comando; usar ask com auto-aprovação.
-    await fetch(`http://${SIDECAR_HOST}:${port}/v1/workspaces/${state.activeWorkspaceId}/permission-mode`, {
-      body: JSON.stringify({ mode: "ask" }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    });
+    await fetch(
+      `http://${SIDECAR_HOST}:${port}/v1/workspaces/${state.activeWorkspaceId}/permission-mode`,
+      {
+        body: JSON.stringify({ mode: "ask" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
     const provider = await saveProvider(
       {
         apiKey: "k",
@@ -980,10 +983,8 @@ describe("harness resiliente (#210): side effect possível e fingerprints", () =
           }),
         );
       if (round === 3) return Promise.resolve(call("r3", "read_file", { path: "alvo.txt" }));
-      if (round === 4)
-        return Promise.resolve(call("r4", "read_file", { path: "faltando-a.md" }));
-      if (round === 5)
-        return Promise.resolve(call("r5", "read_file", { path: "faltando-b.md" }));
+      if (round === 4) return Promise.resolve(call("r4", "read_file", { path: "faltando-a.md" }));
+      if (round === 5) return Promise.resolve(call("r5", "read_file", { path: "faltando-b.md" }));
       return Promise.resolve(
         responseWithLines([
           `data: ${JSON.stringify({
