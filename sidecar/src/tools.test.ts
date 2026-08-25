@@ -544,3 +544,70 @@ describe("policyEpoch/gate e revogação de grants (P0/P1 auditoria)", () => {
     expect(row.resolved_at).not.toBeNull();
   });
 });
+
+describe("contrato estrito de execute_command.args (#210)", () => {
+  it("string e objeto rejeitam ANTES do card; array válido aprova e executa", async () => {
+    const { directory, state } = await fixture("ask");
+    let cards = 0;
+    const base = {
+      sessionId: state.activeSessionId,
+      tool: "execute_command" as const,
+      workspaceId: state.activeWorkspaceId as string,
+    };
+
+    // STRING: erro estruturado, zero card, zero spawn.
+    await expect(
+      executeTool(
+        { ...base, args: { args: "-e process.exit(0)", command: process.execPath, cwd: "." }, requestId: "args-str" },
+        directory,
+        { onApproval: () => (cards += 1) },
+      ),
+    ).rejects.toMatchObject({ code: "invalid_tool_arguments" });
+
+    // OBJETO: mesmo contrato.
+    await expect(
+      executeTool(
+        { ...base, args: { args: { cmd: "x" }, command: process.execPath, cwd: "." }, requestId: "args-obj" },
+        directory,
+        { onApproval: () => (cards += 1) },
+      ),
+    ).rejects.toMatchObject({ code: "invalid_tool_arguments" });
+    expect(cards).toBe(0);
+
+    // ARRAY VÁLIDO: fluxo normal com aprovação.
+    const okRun = executeTool(
+      {
+        ...base,
+        args: { args: ["-e", "process.exit(0)"], command: process.execPath, cwd: "." },
+        requestId: "args-ok",
+      },
+      directory,
+      { onApproval: () => (cards += 1) },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(cards).toBe(1);
+    await resolveApproval("args-ok", "allow_once", directory);
+    const result = (await okRun) as { code?: number | null };
+    expect(result.code).toBe(0);
+  });
+
+  it("args ausente é tratado como lista vazia", async () => {
+    const { directory, state } = await fixture("ask");
+    // Comando que ignora stdin e sai rápido mesmo sem args.
+    const run = executeTool(
+      {
+        args: { command: process.execPath, args: ["-e", ""], cwd: "." },
+        requestId: "args-absent",
+        sessionId: state.activeSessionId,
+        tool: "execute_command",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => undefined },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await resolveApproval("args-absent", "allow_once", directory);
+    const result = (await run) as { code?: number | null };
+    expect(result.code).toBe(0);
+  });
+});

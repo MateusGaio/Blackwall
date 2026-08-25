@@ -1284,7 +1284,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 toolError = true;
                 toolResult = {
                   error: {
-                    code: error instanceof ToolPolicyDenied ? error.code : "tool_execution_failed",
+                    code:
+                      error instanceof ToolPolicyDenied
+                        ? error.code
+                        : typeof (error as { code?: unknown })?.code === "string"
+                          ? (error as { code: string }).code
+                          : "tool_execution_failed",
                     message: error instanceof Error ? error.message : "A ferramenta falhou.",
                   },
                 };

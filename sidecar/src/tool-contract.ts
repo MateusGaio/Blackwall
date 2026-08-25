@@ -216,6 +216,28 @@ export function isToolName(value: unknown): value is ToolName {
   return typeof value === "string" && toolNames.has(value as ToolName);
 }
 
+/**
+ * Contrato de `execute_command.args` (#210): ausente/null significa lista
+ * vazia; presente DEVE ser array de valores serializáveis como texto —
+ * string ou objeto produzem falha estruturada ANTES de qualquer aprovação
+ * ou spawn (nada é executado com args silenciosamente descartados).
+ */
+export function normalizeCommandArgs(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new ToolValidationFailure({
+      code: "invalid_tool_arguments",
+      expectedExample: { args: ["--flag", "valor"], command: "git", cwd: "." },
+      message:
+        "O campo args de execute_command precisa ser uma LISTA de textos; recebi " +
+        (typeof raw === "string" ? "uma string" : typeof raw === "object" ? "um objeto" : typeof raw) +
+        ". Ex.: {\"args\": [\"status\", \"--short\"], \"command\": \"git\"}",
+      retryable: true,
+    });
+  }
+  return raw.map((value) => String(value));
+}
+
 export function parseToolArguments(name: ToolName, raw: string): Record<string, unknown> {
   let value: unknown;
   try {

@@ -4,6 +4,7 @@ import {
   DEFAULT_TOOL_CALL_BUDGET,
   MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS,
   MAX_TOOL_CALL_BUDGET,
+  normalizeCommandArgs,
   normalizeToolArguments,
   parseCompatibilityToolCall,
   parseToolArguments,
@@ -11,6 +12,7 @@ import {
   shouldStopAfterNoProgress,
   shouldStopAfterRepeatedToolError,
   toOllamaTools,
+  ToolValidationFailure,
   toOpenAIChatTools,
   toOpenAIResponsesTools,
   workspaceToolDefinitions,
@@ -90,5 +92,34 @@ describe("contrato de ferramentas", () => {
       strict: true,
       type: "function",
     });
+  });
+});
+
+describe("normalizeCommandArgs (#210)", () => {
+  it("ausente ou null significa lista vazia", () => {
+    expect(normalizeCommandArgs(undefined)).toEqual([]);
+    expect(normalizeCommandArgs(null)).toEqual([]);
+  });
+
+  it("array válido é normalizado para textos", () => {
+    expect(normalizeCommandArgs(["status", "--short"])).toEqual(["status", "--short"]);
+    expect(normalizeCommandArgs([])).toEqual([]);
+    expect(normalizeCommandArgs([7, true])).toEqual(["7", "true"]);
+  });
+
+  it("string e objeto produzem falha estruturada invalid_tool_arguments", () => {
+    for (const bad of ["-e process.exit(0)", { cmd: "x" }]) {
+      try {
+        normalizeCommandArgs(bad);
+        throw new Error("deveria ter rejeitado");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ToolValidationFailure);
+        if (error instanceof ToolValidationFailure) {
+          expect(error.code).toBe("invalid_tool_arguments");
+          expect(error.retryable).toBe(true);
+          expect(error.message).toContain("LISTA");
+        }
+      }
+    }
   });
 });
