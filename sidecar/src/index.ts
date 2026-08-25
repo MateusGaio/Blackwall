@@ -65,11 +65,18 @@ import {
   toCompatibilityPrompt,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
+import { errorFingerprint, extractErrorCode } from "./tool-outcome.js";
+import { classifyTool } from "./tool-policy.js";
 import {
   type ApprovalDecision,
   cancelPendingApprovals,
   executeTool,
+  notifyWorkspacePolicyChanged,
   resolveApproval,
+  revokeGrants,
+  setWorkspacePermissionModeGuarded,
+  ToolPolicyDenied,
+  terminateStaleApprovals,
 } from "./tools.js";
 import {
   clearUsageHistory,
@@ -211,7 +218,15 @@ export async function createSidecar(
       error instanceof Error ? error.message : String(error),
     );
   }
+  terminateStaleApprovals(storageDirectory);
   const store = createStore(database, storageDirectory);
+  // Registro de sockets para eventos push globais (ex.: approval.resolved).
+  const connectedSockets = new Set<import("ws").WebSocket>();
+  function broadcast(payload: string) {
+    for (const socket of connectedSockets) {
+      if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  }
   const server = createServer(async (request, response) => {
     allowOrigin(request, response);
     if (request.method === "OPTIONS") return response.writeHead(204).end();
@@ -378,8 +393,20 @@ export async function createSidecar(
         /^\/v1\/workspaces\/[^/]+\/permission-mode$/.test(pathname)
       ) {
         const input = (await requestBody(request)) as { mode: PermissionMode };
+        const workspaceId = pathname.split("/")[3];
+        // Guardada: epoch/gate + revogação de grants daquele workspace.
         writeJson(response, 200, {
-          workspace: store.setWorkspacePermissionMode(pathname.split("/")[3], input.mode),
+          workspace: await setWorkspacePermissionModeGuarded(
+            workspaceId,
+            input.mode,
+            storageDirectory,
+          ),
+        });
+        // Transição de modo reavalia cards pendentes AGORA (#209): allow
+        // executa uma vez; caso contrário nega com motivo — sem card órfão.
+        notifyWorkspacePolicyChanged(workspaceId, storageDirectory, {
+          onApprovalResolved: (event) =>
+            broadcast(JSON.stringify({ ...event, type: "approval.resolved" })),
         });
         return;
       }
@@ -416,10 +443,14 @@ export async function createSidecar(
         return;
       }
       if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/select$/.test(pathname)) {
+        // Troca de sessão revoga grants da sessão ANTERIOR (#209).
+        revokeGrants({ sessionId: store.getState().activeSessionId ?? undefined });
         writeJson(response, 200, store.selectSession(pathname.split("/")[3]));
         return;
       }
       if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/select$/.test(pathname)) {
+        // Troca de workspace revoga grants do workspace ANTERIOR.
+        revokeGrants({ workspaceId: store.getState().activeWorkspaceId ?? undefined });
         writeJson(response, 200, store.selectWorkspace(pathname.split("/")[3]));
         return;
       }
@@ -645,7 +676,12 @@ export async function createSidecar(
   });
   const activeRequests = new Map<
     string,
-    { controller: AbortController; socket: import("ws").WebSocket }
+    {
+      controller: AbortController;
+      socket: import("ws").WebSocket;
+      sessionId?: string | null;
+      workspaceId?: string | null;
+    }
   >();
   const queues = new Map<string, Promise<void>>();
 
@@ -764,6 +800,16 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
             providerId: candidate.providerId,
             requestId: input.requestId,
             type: "chat.started",
+          }),
+        );
+        // Isolamento de tentativas (#210): o cliente zera o buffer parcial
+        // anterior somente quando um SUBSTITUTO realmente começa.
+        socket.send(
+          JSON.stringify({
+            attemptIndex: candidates.indexOf(candidate),
+            requestId: input.requestId,
+            sessionId: input.sessionId,
+            type: "chat.attempt.started",
           }),
         );
         let content = "";
@@ -1218,15 +1264,64 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                               type: "approval.requested",
                             }),
                           ),
+                        onApprovalResolved: (event) => {
+                          // Card pode ser resolvido sem o botão (troca de
+                          // modo/stop): cliente precisa remover o card.
+                          socket.send(
+                            JSON.stringify({
+                              ...event,
+                              callId: normalizedCall.id,
+                              requestId: event.requestId,
+                              sessionId: input.sessionId,
+                              tool: normalizedCall.name,
+                              type: "approval.resolved",
+                            }),
+                          );
+                        },
                       },
                     );
               } catch (error) {
                 toolError = true;
                 toolResult = {
-                  error: error instanceof Error ? error.message : "A ferramenta falhou.",
+                  error: {
+                    code: error instanceof ToolPolicyDenied ? error.code : "tool_execution_failed",
+                    message: error instanceof Error ? error.message : "A ferramenta falhou.",
+                  },
                 };
               }
-              if (!toolError) successfulToolResults.set(executionSignature, toolResult);
+              if (!toolError) {
+                const commandResult = toolResult as {
+                  code?: number | null;
+                  stderr?: string;
+                };
+                // Comentário 9/item 1: exit code ≠ 0 é FALHA estruturada,
+                // nunca sucesso com stdout enigmático.
+                if (
+                  normalizedCall.name === "execute_command" &&
+                  typeof commandResult?.code === "number" &&
+                  commandResult.code !== 0
+                ) {
+                  toolError = true;
+                  toolResult = {
+                    error: {
+                      code: "COMMAND_EXIT_CODE",
+                      message: `O comando saiu com o código ${commandResult.code}.`,
+                      stderr: String(commandResult.stderr ?? "").slice(0, 64_000),
+                    },
+                  };
+                }
+              }
+              // Política de cache (#210): somente leitura pura bem-sucedida
+              // é cacheável. Qualquer TENTATIVA de mutação/comando — mesmo
+              // falha com side effect possível (exit ≠ 0, timeout) —
+              // invalida as leituras anteriores do turno.
+              const attemptedNonRead =
+                !hasCachedResult && classifyTool(normalizedCall.name) !== "read";
+              if (attemptedNonRead) {
+                successfulToolResults.clear();
+              } else if (!toolError) {
+                successfulToolResults.set(executionSignature, toolResult);
+              }
               const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));
               toolResultBytes += hasCachedResult ? 0 : resultBytes;
               if (toolResultBytes > MAX_TOOL_RESULT_BYTES_PER_TURN) {
@@ -1265,16 +1360,19 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 }),
               );
               if (toolError) {
-                const errorMessage =
-                  typeof toolResult === "object" && toolResult && "error" in toolResult
-                    ? String((toolResult as { error?: unknown }).error)
-                    : "A ferramenta falhou.";
-                const signature = `${normalizedCall.name}:${errorMessage}`;
+                // Fingerprint canônico (#210): args + código — nunca
+                // String(objeto) que colapsava tudo em "[object Object]".
+                const signature = errorFingerprint(
+                  normalizedCall.name,
+                  args,
+                  extractErrorCode(toolResult),
+                );
                 const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
+                  const detail = extractErrorCode(toolResult);
                   throw new Error(
-                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha: ${errorMessage}. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
+                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha (${detail}) com os mesmos argumentos. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
                   );
                 }
               } else {
@@ -1360,7 +1458,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
     // O controller nasce no enfileiramento para que chat.stop e o cleanup de
     // socket alcancem também requests que ainda não começaram a executar.
     const controller = new AbortController();
-    activeRequests.set(input.requestId, { controller, socket });
+    activeRequests.set(input.requestId, {
+      controller,
+      socket,
+      sessionId: input.sessionId ?? null,
+      workspaceId: input.workspaceId ?? null,
+    });
     const current = previous
       .catch(() => undefined)
       .then(() => executeChat(socket, input, controller))
@@ -1380,6 +1483,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
   }
 
   socketServer.on("connection", (socket) => {
+    connectedSockets.add(socket);
     socket.send(JSON.stringify({ topic: "system:ready", ...healthPayload() }));
     // Sem este listener, erro de transporte (reset abrupto, frame inválido ou
     // send após close) vira exceção não tratada e derruba o processo inteiro.
@@ -1399,6 +1503,8 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         if (active) {
           active.controller.abort();
           cancelPendingApprovals(input.requestId, storageDirectory);
+          // Stop encerra grants da sessão do turno (#209).
+          if (active.sessionId) revokeGrants({ sessionId: active.sessionId });
         } else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
         return;
       }
@@ -1429,10 +1535,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       }
     });
     socket.on("close", () => {
+      connectedSockets.delete(socket);
       for (const [requestId, active] of activeRequests) {
         if (active.socket !== socket) continue;
         active.controller.abort();
         cancelPendingApprovals(requestId, storageDirectory);
+        if (active.sessionId) revokeGrants({ sessionId: active.sessionId });
       }
     });
   });

@@ -414,3 +414,52 @@ describe("SidecarChatStore", () => {
     expect(harness.streams.length).toBe(1);
   });
 });
+
+describe("isolamento de tentativas de fallback (#210)", () => {
+  it("delta do substituto não concatena com o parcial do candidato anterior", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("Explore");
+
+    await until(() => harness.streams.length === 1);
+    const stream = harness.streams[0];
+
+    // Tentativa 1 emite parcial e falha no provedor…
+    stream.delta("parcial do candidato A");
+    // …o sidecar anuncia o SUBSTITUTO (novo candidato começou)…
+    stream.handlers.onAttemptStarted?.();
+    // …e a tentativa 2 entrega o texto final dela.
+    stream.complete({ content: "resposta do candidato B", persisted: false });
+
+    await until(() => !harness.store.getSnapshot().isRunning);
+    const assistant = harness.persisted.find(
+      (entry) => entry.message.role === "assistant",
+    );
+    expect(assistant?.message.content).toBe("resposta do candidato B");
+    expect(String(assistant?.message.content)).not.toContain("parcial");
+    // Nenhum texto da tentativa A sobreviveu na thread.
+    for (const message of harness.store.getSnapshot().messages) {
+      expect(message.content).not.toContain("parcial do candidato");
+    }
+  });
+
+  it("sem substituto vencedor, o último parcial permanece marcado como incompleto", async () => {
+    const harness = createHarness();
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("Explore");
+
+    await until(() => harness.streams.length === 1);
+    const stream = harness.streams[0];
+    stream.delta("parcial preservado");
+    stream.fail(new Error("boom"));
+    await expect(stream.done).rejects.toThrow("boom");
+
+    await until(() => !harness.store.getSnapshot().isRunning);
+    // Parcial NÃO é promovido a resposta completa: persiste como failed.
+    expect(harness.persisted.at(-1)?.message).toMatchObject({
+      content: "parcial preservado",
+      role: "assistant",
+      status: "failed",
+    });
+  });
+});

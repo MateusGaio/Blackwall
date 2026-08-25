@@ -641,14 +641,22 @@ export type StreamResult = {
 
 export type StreamHandlers = {
   onDelta: (delta: string) => void;
+  /** Novo candidato começou após falha: descarta parcial ANTERIOR. */
+  onAttemptStarted?: () => void;
   onCompacting?: () => void;
   onApproval?: (
     approval: WorkspaceToolApproval,
     resolve: (decision: WorkspaceToolDecision) => void,
   ) => void;
+  /** Card resolvido sem o botão (troca de modo/stop): remove o card. */
+  onApprovalResolved?: (event: { requestId?: string; status?: string }) => void;
   onToolCompleted?: (result: unknown, callId?: string) => void;
   onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
-  onToolFailed?: (message: string, callId?: string) => void;
+  onToolFailed?: (
+    message: string,
+    callId?: string,
+    detail?: { code?: string; result?: unknown },
+  ) => void;
   onRetry?: (message: string) => void;
   onUsage?: (usage: {
     providerId?: string;
@@ -743,6 +751,9 @@ export async function streamMessage(
       handlers.onDelta(message.delta);
     }
     if (message.type === "chat.compacting") handlers.onCompacting?.();
+    if (message.type === "chat.attempt.started") {
+      handlers.onAttemptStarted?.();
+    }
     if (message.type === "chat.retrying")
       handlers.onRetry?.(message.message ?? i18n.t("errors.retrying"));
     if (message.type === "usage.updated")
@@ -776,11 +787,26 @@ export async function streamMessage(
         },
       );
     }
+    if (message.type === "approval.resolved") {
+      // Resolução vinda do sidecar (transição de modo/stop): o card some
+      // mesmo sem clique — sem órfãos.
+      handlers.onApprovalResolved?.({
+        requestId: message.requestId,
+        status: (message as { status?: string }).status,
+      });
+    }
     if (message.type === "tool.completed") {
       handlers.onToolCompleted?.(message.result, message.callId);
     }
     if (message.type === "tool.failed") {
-      handlers.onToolFailed?.(message.message ?? "A ferramenta falhou.", message.callId);
+      const detail = message.result as
+        | { code?: string; error?: { code?: string; message?: string } }
+        | undefined;
+      handlers.onToolFailed?.(
+        detail?.error?.message ?? message.message ?? "A ferramenta falhou.",
+        message.callId,
+        { code: detail?.code ?? detail?.error?.code, result: message.result },
+      );
     }
     if (message.type === "chat.completed") {
       resolveDone({

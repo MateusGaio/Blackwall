@@ -15,14 +15,27 @@ const tracer = trace.getTracer("blackwall-sidecar");
 /**
  * Cria um span sem exporter configurado. Dados de prompts e respostas nunca
  * devem ser adicionados a spans; exportação só poderá existir via opt-in futuro.
+ *
+ * `success` reflete o RESULTADO REAL do trabalho (#210/item 10): exceção
+ * registra false — nunca mais sucesso no finally após throw.
  */
-export function withInstrumentation<T>(name: string, work: () => T): T {
+export function withInstrumentation<T>(
+  name: string,
+  work: () => T,
+  onEvent?: (event: { name: string; success: boolean }) => void,
+): T {
   return tracer.startActiveSpan(name, (span) => {
+    let success = true;
     try {
       return work();
+    } catch (error) {
+      success = false;
+      throw error;
     } finally {
       span.end();
-      void emitTelemetry({ name, success: true });
+      const event = { name, success };
+      void emitTelemetry(event);
+      onEvent?.(event);
     }
   });
 }
@@ -30,13 +43,20 @@ export function withInstrumentation<T>(name: string, work: () => T): T {
 export async function withAsyncInstrumentation<T>(
   name: string,
   work: () => Promise<T>,
+  onEvent?: (event: { name: string; success: boolean }) => void,
 ): Promise<T> {
   return tracer.startActiveSpan(name, async (span) => {
+    let success = true;
     try {
       return await work();
+    } catch (error) {
+      success = false;
+      throw error;
     } finally {
       span.end();
-      void emitTelemetry({ name, success: true });
+      const event = { name, success };
+      void emitTelemetry(event);
+      onEvent?.(event);
     }
   });
 }
