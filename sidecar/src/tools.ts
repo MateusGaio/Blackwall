@@ -124,6 +124,119 @@ const sessionApprovals = new Set<string>();
 /** Motivo de política quando a negação veio de transição de modo (#209). */
 const policyDeniedMessages = new Map<string, string>();
 
+/* ------------------------------------------------------------------ */
+/* Coordenação policyEpoch + gate por workspace (P0 da auditoria)      */
+/* ------------------------------------------------------------------ */
+
+type WorkspaceGate = {
+  epoch: number;
+  /** Mutex por promessa: serializa mudança de modo × início de efeito. */
+  tail: Promise<void>;
+};
+
+const workspaceGates = new Map<string, WorkspaceGate>();
+
+function gateFor(workspaceId: string): WorkspaceGate {
+  let gate = workspaceGates.get(workspaceId);
+  if (!gate) {
+    gate = { epoch: 0, tail: Promise.resolve() };
+    workspaceGates.set(workspaceId, gate);
+  }
+  return gate;
+}
+
+/** Executa `critical` com exclusão mútua por workspace. */
+async function withWorkspaceGate<T>(
+  workspaceId: string,
+  critical: (gate: WorkspaceGate) => Promise<T>,
+): Promise<T> {
+  const gate = gateFor(workspaceId);
+  const previous = gate.tail;
+  let release!: () => void;
+  gate.tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    return await critical(gate);
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Hook de teste para barreira determinística EXATAMENTE antes do commit
+ * point (após validações, antes do efeito). Nulo em produção.
+ */
+let commitBarrierHook: ((workspaceId: string) => Promise<void>) | null = null;
+
+export function setCommitBarrierForTests(
+  hook: ((workspaceId: string) => Promise<void>) | null,
+) {
+  commitBarrierHook = hook;
+}
+
+/**
+ * Mudança de modo serializada: incrementa o epoch DENTRO do gate — uma
+ * operação em fase crítica termina antes; qualquer decisão tomada fora da
+ * própria seção crítica enxerga o epoch novo e aborta por mismatch.
+ */
+export function setWorkspacePermissionModeGuarded(
+  workspaceId: string,
+  mode: PermissionMode,
+  storageDirectory = dataDirectory(),
+) {
+  return withWorkspaceGate(workspaceId, async (gate) => {
+    const database = openSharedDatabase(storageDirectory);
+    try {
+      const updated = database.db
+        .update(workspaces)
+        .set({ permissionMode: mode })
+        .where(eq(workspaces.id, workspaceId))
+        .returning()
+        .get();
+      if (!updated) throw new Error("O workspace selecionado não existe.");
+      // Grants da sessão morrem com a política que os emitiu.
+      revokeSessionGrants({ workspaceId });
+      gate.epoch += 1;
+      return updated;
+    } finally {
+      database.close();
+    }
+  });
+}
+
+function revokeSessionGrants(filter: { workspaceId?: string; sessionId?: string }) {
+  for (const key of [...sessionApprovals]) {
+    const [workspaceId, sessionId] = key.split(":");
+    if (filter.workspaceId && filter.workspaceId !== workspaceId) continue;
+    if (filter.sessionId && filter.sessionId !== (sessionId ?? "")) continue;
+    sessionApprovals.delete(key);
+  }
+}
+
+export function revokeGrants(filter: { workspaceId?: string; sessionId?: string }) {
+  revokeSessionGrants(filter);
+}
+
+/**
+ * Na inicialização, toda approval persistida como `pending` pertence a um
+ * processo anterior: vira terminal `cancelled` com resolvedAt — nunca
+ * retoma efeito antigo nem ressuscita card (#209).
+ */
+export function terminateStaleApprovals(storageDirectory = dataDirectory()) {
+  const database = openSharedDatabase(storageDirectory);
+  try {
+    database.client
+      .prepare(
+        "UPDATE approvals SET status = 'cancelled', resolved_at = ? WHERE status = 'pending'",
+      )
+      .run(Date.now());
+  } finally {
+    database.close();
+  }
+}
+
 function clipped(value: string) {
   return value.length > maxCommandOutput
     ? `${value.slice(0, maxCommandOutput)}\n[saída truncada]`
@@ -342,6 +455,40 @@ export function cancelPendingApprovals(requestId: string, storageDirectory = dat
   database.close();
 }
 
+/**
+ * Escrita com mitigação de path race (P1): o parent é revalidado por
+ * realpath IMEDIATAMENTE antes do commit e a gravação usa temporário no
+ * mesmo diretório validado + rename. Limite documentado em SECURITY.md:
+ * processos EXTERNOS ao sidecar continuam fora do modelo de ameaças.
+ */
+async function atomicWriteWithin(
+  root: string,
+  requested: string,
+  content: string,
+): Promise<string> {
+  const { rename, rm } = await import("node:fs/promises");
+  let candidate = await safePath(root, requested, true);
+  await mkdir(dirname(candidate), { recursive: true });
+  const parentReal = await realpath(dirname(candidate)).catch(() => null);
+  if (!parentReal || !isInside(root, parentReal)) {
+    throw new ToolPolicyDenied(
+      "PATH_OUTSIDE_WORKSPACE",
+      "A pasta de destino deixou de estar dentro do workspace; escrita cancelada.",
+    );
+  }
+  const temp = join(parentReal, `.bw-tmp-${randomUUID()}`);
+  await writeFile(temp, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  try {
+    await rename(temp, candidate);
+  } catch {
+    // Windows não permite rename sobre existente: substitui controlado.
+    await rm(candidate, { force: true });
+    candidate = await safePath(root, requested, true);
+    await rename(temp, candidate);
+  }
+  return candidate;
+}
+
 export async function executeTool(
   input: ToolInput,
   storageDirectory = dataDirectory(),
@@ -389,8 +536,8 @@ export async function executeTool(
     }
   }
 
-  const root = await workspaceRoot(workspace);
-  switch (input.tool) {
+  const runEffect = async (root: string): Promise<unknown> => {
+    switch (input.tool) {
     case "list_directory": {
       const path = await safePath(root, String(input.args.path || "."));
       const entries = await readdir(path, { withFileTypes: true });
@@ -483,11 +630,15 @@ export async function executeTool(
       return { matches };
     }
     case "create_or_update_file": {
-      const path = await safePath(root, String(input.args.path ?? ""), true);
-      const content = String(input.args.content ?? "");
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, content, { encoding: "utf8", mode: 0o600 });
-      return { path: relative(root, path), bytes: Buffer.byteLength(content) };
+      const written = await atomicWriteWithin(
+        root,
+        String(input.args.path ?? ""),
+        String(input.args.content ?? ""),
+      );
+      return {
+        path: relative(root, written),
+        bytes: Buffer.byteLength(String(input.args.content ?? "")),
+      };
     }
     case "apply_patch": {
       const path = await safePath(root, String(input.args.path ?? ""));
@@ -498,7 +649,7 @@ export async function executeTool(
         throw new Error("O trecho original não foi encontrado.");
       if (current.indexOf(oldText) !== current.lastIndexOf(oldText))
         throw new Error("O trecho original aparece mais de uma vez.");
-      await writeFile(path, current.replace(oldText, newText), "utf8");
+      await atomicWriteWithin(root, String(input.args.path ?? ""), current.replace(oldText, newText));
       return { path: relative(root, path) };
     }
     case "execute_command": {
@@ -544,5 +695,37 @@ export async function executeTool(
         },
       );
     }
+    }
+  };
+
+  if (toolClass === "read") {
+    // Leitura pura não precisa do gate (permitida em todos os modos).
+    const root = await workspaceRoot(workspace);
+    return runEffect(root);
   }
+
+  /*
+   * Seção crítica de mutação/comando (P0): epoch capturado FORA do gate;
+   * dentro dele, modo/epoch são revalidados e só então o commit point é
+   * marcado (barreira de teste) e o efeito inicia. Uma troca de modo
+   * concorrente fica na fila do gate e passa a valer para as PRÓXIMAS
+   * operações — nunca intercala entre decisão e efeito.
+   */
+  const snapshotEpoch = gateFor(input.workspaceId).epoch;
+  return withWorkspaceGate(input.workspaceId, async (gate) => {
+    const fresh = await workspaceFor(input.workspaceId, storageDirectory);
+    const committed = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+    if (gate.epoch !== snapshotEpoch) {
+      throw new ToolPolicyDenied(
+        "POLICY_EPOCH_CHANGED",
+        "O modo de permissão mudou durante a operação; a ação foi cancelada antes do efeito.",
+      );
+    }
+    if (committed.kind === "deny") {
+      throw new ToolPolicyDenied(committed.reasonCode, committed.userMessage);
+    }
+    if (commitBarrierHook) await commitBarrierHook(input.workspaceId);
+    const root = await workspaceRoot(fresh);
+    return runEffect(root);
+  });
 }

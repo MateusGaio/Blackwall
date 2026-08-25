@@ -11,7 +11,11 @@ import {
   executeTool,
   notifyWorkspacePolicyChanged,
   resolveApproval,
+  setCommitBarrierForTests,
+  setWorkspacePermissionModeGuarded,
+  terminateStaleApprovals,
 } from "./tools.js";
+
 
 const directories: string[] = [];
 
@@ -357,5 +361,189 @@ describe("modo automático e transições de política (#209)", () => {
     await resolveApproval("req-double", "allow_once", directory).catch(() => null);
     await expect(execution).rejects.toThrow("negada");
     cancelPendingApprovals("req-double", directory);
+  });
+});
+
+describe("policyEpoch/gate e revogação de grants (P0/P1 auditoria)", () => {
+  it("barreira antes do commit point serializa troca de modo com o efeito", async () => {
+    const { directory, state, workspaceRoot } = await fixture("automatic");
+    let releaseBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => (releaseBarrier = resolve));
+    let barrierHit = 0;
+    setCommitBarrierForTests(async () => {
+      barrierHit += 1;
+      await barrier;
+    });
+    try {
+      // Operação A entra na seção crítica e PARA na barreira.
+      const opA = executeTool(
+        {
+          args: { content: "committed", path: "race.txt" },
+          requestId: "req-race-a",
+          sessionId: state.activeSessionId,
+          tool: "create_or_update_file",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // Troca de modo para read-only é SOLICITADA durante a seção crítica.
+      const modeChange = setWorkspacePermissionModeGuarded(
+        state.activeWorkspaceId as string,
+        "read-only",
+        directory,
+      );
+
+      // Libera a barreira: o efeito de A conclui sob a política validada.
+      releaseBarrier();
+      await expect(opA).resolves.toMatchObject({ path: "race.txt" });
+      await expect(readFile(join(workspaceRoot, "race.txt"), "utf8")).resolves.toBe(
+        "committed",
+      );
+      await expect(modeChange).resolves.toBeTruthy();
+
+      // Operação B começa DEPOIS da troca: negada pela política nova.
+      await expect(
+        executeTool(
+          {
+            args: { content: "blocked", path: "race2.txt" },
+            requestId: "req-race-b",
+            sessionId: state.activeSessionId,
+            tool: "create_or_update_file",
+            workspaceId: state.activeWorkspaceId as string,
+          },
+          directory,
+        ),
+      ).rejects.toMatchObject({ code: "READ_ONLY_MUTATION" });
+      expect(barrierHit).toBe(1);
+      await expect(readFile(join(workspaceRoot, "race2.txt"))).rejects.toThrow();
+    } finally {
+      setCommitBarrierForTests(null);
+    }
+  });
+
+  it("grant allow_session é revogado na mudança de modo", async () => {
+    const { directory, state, workspaceRoot } = await fixture("ask");
+    let cards = 0;
+    await writeFile(join(workspaceRoot, "cache.txt"), "conteudo", "utf8");
+    const readArgs = {
+      args: { path: "cache.txt" },
+      sessionId: state.activeSessionId,
+      tool: "read_file" as const,
+      workspaceId: state.activeWorkspaceId as string,
+    };
+    // 1ª leitura pede card; usuário dá allow_session.
+    const first = executeTool({ ...readArgs, requestId: "g-1" }, directory, {
+      onApproval: () => (cards += 1),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await resolveApproval("g-1", "allow_session", directory);
+    await first;
+    // 2ª leitura NÃO pede card (grant ativo).
+    await executeTool({ ...readArgs, requestId: "g-2" }, directory, {
+      onApproval: () => (cards += 100),
+    });
+    expect(cards).toBe(1);
+    // Mudança de modo revoga grants do workspace…
+    await setWorkspacePermissionModeGuarded(state.activeWorkspaceId as string, "ask", directory);
+    // …e a 3ª leitura volta a pedir card.
+    const third = executeTool({ ...readArgs, requestId: "g-3" }, directory, {
+      onApproval: () => (cards += 1),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(cards).toBe(2);
+    await resolveApproval("g-3", "deny", directory);
+    await expect(third).rejects.toThrow("negada");
+  });
+
+  it("workspaces diferentes não compartilham gate nem grant", async () => {
+    // Automático: mutação entra direto na seção crítica (sem card).
+    const { directory, state, workspaceRoot } = await fixture("automatic");
+    const database = openDatabase(directory);
+    await mkdir(join(directory, "other"), { recursive: true });
+    const other = await createStore(database).createWorkspace({
+      name: "Outro ws",
+      permissionMode: "automatic",
+      profileId: state.activeProfileId as string,
+      rootPath: join(directory, "other"),
+      soul: "",
+    });
+    database.close();
+
+    // Segura o gate do workspace PRINCIPAL na barreira…
+    let release!: () => void;
+    setCommitBarrierForTests(async (workspaceId) => {
+      if (workspaceId !== state.activeWorkspaceId) return;
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    try {
+      const held = executeTool(
+        {
+          args: { content: "held", path: "held.txt" },
+          requestId: "req-held",
+          sessionId: state.activeSessionId,
+          tool: "create_or_update_file",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // …o OUTRO workspace executa normalmente em paralelo.
+      await expect(
+        executeTool(
+          {
+            args: { content: "free", path: "free.txt" },
+            requestId: "req-free",
+            sessionId: null,
+            tool: "create_or_update_file",
+            workspaceId: other.id,
+          },
+          directory,
+        ),
+      ).resolves.toMatchObject({ path: "free.txt" });
+      await expect(readFile(join(directory, "other", "free.txt"), "utf8")).resolves.toBe("free");
+
+      release();
+      await held;
+      await expect(readFile(join(workspaceRoot, "held.txt"), "utf8")).resolves.toBe("held");
+    } finally {
+      setCommitBarrierForTests(null);
+    }
+  });
+
+  it("restart encerra approvals persistidas como pending com terminal cancelled", async () => {
+    const { directory, state } = await fixture("ask");
+    const execution = executeTool(
+      {
+        args: { content: "zombie", path: "zombie.txt" },
+        requestId: "req-zombie",
+        sessionId: state.activeSessionId,
+        tool: "create_or_update_file",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      { onApproval: () => undefined },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    cancelPendingApprovals("req-zombie", directory);
+    await execution.catch(() => undefined);
+
+    // Simula crash deixando pending persistido.
+    const db = openDatabase(directory);
+    db.client
+      .prepare(
+        "INSERT INTO approvals (id, created_at, request_id, scope, status, tool, workspace_id, payload) VALUES ('ghost', ?, 'ghost-req', 'once', 'pending', 'create_or_update_file', ?, '{}')",
+      )
+      .run(Date.now(), state.activeWorkspaceId as string);
+    db.close();
+
+    terminateStaleApprovals(directory);
+    const row = openDatabase(directory).client
+      .prepare("SELECT status, resolved_at FROM approvals WHERE id='ghost'")
+      .get() as { status: string; resolved_at: number | null };
+    expect(row.status).toBe("cancelled");
+    expect(row.resolved_at).not.toBeNull();
   });
 });

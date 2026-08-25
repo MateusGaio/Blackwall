@@ -72,6 +72,9 @@ import {
   executeTool,
   notifyWorkspacePolicyChanged,
   resolveApproval,
+  revokeGrants,
+  setWorkspacePermissionModeGuarded,
+  terminateStaleApprovals,
   ToolPolicyDenied,
 } from "./tools.js";
 import {
@@ -214,6 +217,7 @@ export async function createSidecar(
       error instanceof Error ? error.message : String(error),
     );
   }
+  terminateStaleApprovals(storageDirectory);
   const store = createStore(database, storageDirectory);
   // Registro de sockets para eventos push globais (ex.: approval.resolved).
   const connectedSockets = new Set<import("ws").WebSocket>();
@@ -389,8 +393,9 @@ export async function createSidecar(
       ) {
         const input = (await requestBody(request)) as { mode: PermissionMode };
         const workspaceId = pathname.split("/")[3];
+        // Guardada: epoch/gate + revogação de grants daquele workspace.
         writeJson(response, 200, {
-          workspace: store.setWorkspacePermissionMode(workspaceId, input.mode),
+          workspace: await setWorkspacePermissionModeGuarded(workspaceId, input.mode, storageDirectory),
         });
         // Transição de modo reavalia cards pendentes AGORA (#209): allow
         // executa uma vez; caso contrário nega com motivo — sem card órfão.
@@ -433,10 +438,14 @@ export async function createSidecar(
         return;
       }
       if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/select$/.test(pathname)) {
+        // Troca de sessão revoga grants da sessão ANTERIOR (#209).
+        revokeGrants({ sessionId: store.getState().activeSessionId ?? undefined });
         writeJson(response, 200, store.selectSession(pathname.split("/")[3]));
         return;
       }
       if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/select$/.test(pathname)) {
+        // Troca de workspace revoga grants do workspace ANTERIOR.
+        revokeGrants({ workspaceId: store.getState().activeWorkspaceId ?? undefined });
         writeJson(response, 200, store.selectWorkspace(pathname.split("/")[3]));
         return;
       }
@@ -662,7 +671,12 @@ export async function createSidecar(
   });
   const activeRequests = new Map<
     string,
-    { controller: AbortController; socket: import("ws").WebSocket }
+    {
+      controller: AbortController;
+      socket: import("ws").WebSocket;
+      sessionId?: string | null;
+      workspaceId?: string | null;
+    }
   >();
   const queues = new Map<string, Promise<void>>();
 
@@ -1423,7 +1437,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
     // O controller nasce no enfileiramento para que chat.stop e o cleanup de
     // socket alcancem também requests que ainda não começaram a executar.
     const controller = new AbortController();
-    activeRequests.set(input.requestId, { controller, socket });
+    activeRequests.set(input.requestId, {
+      controller,
+      socket,
+      sessionId: input.sessionId ?? null,
+      workspaceId: input.workspaceId ?? null,
+    });
     const current = previous
       .catch(() => undefined)
       .then(() => executeChat(socket, input, controller))
@@ -1463,6 +1482,8 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         if (active) {
           active.controller.abort();
           cancelPendingApprovals(input.requestId, storageDirectory);
+          // Stop encerra grants da sessão do turno (#209).
+          if (active.sessionId) revokeGrants({ sessionId: active.sessionId });
         } else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
         return;
       }
@@ -1498,6 +1519,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         if (active.socket !== socket) continue;
         active.controller.abort();
         cancelPendingApprovals(requestId, storageDirectory);
+        if (active.sessionId) revokeGrants({ sessionId: active.sessionId });
       }
     });
   });
