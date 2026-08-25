@@ -41,7 +41,6 @@ import {
   readBooleanPreference,
   readNumberPreference,
   sidebarCollapsedPreference,
-  vaultCollapsedPreference,
   vaultPanelWidthPreference,
   writeBooleanPreference,
   writeNumberPreference,
@@ -51,14 +50,29 @@ import { Composer } from "./shell/Composer";
 import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
 import { SessionsSidebar } from "./shell/SessionsSidebar";
 import {
+  emptyVaultMemory,
   maximumVaultWidth,
   minimumVaultWidth,
+  type VaultMemory,
   VaultRail,
   VaultSlot,
-  type VaultTab,
 } from "./shell/VaultSlot";
+import {
+  reduceVaultView,
+  type VaultViewState,
+  vaultModePreference as vaultModePreferenceKey,
+} from "./vault-view";
 
 const defaultVaultWidth = 360;
+
+function readStoredVaultMode(): VaultViewState["mode"] {
+  try {
+    const stored = window.localStorage.getItem(vaultModePreferenceKey);
+    return stored === "rail" ? "rail" : "expanded";
+  } catch {
+    return "expanded";
+  }
+}
 
 type WorkspaceShellProps = {
   appState: AppState | null;
@@ -81,7 +95,15 @@ export default function WorkspaceShell({
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"default" | "providers">("default");
-  const [showVault, setShowVault] = useState(Boolean(appState?.activeWorkspaceId));
+  const [vaultView, setVaultView] = useState<VaultViewState>(() => ({
+    mode: readStoredVaultMode(),
+    tab: "files",
+  }));
+  const [vaultMemory, setVaultMemory] = useState<VaultMemory>(emptyVaultMemory);
+  const [vaultRefreshKey, setVaultRefreshKey] = useState(0);
+  // Nota aberta é elevada para o shell: recolher/reabrir o Vault preserva a
+  // leitura sem ação manual (UX do trilho único).
+  const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
   const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null);
   const [sessionMenuPosition, setSessionMenuPosition] = useState<{
     left: number;
@@ -90,11 +112,6 @@ export default function WorkspaceShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     readBooleanPreference(sidebarCollapsedPreference),
   );
-  const [vaultCollapsed, setVaultCollapsed] = useState(() =>
-    readBooleanPreference(vaultCollapsedPreference),
-  );
-  const [vaultTab, setVaultTab] = useState<VaultTab>("files");
-  const [vaultRefreshKey, setVaultRefreshKey] = useState(0);
   const [vaultWidth, setVaultWidth] = useState(() =>
     Math.min(
       maximumVaultWidth,
@@ -111,6 +128,7 @@ export default function WorkspaceShell({
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [switchingSession, setSwitchingSession] = useState(false);
   const [models, setModels] = useState<ProviderModel[]>([]);
+  const [modelsReady, setModelsReady] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
@@ -131,6 +149,7 @@ export default function WorkspaceShell({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const paletteOpenerRef = useRef<HTMLElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const recentSessionsRef = useRef<HTMLElement | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -236,8 +255,16 @@ export default function WorkspaceShell({
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    writeBooleanPreference(vaultCollapsedPreference, vaultCollapsed);
-  }, [vaultCollapsed]);
+    try {
+      window.localStorage.setItem(vaultModePreferenceKey, vaultView.mode);
+    } catch {
+      // Sem storage persistente o estado vivo em memória continua válido.
+    }
+  }, [vaultView.mode]);
+
+  function dispatchVaultView(event: Parameters<typeof reduceVaultView>[1]) {
+    setVaultView((current) => reduceVaultView(current, event));
+  }
 
   useEffect(() => {
     writeNumberPreference(vaultPanelWidthPreference, vaultWidth);
@@ -280,9 +307,10 @@ export default function WorkspaceShell({
     };
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dispatchVaultView só envolve setState (identidade estável); reagir a workspace evita re-disparos.
   useEffect(() => {
     if (!workspace) {
-      setShowVault(false);
+      dispatchVaultView({ type: "workspace-changed", hasWorkspace: false });
       setAttachments([]);
     }
   }, [workspace]);
@@ -317,9 +345,11 @@ export default function WorkspaceShell({
   useEffect(() => {
     if (!activeProvider) {
       setModels([]);
+      setModelsReady(true);
       return;
     }
     let cancelled = false;
+    setModelsReady(false);
     void listStoredProviderModels(activeProvider.id)
       .then((available) => {
         if (cancelled) return;
@@ -336,7 +366,10 @@ export default function WorkspaceShell({
             : unique,
         );
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setModelsReady(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -346,9 +379,13 @@ export default function WorkspaceShell({
     function onShortcut(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setPaletteOpen(true);
+        // Guarda quem abriu por atalho para devolver o foco ao fechar.
+        paletteOpenerRef.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setPaletteOpen((current) => !current);
       }
-      if (event.key === "Escape") setPaletteOpen(false);
+      // Escape é do Radix Dialog: fecha com animação, limpa a busca e
+      // devolve o foco ao elemento que abriu a paleta.
     }
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
@@ -356,22 +393,20 @@ export default function WorkspaceShell({
 
   async function changeModel(model: string) {
     if (!activeSession || !activeProvider) return;
-    try {
-      const session = await setSessionModel(activeSession.id, model, activeProvider.id);
-      setState((current) =>
-        current
-          ? {
-              ...current,
-              recentSessions: current.recentSessions.map((item) =>
-                item.id === session.id ? { ...item, ...session } : item,
-              ),
-              sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
-            }
-          : current,
-      );
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("chat.couldNotChangeTheModel"));
-    }
+    // Sem try/catch: o Composer exibe falha INLINE no próprio menu (#208);
+    // engolir aqui fecharia o menu como sucesso silencioso.
+    const session = await setSessionModel(activeSession.id, model, activeProvider.id);
+    setState((current) =>
+      current
+        ? {
+            ...current,
+            recentSessions: current.recentSessions.map((item) =>
+              item.id === session.id ? { ...item, ...session } : item,
+            ),
+            sessions: current.sessions.map((item) => (item.id === session.id ? session : item)),
+          }
+        : current,
+    );
   }
 
   async function selectProvider(nextProvider: ConnectedProvider) {
@@ -476,7 +511,9 @@ export default function WorkspaceShell({
       }
       setState(nextState);
       setActiveProvider(resolvedProvider);
-      if (wasWithoutWorkspace) setShowVault(true);
+      if (wasWithoutWorkspace) {
+        dispatchVaultView({ type: "workspace-changed", hasWorkspace: true });
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("chat.couldNotOpenTheWorkspace"));
     } finally {
@@ -574,8 +611,7 @@ export default function WorkspaceShell({
         }
       }
       setActiveProvider(resolvedProvider);
-      setShowVault(true);
-      setVaultCollapsed(false);
+      dispatchVaultView({ type: "workspace-changed", hasWorkspace: true });
       setResourceNotice("");
     } catch (reason) {
       // Única ação de fluxo sem tratamento — falha aqui virava unhandled
@@ -762,10 +798,11 @@ export default function WorkspaceShell({
           <Composer
             activeProvider={activeProvider}
             activeSessionId={activeSession?.id}
-            changeModel={(model) => void changeModel(model)}
+            changeModel={changeModel}
             changePermissionMode={(mode) => void changePermissionMode(mode)}
             composerRef={composerRef}
             draft={draft}
+            isModelsLoading={!modelsReady}
             isSending={isSending}
             modelName={modelName}
             models={models}
@@ -854,15 +891,12 @@ export default function WorkspaceShell({
               return;
             }
             setResourceNotice("");
-            setShowVault((current) => {
-              if (!current) setVaultCollapsed(false);
-              return !current;
-            });
+            dispatchVaultView({ type: "toggle-requested", hasWorkspace: true });
           }}
           sessionTitle={activeSession?.title}
           sidebarCollapsed={sidebarCollapsed}
           vaultBlocked={!workspace}
-          vaultOpen={Boolean(workspace && showVault && !vaultCollapsed)}
+          vaultMode={workspace ? vaultView.mode : "rail"}
         />
 
         <div className="flex min-h-0 w-full flex-1">
@@ -890,7 +924,11 @@ export default function WorkspaceShell({
               setOpenSessionMenuId(sessionId);
               setSessionMenuPosition(position);
             }}
-            onTogglePalette={() => setPaletteOpen(true)}
+            onTogglePalette={(event) => {
+              paletteOpenerRef.current =
+                event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+              setPaletteOpen(true);
+            }}
             openSession={(sessionId) => void openSession(sessionId)}
             openSessionMenuId={openSessionMenuId}
             openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
@@ -904,11 +942,10 @@ export default function WorkspaceShell({
           />
 
           {(() => {
-            const vaultOpen = Boolean(showVault && workspace && !vaultCollapsed);
             if (!workspace) {
               return chatArea;
             }
-            if (vaultOpen) {
+            if (vaultView.mode === "expanded") {
               return (
                 <ResizablePanelGroup
                   className="min-h-0 flex-1"
@@ -925,13 +962,20 @@ export default function WorkspaceShell({
                     maxSize={maximumVaultWidth}
                     minSize={minimumVaultWidth}
                   >
-                    <VaultSlot
-                      onCollapse={() => setVaultCollapsed(true)}
-                      onTabChange={setVaultTab}
-                      refreshKey={vaultRefreshKey}
-                      tab={vaultTab}
-                      workspaceId={workspace.id}
-                    />
+                    <div className="h-full" id="bw-vault-panel">
+                      <VaultSlot
+                        memory={vaultMemory}
+                        onMemoryChange={setVaultMemory}
+                        onSelectPath={setSelectedNotePath}
+                        onTabChange={(tab) => {
+                          dispatchVaultView({ type: "tab-changed", tab });
+                        }}
+                        refreshKey={vaultRefreshKey}
+                        selectedPath={selectedNotePath}
+                        tab={vaultView.tab}
+                        workspaceId={workspace.id}
+                      />
+                    </div>
                   </ResizablePanel>
                 </ResizablePanelGroup>
               );
@@ -939,18 +983,15 @@ export default function WorkspaceShell({
             return (
               <>
                 {chatArea}
-                {showVault && workspace && vaultCollapsed && (
-                  <VaultRail
-                    onOpenFiles={() => {
-                      setVaultTab("files");
-                      setVaultCollapsed(false);
-                    }}
-                    onOpenGraph={() => {
-                      setVaultTab("graph");
-                      setVaultCollapsed(false);
-                    }}
-                  />
-                )}
+                <VaultRail
+                  activeTab={vaultView.tab}
+                  onOpenFiles={() => {
+                    dispatchVaultView({ type: "shortcut-activated", tab: "files" });
+                  }}
+                  onOpenGraph={() => {
+                    dispatchVaultView({ type: "shortcut-activated", tab: "graph" });
+                  }}
+                />
               </>
             );
           })()}
@@ -1052,16 +1093,43 @@ export default function WorkspaceShell({
           renameDraft={renameDraft}
           sessionToRename={sessionToRename}
         />
-        {paletteOpen && (
-          <CommandPalette
-            onClose={() => setPaletteOpen(false)}
-            onOpenSession={(sessionId) => void openSession(sessionId)}
-            onOpenSettings={() => setShowSettings(true)}
-            paletteQuery={paletteQuery}
-            recentSessions={recentSessions}
-            setPaletteQuery={setPaletteQuery}
-          />
-        )}
+        <CommandPalette
+          onClose={() => {
+            setPaletteOpen(false);
+            // Retorno de foco determinístico (clique OU atalho).
+            const opener = paletteOpenerRef.current;
+            requestAnimationFrame(() => opener?.focus());
+          }}
+          onFocusModelSelector={
+            activeProvider
+              ? () => {
+                  document
+                    .querySelector<HTMLButtonElement>('[data-testid="provider-chip"]')
+                    ?.focus();
+                }
+              : undefined
+          }
+          onNewSession={() => void newSession()}
+          onOpenNote={
+            workspace
+              ? () => {
+                  dispatchVaultView({ type: "shortcut-activated", tab: "files" });
+                }
+              : undefined
+          }
+          onOpenProfileChooser={() => void onSignOut()}
+          onOpenSession={(sessionId) => void openSession(sessionId)}
+          onOpenProviders={openProvidersCenter}
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenSoulSection={() => {
+            setShowSettings(true);
+            setSettingsSection("default");
+          }}
+          open={paletteOpen}
+          paletteQuery={paletteQuery}
+          recentSessions={recentSessions}
+          setPaletteQuery={setPaletteQuery}
+        />
       </main>
     </ChatRuntimeProvider>
   );

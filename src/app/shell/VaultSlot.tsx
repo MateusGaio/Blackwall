@@ -3,9 +3,16 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/shared/components/motion/Skeleton";
+import type { VaultTab } from "../vault-view";
 import { CompactIcon } from "./CompactIcon";
 
-export type VaultTab = "files" | "graph";
+/** Posição de leitura preservada entre recolher/reabrir o painel. */
+export type VaultMemory = {
+  fileListScrollTop: number;
+  noteScrollTop: number;
+};
+
+export const emptyVaultMemory: VaultMemory = { fileListScrollTop: 0, noteScrollTop: 0 };
 
 export const minimumVaultWidth = 300;
 export const maximumVaultWidth = 680;
@@ -15,49 +22,80 @@ const VaultPanel = lazy(async () => {
   return { default: module.VaultPanel };
 });
 
+type RailButtonProps = {
+  active: boolean;
+  ariaLabel: string;
+  icon: "files" | "graph";
+  label: string;
+  onClick: () => void;
+};
+
+function RailButton({ active, ariaLabel, icon, label, onClick }: RailButtonProps) {
+  return (
+    <button
+      aria-label={ariaLabel}
+      aria-pressed={active}
+      data-active={active || undefined}
+      onClick={onClick}
+      type="button"
+    >
+      <CompactIcon kind={icon} />
+      {/* Tooltip real (hover E focus): title isolado não satisfaz acessibilidade. */}
+      <span className="rail-tooltip" role="tooltip">
+        {label}
+      </span>
+    </button>
+  );
+}
+
 type VaultRailProps = {
+  activeTab: VaultTab;
   onOpenFiles: () => void;
   onOpenGraph: () => void;
 };
 
 /** Estado recolhido do Vault (UX_SPEC §11): coluna estreita com atalhos. */
-export function VaultRail({ onOpenFiles, onOpenGraph }: VaultRailProps) {
+export function VaultRail({ activeTab, onOpenFiles, onOpenGraph }: VaultRailProps) {
   const { t } = useTranslation();
   return (
     <aside aria-label={t("vault.collapsedVault")} className="vault-rail">
-      <button
-        aria-label={t("vault.openVaultFiles")}
+      <RailButton
+        active={activeTab === "files"}
+        ariaLabel={t("vault.openVaultFiles")}
+        icon="files"
+        label={t("vault.files")}
         onClick={onOpenFiles}
-        title={t("vault.files")}
-        type="button"
-      >
-        <CompactIcon kind="files" />
-      </button>
-      <button
-        aria-label={t("vault.openVaultGraph")}
+      />
+      <RailButton
+        active={activeTab === "graph"}
+        ariaLabel={t("vault.openVaultGraph")}
+        icon="graph"
+        label={t("vault.graph")}
         onClick={onOpenGraph}
-        title={t("vault.graph")}
-        type="button"
-      >
-        <CompactIcon kind="graph" />
-      </button>
+      />
     </aside>
   );
 }
 
 type VaultSlotProps = {
-  onCollapse: () => void;
+  memory: VaultMemory;
+  onMemoryChange: (memory: VaultMemory) => void;
+  onSelectPath: (path: string | null) => void;
   onTabChange: (tab: VaultTab) => void;
   refreshKey: number;
+  selectedPath: string | null;
   tab: VaultTab;
   workspaceId: string;
 };
 
 /** Conteúdo do painel do Vault dentro do painel redimensionável. */
 export function VaultSlot({
-  onCollapse,
+  memory,
+  onMemoryChange,
+  onSelectPath,
   onTabChange,
   refreshKey,
+  selectedPath,
   tab,
   workspaceId,
 }: VaultSlotProps) {
@@ -71,9 +109,12 @@ export function VaultSlot({
         }
       >
         <VaultPanel
-          onCollapse={onCollapse}
+          memory={memory}
+          onMemoryChange={onMemoryChange}
+          onSelectPath={onSelectPath}
           onTabChange={onTabChange}
           refreshKey={refreshKey}
+          selectedPath={selectedPath}
           tab={tab}
           workspaceId={workspaceId}
         />

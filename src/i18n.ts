@@ -96,6 +96,22 @@ void i18n.use(initReactI18next).init({
           workspaceName: "Nome do workspace",
           yourName: "Seu nome",
         },
+        palette: {
+          comingSoon: "em breve",
+          editSoul: "Editar Soul",
+          goToAgents: "Ir para Agentes",
+          openVaultNote: "Abrir nota do Vault",
+          requiresWorkspace: "requer workspace",
+          switchProfile: "Trocar perfil",
+        },
+        palette: {
+          comingSoon: "coming soon",
+          editSoul: "Edit Soul",
+          goToAgents: "Go to Agents",
+          openVaultNote: "Open Vault note",
+          requiresWorkspace: "requires workspace",
+          switchProfile: "Switch profile",
+        },
         chat: {
           addAWorkspaceInSettings: "Adicionar workspace nas configurações",
           allowOnce: "Permitir uma vez",
@@ -168,6 +184,7 @@ void i18n.use(initReactI18next).init({
           selectAFolderToConfigure:
             "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace.",
           selectModel: "Escolher modelo",
+          switchingModel: "Trocando modelo…",
           selectProvider: "Selecionar provedor",
           showSidebar: "Mostrar sidebar",
           theFileAndItsLocal: "O arquivo e seu índice local serão removidos deste dispositivo.",
@@ -627,6 +644,7 @@ void i18n.use(initReactI18next).init({
           selectAFolderToConfigure:
             "Select a folder to configure your workspace and use the Vault and graph.",
           selectModel: "Choose a model",
+          switchingModel: "Switching model…",
           selectProvider: "Select provider",
           showSidebar: "Show sidebar",
           theFileAndItsLocal: "The file and its local index will be removed from this device.",

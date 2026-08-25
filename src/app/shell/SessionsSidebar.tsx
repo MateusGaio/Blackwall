@@ -1,4 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+import type React from "react";
 import { type RefObject, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Profile, SessionSummary, Workspace } from "../../shared/api/sidecar";
@@ -21,7 +22,7 @@ type SessionsSidebarProps = {
     sessionId: string | null,
     position: { left: number; top: number } | null,
   ) => void;
-  onTogglePalette: () => void;
+  onTogglePalette: (event: React.MouseEvent<HTMLButtonElement>) => void;
   openSession: (sessionId: string) => void;
   openSessionMenuId: string | null;
   openWorkspace: (workspaceId: string) => void;
@@ -169,7 +170,7 @@ export function SessionsSidebar({
                 </button>
                 {group.workspace ? (
                   <button
-                    className={`min-w-0 flex-1 truncate py-1 text-[0.82rem] focus-visible:outline-none ${
+                    className={`min-w-0 flex-1 truncate py-1 text-left text-[0.82rem] focus-visible:outline-none ${
                       isActiveGroup
                         ? "font-medium text-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -239,7 +240,7 @@ export function SessionsSidebar({
       <div className="border-t border-neutral-800/60 p-2">
         <button
           className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/40 hover:text-foreground focus-visible:bg-neutral-800/40 focus-visible:outline-none"
-          onClick={onTogglePalette}
+          onClick={(event) => onTogglePalette(event)}
           type="button"
         >
           <CompactIcon kind="search" />

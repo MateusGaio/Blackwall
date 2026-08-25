@@ -19,8 +19,8 @@ Este documento existe porque decisão de stack não garante experiência boa —
 ## 2. Navegação
 
 **Decisão: os dois modelos, não um só.**
-- **Sidebar persistente** à esquerda para navegação estrutural, em árvore compacta por projeto (atualizado em 2026-08-24, Issue #200): topo com as ações primárias `Novo` (nova sessão) e a seção `Projetos` com atalho de criação; cada workspace do perfil é um grupo expansível que contém suas sessões — **cada sessão aparece exatamente uma vez, sob o workspace dela**, e sessões sem workspace ficam no grupo `Sem workspace`, sempre por último. Ordenação dentro do grupo: `updatedAt DESC`, desempate `createdAt DESC`; workspaces preservam a ordem de `lastOpenedAt`; o grupo ativo nasce expandido e os demais recolhidos. Clicar no nome do projeto abre o workspace; a seta apenas expande/recolhe; cada sessão tem um único menu de ações (renomear/excluir com confirmação). O rodapé mantém command palette (`Ctrl/Cmd+K`), perfil (avatar 20px) e configurações, sem dominar o espaço. Com a sidebar recolhida, o único toggle fica no header da janela.
-- **Command palette (Cmd/Ctrl+K)** para qualquer ação rápida: trocar de perfil, criar workspace, trocar Soul, trocar modelo, abrir uma nota do Vault por nome, ir para a página de Agentes.
+- **Sidebar persistente** à esquerda para navegação estrutural: Perfil atual no topo → lista de Workspaces do perfil → dentro do workspace, lista de sessões.
+- **Command palette (Cmd/Ctrl+K)** para qualquer ação rápida: nova conversa, abrir sessão recente, criar workspace, central de provedores, configurações. A paleta fica montada persistentemente (controle `open`) para preservar animação de saída e retorno de foco; a busca recomeça vazia a cada abertura. Ações cujo destino ainda não existe (ex.: página Agentes) aparecem desabilitadas com motivo acessível — nunca abrem tela fictícia.
 
 A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer agora" — são complementares, não redundantes.
 
@@ -47,7 +47,7 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 ### 3.2 Bottom pane (composer)
 - Composer único no formato de **linha de prompt**: borda 1px, raio `--radius-control`, prefixo mono `❯`, auto-resize.
 - **Botão enviar↔parar na mesma posição** (`↑` ↔ `⏹` conforme estado) — nunca dois botões disputando lugares diferentes.
-- **Chips inline**: escudo de permissões (`Perguntar sempre` / `Automático` / `Somente leitura` — ausente sem workspace), chip provedor › modelo (popover), anexos como tokens `[arquivo.md]` removíveis.
+- **Chips inline**: escudo de permissões (`Perguntar sempre` / `Automático` / `Somente leitura` — ausente sem workspace), chip **somente modelo** (popover; o provedor é identificado apenas dentro do popover e na central de provedores — nunca no trigger), anexos como tokens `[arquivo.md]` removíveis. A lista de modelos é rolável (`max-height: min(18rem, 50vh)`), com navegação por setas/Home/End/Enter/Escape e o item selecionado já rolado para visível ao abrir; troca de modelo mostra busy e bloqueia cliques repetidos.
 - **Fila visível** (ADR-21): pill `N na fila` com preview da próxima mensagem enfileirada.
 - **Status line como rodapé** (herança U5): provedor › modelo · contexto `▓▓░ %` (botão que abre o dialog de uso) · janela mais restritiva do roteador · fila. Formato mono, discreta, sempre abaixo do composer.
 - Erros de envio como linha mono discreta com ação de retry — nunca modal bloqueante.
@@ -135,6 +135,8 @@ Quando todas as 8 tentativas do fallback (ADR-16) falham, a mensagem é **acion�
 ## 11. Layout responsivo
 
 - **Painéis colapsáveis** (sidebar, painel de grafo dentro do chat) — o usuário pode recolher qualquer painel lateral para focar só no conteúdo central.
+- **Preview Markdown do Vault contido na largura do painel** (300–680px): prosa quebra dentro da coluna; blocos intrinsecamente largos (tabela, código) rolam apenas dentro do próprio bloco; imagens limitadas a 100%. Nenhum scroll horizontal no painel inteiro.
+- **Vault com dois estados e um único controle** (toggle do header): painel completo ou trilho recolhido (~42px) com os atalhos **Arquivos** e **Grafo** (tooltip real em hover e focus). Clique num atalho reabre o painel na aba correspondente; aba, nota aberta e posição de leitura são preservadas entre recolher/reabrir. Sem workspace, nenhum dos dois estados é criado — o botão explica o bloqueio.
 - Redução de janela colapsa painéis automaticamente na ordem de menor prioridade primeiro (grafo lateral → sidebar), nunca corta conteúdo sem dar controle ao usuário sobre isso.
 
 ---

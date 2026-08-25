@@ -34,6 +34,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { cn } from "@/shared/lib/utils";
+import type { VaultTab } from "../../../app/vault-view";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
 import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 import {
@@ -45,15 +46,22 @@ import {
   writeGraphPreferences,
 } from "../graph-preferences";
 
+type VaultMemory = {
+  fileListScrollTop: number;
+  noteScrollTop: number;
+};
+
 type VaultPanelProps = {
-  onCollapse: () => void;
+  memory: VaultMemory;
+  /** Posição de leitura (lista + nota) preservada entre recolher/reabrir. */
+  onMemoryChange: (memory: VaultMemory) => void;
+  onSelectPath: (path: string | null) => void;
   onTabChange: (tab: VaultTab) => void;
   refreshKey?: number;
+  selectedPath: string | null;
   tab: VaultTab;
   workspaceId: string;
 };
-
-type VaultTab = "files" | "graph";
 
 type GraphNode = SimulationNodeDatum & {
   color: string;
@@ -720,18 +728,20 @@ function GraphView({
 }
 
 export function VaultPanel({
-  onCollapse,
+  memory,
+  onMemoryChange,
+  onSelectPath,
   onTabChange,
   refreshKey = 0,
+  selectedPath,
   tab,
   workspaceId,
 }: VaultPanelProps) {
   const { t } = useTranslation();
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState("");
-  const [selectedNotePath, setSelectedNotePath] = useState<string | null>(null);
-  const [fileListScrollTop, setFileListScrollTop] = useState(0);
   const fileListWrapRef = useRef<HTMLDivElement | null>(null);
+  const noteWrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // The increment is the explicit signal that a tool changed workspace files.
@@ -739,7 +749,6 @@ export function VaultPanel({
     let cancelled = false;
     setGraph(null);
     setError("");
-    setSelectedNotePath(null);
     void getVault(workspaceId)
       .then((nextGraph) => {
         if (!cancelled) setGraph(nextGraph);
@@ -753,35 +762,44 @@ export function VaultPanel({
     };
   }, [refreshKey, t, workspaceId]);
 
-  const selectedNote = graph?.files.find((file) => file.path === selectedNotePath) ?? null;
+  // A seleção sobrevive ao refresh quando a nota ainda existe; sumiu, cai
+  // para a lista sem erro — recolher/reabrir nunca perde a leitura.
+  const selectedNote = graph?.files.find((file) => file.path === selectedPath) ?? null;
 
-  function listViewport(): HTMLElement | null {
-    return (
-      fileListWrapRef.current?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ??
-      null
-    );
-  }
+  // Restaura posições de rolagem preservadas após (re)montagem do conteúdo.
+  useEffect(() => {
+    if (!graph) return;
+    const frame = requestAnimationFrame(() => {
+      const listViewport = fileListWrapRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      );
+      if (listViewport && !selectedNote) listViewport.scrollTop = memory.fileListScrollTop;
+      const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      );
+      if (noteViewport && selectedNote) noteViewport.scrollTop = memory.noteScrollTop;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [graph, memory.fileListScrollTop, memory.noteScrollTop, selectedNote]);
 
   function trackListScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
     if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
-      setFileListScrollTop(target.scrollTop);
+      onMemoryChange({ ...memory, fileListScrollTop: target.scrollTop });
+    }
+  }
+
+  function trackNoteScroll(event: UIEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement | null;
+    if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
+      onMemoryChange({ ...memory, noteScrollTop: target.scrollTop });
     }
   }
 
   function openNote(path: string) {
     if (!graph?.files.some((file) => file.path === path)) return;
-    if (!selectedNotePath) setFileListScrollTop(listViewport()?.scrollTop ?? 0);
-    setSelectedNotePath(path);
+    onSelectPath(path);
     onTabChange("files");
-  }
-
-  function closeNote() {
-    setSelectedNotePath(null);
-    requestAnimationFrame(() => {
-      const viewport = listViewport();
-      viewport?.scrollTo({ top: fileListScrollTop });
-    });
   }
 
   return (
@@ -791,26 +809,8 @@ export function VaultPanel({
     >
       <header className="flex items-center justify-between px-4 pt-3 pb-1">
         <strong className="font-mono text-sm tracking-wide">Vault</strong>
-        <Button
-          aria-label={t("vault.collapseVault")}
-          onClick={onCollapse}
-          size="icon-sm"
-          title={t("vault.collapseVault")}
-          variant="ghost"
-        >
-          <svg
-            aria-hidden="true"
-            className="size-4 shrink-0"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M4 5h16v14H4V5Zm5 0v14M15 9l-3 3 3 3" />
-          </svg>
-        </Button>
+        {/* Controle único (comentários 4–5): recolher é atributo do toggle do
+        header; nenhum botão redundante dentro do painel. */}
       </header>
       <Tabs
         className="border-b border-neutral-800/60 px-3 pb-1"
@@ -840,7 +840,7 @@ export function VaultPanel({
             className="flex min-h-0 flex-1 flex-col"
           >
             <div className="px-2 pt-1">
-              <Button onClick={closeNote} size="xs" variant="ghost">
+              <Button onClick={() => onSelectPath(null)} size="xs" variant="ghost">
                 ← {t("vault.files")}
               </Button>
             </div>
@@ -850,7 +850,7 @@ export function VaultPanel({
               </p>
               <h2 className="mt-1 mb-2 text-lg font-medium">{selectedNote.title}</h2>
             </header>
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1" onScrollCapture={trackNoteScroll} ref={noteWrapRef}>
               <ScrollArea className="h-full">
                 <article className="px-4 pb-6">
                   <SafeMarkdown
@@ -866,7 +866,7 @@ export function VaultPanel({
         ) : graph.files.length ? (
           <div ref={fileListWrapRef} className="min-h-0 flex-1" onScrollCapture={trackListScroll}>
             <ScrollArea className="h-full">
-              <FileTree activePath={selectedNotePath} files={graph.files} onOpenFile={openNote} />
+              <FileTree activePath={selectedPath} files={graph.files} onOpenFile={openNote} />
             </ScrollArea>
           </div>
         ) : (
