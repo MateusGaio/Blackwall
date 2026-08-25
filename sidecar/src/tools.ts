@@ -11,6 +11,7 @@ import {
   type PermissionMode,
   type PolicyDecision,
 } from "./tool-policy.js";
+import { normalizeCommandArgs } from "./tool-contract.js";
 
 const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
@@ -495,6 +496,10 @@ export async function executeTool(
   // Commit point da política (Issue #209): o modo é RELIDO imediatamente
   // antes do efeito — nem o modo em cache, nem o modo de cinco minutos atrás.
   const toolClass = classifyTool(input.tool);
+  // Contrato estrito (#210): args inválidos falham AQUI — antes de política,
+  // aprovação ou spawn. Ausente/null → []; não-array → erro estruturado.
+  const commandArgs =
+    input.tool === "execute_command" ? normalizeCommandArgs(input.args.args) : undefined;
   const workspace = await workspaceFor(input.workspaceId, storageDirectory);
   let decision: PolicyDecision = evaluateToolPolicy(
     workspace.permissionMode as PermissionMode,
@@ -656,7 +661,7 @@ export async function executeTool(
       }
       case "execute_command": {
         const command = String(input.args.command ?? "").trim();
-        const args = Array.isArray(input.args.args) ? input.args.args.map(String) : [];
+        const args = commandArgs as string[];
         if (!command) throw new Error("Informe um comando estruturado.");
         const cwd = await safePath(root, String(input.args.cwd ?? "."));
         const { spawn } = await import("node:child_process");
