@@ -93,15 +93,22 @@ describe("ChatThread", () => {
     expect(html).not.toContain("action-bar");
   });
 
-  it("passos de ferramenta consecutivos viram bloco colapsável único", () => {
+  it("passos de ferramenta ficam no chevron APÓS a resposta, sem rótulos antigos (#218)", () => {
     const html = renderThread({
       visibleMessages: [
         { content: "ok", id: "t1", role: "tool", toolCallId: "call-1", toolName: "read_file" },
         { content: "", id: "a1", role: "assistant" },
       ],
     });
-    expect(html).toContain("agiu · 1 ação");
-    expect(html).toContain("ver detalhes");
+    // Disclosure presente na linha de ações, com tooltip acessível e count.
+    expect(html).toContain('data-testid="agent-steps"');
+    expect(html).toContain("Mostrar detalhes de 1 ação");
+    expect(html).toContain('role="tooltip"');
+    // Rótulos antigos eliminados do estado recolhido.
+    expect(html).not.toContain("agiu");
+    expect(html).not.toContain("ver detalhes");
+    expect(html).not.toContain("ocultar");
+    // Conteúdo dos passos só aparece quando expandido.
     expect(html).not.toContain("read_file");
   });
 });

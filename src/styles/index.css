@@ -471,6 +471,13 @@ button:disabled {
   display: block !important;
   /* biome-ignore lint/complexity/noImportantStyles: mesma razão da linha acima. */
   min-width: 0 !important;
+  width: 100%;
+}
+
+/* ScrollArea Root ocupa a largura toda sem propagar largura intrínseca. */
+.vault-slot [data-slot="scroll-area"] {
+  min-width: 0;
+  width: 100%;
 }
 
 .vault-slot .safe-markdown img {
@@ -489,6 +496,16 @@ button:disabled {
 .safe-markdown {
   overflow-wrap: anywhere;
 }
+.vault-slot article {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.vault-slot .safe-markdown {
+  max-width: 100%;
+  min-width: 0;
+}
+
 
 .safe-markdown h1,
 .safe-markdown h2,

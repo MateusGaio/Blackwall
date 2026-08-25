@@ -12,7 +12,20 @@ const startWithoutRegex = /Começar sem um workspace|Start without a workspace/;
 /** Remove perfis remanescentes de testes anteriores (sidecar compartilhado). */
 async function resetToOnboarding(page: Page) {
   await page.goto("/");
+  await page.waitForTimeout(800);
   const chooser = page.getByRole("heading", { name: chooserHeading });
+  // Sessão anterior ativa? Saia pelo settings antes de limpar perfis.
+  if (
+    !(await chooser.isVisible().catch(() => false)) &&
+    (await page.getByTestId("chat-composer").isVisible().catch(() => false))
+  ) {
+    await page
+      .getByRole("button", { name: /Abrir configurações|Open settings/ })
+      .first()
+      .click();
+    await page.getByRole("button", { name: /Sair do perfil|Sign out/ }).click();
+    await expect(chooser).toBeVisible({ timeout: 10_000 });
+  }
   for (let guard = 0; guard < 10; guard += 1) {
     if (!(await chooser.isVisible().catch(() => false))) {
       try {
@@ -120,10 +133,7 @@ async function enterShellWithWorkspace(page: Page, profileName: string, options:
 }
 
 function vaultToggle(page: Page) {
-  return page
-    .locator("header")
-    .getByRole("button", { name: /painel do Vault|Vault panel/ })
-    .first();
+  return page.getByTestId("vault-toggle");
 }
 
 /** Onboarding até o shell SEM workspace (para provas de estado bloqueado). */
@@ -192,6 +202,39 @@ test.describe("feedback 24/08 — comentário 1: Markdown adapta à largura do V
         const articleBox = await article.boundingBox();
         expect(imageBox?.width ?? 0).toBeLessThanOrEqual((articleBox?.width ?? 0) + 1);
       }
+
+      // Parágrafo conhecido quebra em MÚLTIPLAS linhas dentro da coluna.
+      const paragraph = slot
+        .locator(".safe-markdown p")
+        .filter({ hasText: "parágrafo sintético" })
+        .first();
+      const lineInfo = await paragraph.evaluate((element) => ({
+        rects: element.getClientRects().length,
+        height: element.getBoundingClientRect().height,
+        lineHeight: Number(getComputedStyle(element).lineHeight.replace("px", "")) || 18,
+      }));
+      expect(lineInfo.height).toBeGreaterThan(lineInfo.lineHeight * 1.5);
+
+      // Nenhum fragmento de prosa ultrapassa a borda direita do painel.
+      const slotRight = ((await slot.boundingBox())?.x ?? 0) + measured;
+      const overflow = await article.evaluate(
+        (element, limit) => {
+          let worst = 0;
+          for (const child of element.querySelectorAll("p, h1, h2, h3, li, blockquote")) {
+            const rect = child.getBoundingClientRect();
+            if (rect.width > 0) worst = Math.max(worst, rect.right - limit);
+          }
+          return worst;
+        },
+        slotRight,
+      );
+      expect(overflow).toBeLessThanOrEqual(1);
+
+      // Evidência visual do build integrado.
+      await page.screenshot({
+        fullPage: false,
+        path: `test-results/vault-${panelWidth}.png`,
+      });
     });
   }
 });
@@ -329,10 +372,12 @@ test.describe("feedback 24/08 — comentários 4 e 5: toggle único e trilho do 
     const toggle = vaultToggle(page);
     await openVaultFiles(page);
 
-    // Botão interno redundante não pode mais existir dentro do painel.
+    // EXATAMENTE UM controle global do Vault no DOM (#218).
+    await expect(page.getByTestId("vault-toggle")).toHaveCount(1);
     await expect(
       page.locator(".vault-slot").getByRole("button", { name: /Recolher.*Vault|Collapse.*Vault/i }),
     ).toHaveCount(0);
+    await expect(vaultToggle(page)).toHaveAttribute("aria-controls", "bw-vault-panel");
     // aria-controls real apontando para o painel existente.
     await expect(toggle).toHaveAttribute("aria-controls", "bw-vault-panel");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -457,7 +502,7 @@ test.describe("feedback 24/08 — comentário 7: seletor de modelos compacto e r
     await page.getByTestId("profile-option").filter({ hasText: "Perfil Modelos" }).click();
     await expect(page.getByTestId("chat-composer")).toBeVisible();
 
-    const chip = page.getByTestId("provider-chip");
+    const chip = page.getByTestId("model-trigger");
     await expect(chip).toContainText(/sintetico-modelo-001/);
     await chip.click();
     const popover = page.locator('[data-slot="popover-content"], [role="menu"]').last();
@@ -551,5 +596,67 @@ test.describe("feedback 24/08 — comentário 7: seletor de modelos compacto e r
     await expect(chip).toBeFocused();
 
     await mockServer.close();
+  });
+});
+
+test.describe("feedback #218 — ações do agente como chevron pós-resposta", () => {
+  test("chevron discreto após a resposta; rótulos antigos ausentes; clique e teclado expandem", async ({
+    page,
+  }) => {
+    await enterShellWithWorkspace(page, "Perfil Acoes");
+    // Dispara turno agêntico roteirizado (BLACKWALL_E2E_AGENT=1) que executa
+    // ferramentas e finaliza com resposta do assistente.
+    await page.getByTestId("chat-composer").fill("Explore o workspace selecionado");
+    await page.keyboard.press("Enter");
+
+    // Modo ask: aprova cada ferramenta do turno roteirizado.
+    const allowButton = page.getByRole("button", { name: /Permitir uma vez|Allow once/ });
+    await expect(allowButton).toBeVisible({ timeout: 20_000 });
+    for (let guard = 0; guard < 20; guard += 1) {
+      await allowButton.click();
+      await page.waitForTimeout(250);
+      if (!(await allowButton.isVisible().catch(() => false))) break;
+    }
+
+    // Chevron presente (acoplado à resposta ou como fallback de órfãos).
+    const steps = page.getByTestId("agent-steps").first();
+    await expect(steps).toBeVisible({ timeout: 25_000 });
+    const toggle = steps.getByRole("button", { hasText: "" }).first();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Rótulos antigos não existem em lugar nenhum quando recolhido.
+    const bodyText = await page.locator("main").innerText();
+    expect(bodyText).not.toMatch(/agiu ·/);
+    expect(bodyText.toLowerCase()).not.toContain("ver detalhes");
+    expect(bodyText.toLowerCase()).not.toContain("ocultar detalhes");
+
+    // Tooltip acessível no hover (tooltip real, não title).
+    await toggle.hover();
+    await expect(steps.getByRole("tooltip")).toBeVisible();
+
+    // Clique expande: linhas com nome de ferramenta aparecem.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-testid="agent-steps"] li').first()).toContainText(
+      /read_file|list_directory|create_or_update_file|search_text|execute_command/,
+    );
+
+    // Teclado recolhe instantaneamente (Enter).
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Conteúdo expandido permanece dentro da largura do transcript.
+    await toggle.click();
+    const transcript = page.getByTestId("chat-composer").locator("xpath=ancestor::main");
+    const stepBox = await page
+      .locator('[data-testid="agent-steps"] ul')
+      .first()
+      .boundingBox();
+    const mainBox = await transcript.boundingBox();
+    expect(stepBox?.x ?? 0).toBeGreaterThanOrEqual((mainBox?.x ?? 0) - 1);
+    expect((stepBox?.x ?? 0) + (stepBox?.width ?? 0)).toBeLessThanOrEqual(
+      (mainBox?.x ?? 0) + (mainBox?.width ?? 0) + 1,
+    );
   });
 });

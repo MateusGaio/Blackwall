@@ -957,12 +957,13 @@ export default function WorkspaceShell({
                   </ResizablePanel>
                   <ResizableHandle aria-label={t("vault.resizeVaultPanel")} />
                   <ResizablePanel
+                    className="min-w-0"
                     defaultSize={vaultWidth}
                     id="bw-vault"
                     maxSize={maximumVaultWidth}
                     minSize={minimumVaultWidth}
                   >
-                    <div className="h-full" id="bw-vault-panel">
+                    <div className="h-full w-full min-w-0" id="bw-vault-panel">
                       <VaultSlot
                         memory={vaultMemory}
                         onMemoryChange={setVaultMemory}

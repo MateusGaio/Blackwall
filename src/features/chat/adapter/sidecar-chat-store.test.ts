@@ -432,9 +432,7 @@ describe("isolamento de tentativas de fallback (#210)", () => {
     stream.complete({ content: "resposta do candidato B", persisted: false });
 
     await until(() => !harness.store.getSnapshot().isRunning);
-    const assistant = harness.persisted.find(
-      (entry) => entry.message.role === "assistant",
-    );
+    const assistant = harness.persisted.find((entry) => entry.message.role === "assistant");
     expect(assistant?.message.content).toBe("resposta do candidato B");
     expect(String(assistant?.message.content)).not.toContain("parcial");
     // Nenhum texto da tentativa A sobreviveu na thread.

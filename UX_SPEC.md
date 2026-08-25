@@ -136,7 +136,7 @@ Quando todas as 8 tentativas do fallback (ADR-16) falham, a mensagem é **acion�
 
 - **Painéis colapsáveis** (sidebar, painel de grafo dentro do chat) — o usuário pode recolher qualquer painel lateral para focar só no conteúdo central.
 - **Preview Markdown do Vault contido na largura do painel** (300–680px): prosa quebra dentro da coluna; blocos intrinsecamente largos (tabela, código) rolam apenas dentro do próprio bloco; imagens limitadas a 100%. Nenhum scroll horizontal no painel inteiro.
-- **Vault com dois estados e um único controle** (toggle do header): painel completo ou trilho recolhido (~42px) com os atalhos **Arquivos** e **Grafo** (tooltip real em hover e focus). Clique num atalho reabre o painel na aba correspondente; aba, nota aberta e posição de leitura são preservadas entre recolher/reabrir. Sem workspace, nenhum dos dois estados é criado — o botão explica o bloqueio.
+- **Vault com dois estados e um único controle, no TOPO GLOBAL** (decisão do owner, #218): o desenho é o do antigo botão interno — painel dividido com chevron apontando para recolher o painel direito quando expandido e espelhado quando recolhido. Nada dentro de `VaultPanel` o duplica. Estados: painel completo ou trilho (~42px) com atalhos **Arquivos** e **Grafo** (tooltip real em hover e focus). Clique num atalho reabre na aba correspondente; aba, nota e posição de leitura são preservados. Sem workspace, nenhum estado é criado — o botão explica o bloqueio.
 - Redução de janela colapsa painéis automaticamente na ordem de menor prioridade primeiro (grafo lateral → sidebar), nunca corta conteúdo sem dar controle ao usuário sobre isso.
 
 ---

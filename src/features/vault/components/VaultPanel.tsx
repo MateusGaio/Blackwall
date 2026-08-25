@@ -805,7 +805,7 @@ export function VaultPanel({
   return (
     <aside
       aria-label={t("vault.workspaceVault")}
-      className="flex h-full min-h-0 flex-col overflow-hidden"
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
     >
       <header className="flex items-center justify-between px-4 pt-3 pb-1">
         <strong className="font-mono text-sm tracking-wide">Vault</strong>
@@ -837,20 +837,24 @@ export function VaultPanel({
         (selectedNote ? (
           <section
             aria-label={`${t("vault.note")} ${selectedNote.title}`}
-            className="flex min-h-0 flex-1 flex-col"
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
-            <div className="px-2 pt-1">
+            <div className="min-w-0 px-2 pt-1">
               <Button onClick={() => onSelectPath(null)} size="xs" variant="ghost">
                 ← {t("vault.files")}
               </Button>
             </div>
-            <header className="px-4 pt-1">
+            <header className="min-w-0 px-4 pt-1">
               <p className="font-mono text-[0.7rem] tracking-[0.08em] text-muted-foreground uppercase">
                 {selectedNote.path}
               </p>
               <h2 className="mt-1 mb-2 text-lg font-medium">{selectedNote.title}</h2>
             </header>
-            <div className="min-h-0 flex-1" onScrollCapture={trackNoteScroll} ref={noteWrapRef}>
+            <div
+              className="min-h-0 min-w-0 flex-1"
+              onScrollCapture={trackNoteScroll}
+              ref={noteWrapRef}
+            >
               <ScrollArea className="h-full">
                 <article className="px-4 pb-6">
                   <SafeMarkdown

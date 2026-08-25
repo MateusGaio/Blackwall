@@ -15,8 +15,12 @@ type ChatHeaderProps = {
 
 /**
  * Barra de título da janela frameless: zona de arrasto nativa do Tauri v2,
- * toggles espelhados de sidebar/Vault (ícones de painel), título da sessão e
- * controles de janela. Nada aqui duplica o que a sidebar já exibe.
+ * toggle da sidebar, título da sessão e controles de janela.
+ *
+ * Vault tem EXATAMENTE UM controle global (#218, decisão do owner): o
+ * desenho é o do antigo botão interno — painel dividido com chevron que
+ * aponta para recolher o painel direito quando expandido e espelha para
+ * indicar reabertura no rail. Nada dentro de VaultPanel o duplica.
  */
 export function ChatHeader({
   onToggleSidebar,
@@ -48,20 +52,39 @@ export function ChatHeader({
         {sessionTitle ?? t("chat.newConversation")}
       </h1>
       <div className="flex shrink-0 items-center gap-1">
-        {/* Controle ÚNICO do Vault (comentários 4–5): alterna painel completo
-        ↔ trilho; o painel não tem mais botão de recolher próprio. */}
         <button
           aria-controls="bw-vault-panel"
           aria-expanded={vaultExpanded}
           aria-label={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
-          className={`header-toggle ${vaultExpanded ? "is-active" : ""} ${
+          className={`group relative inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/50 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none ${
             vaultBlocked ? "opacity-50" : ""
           }`}
+          data-testid="vault-toggle"
           onClick={onToggleVault}
           title={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
           type="button"
         >
-          <CompactIcon kind="panel-right" />
+          {/* Ícone herdado do antigo controle interno: chevron à esquerda
+          aponta para recolher o painel direito; espelhado quando rail. */}
+          <span
+            aria-hidden="true"
+            className={`inline-block transition-transform duration-[120ms] motion-reduce:transition-none ${
+              vaultExpanded ? "" : "-scale-x-100"
+            }`}
+          >
+            <svg
+              aria-hidden="true"
+              className="size-4 shrink-0"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path d="M4 5h16v14H4V5Zm5 0v14M15 9l-3 3 3 3" />
+            </svg>
+          </span>
         </button>
         <WindowControls />
       </div>

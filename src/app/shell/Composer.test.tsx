@@ -49,7 +49,7 @@ describe("trigger do seletor de modelo", () => {
     // `provedor › modelo`. O provedor permanece interno (roteamento/filtro)
     // mas não pode aparecer no trigger nem no aria-label/title.
     const html = renderToStaticMarkup(<Composer {...baseProps()} />);
-    const chipIndex = html.indexOf('data-testid="provider-chip"');
+    const chipIndex = html.indexOf('data-testid="model-trigger"');
     expect(chipIndex).toBeGreaterThan(0);
     const buttonClose = html.indexOf("</button>", chipIndex);
     const trigger = html.slice(chipIndex, buttonClose);
@@ -60,7 +60,7 @@ describe("trigger do seletor de modelo", () => {
 
   it("aria-label e title do trigger não repetem o provedor", () => {
     const html = renderToStaticMarkup(<Composer {...baseProps()} />);
-    const chipIndex = html.indexOf('data-testid="provider-chip"');
+    const chipIndex = html.indexOf('data-testid="model-trigger"');
     const tagEnd = html.indexOf(">", chipIndex);
     const openTag = html.slice(chipIndex, tagEnd);
     expect(openTag).not.toContain("Mock provider");

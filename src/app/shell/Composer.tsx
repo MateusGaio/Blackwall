@@ -380,8 +380,8 @@ export function Composer({
                 interno para roteamento e é identificado apenas no popover. */}
                 <Button
                   aria-label={`${t("chat.selectModel")}: ${modelName}`}
-                  className="gap-1.5 px-2 font-mono text-xs"
-                  data-testid="provider-chip"
+                  className="max-w-[22ch] gap-1 px-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground max-[420px]:max-w-[120px]"
+                  data-testid="model-trigger"
                   ref={chipRef}
                   size="sm"
                   title={modelName}
@@ -391,10 +391,12 @@ export function Composer({
                   {!selectedModel.trim() && (
                     <span className="text-muted-foreground">{t("chat.selectModel")}</span>
                   )}
-                  <span className="max-w-[24ch] truncate" data-model-trigger-label>
+                  <span className="min-w-0 truncate" data-model-trigger-label>
                     {modelName}
                   </span>
-                  <CompactIcon kind="chevron" />
+                  <span aria-hidden="true" className="[&_svg]:size-3 shrink-0">
+                    <CompactIcon kind="chevron" />
+                  </span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent

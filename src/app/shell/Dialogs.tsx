@@ -143,9 +143,7 @@ export function CommandSurface({
           </CommandItem>
           <CommandItem onSelect={() => run(onOpenProviders)}>{t("composer.providers")}</CommandItem>
           <CommandItem
-            onSelect={
-              onOpenSoulSection ? () => run(onOpenSoulSection) : undefined
-            }
+            onSelect={onOpenSoulSection ? () => run(onOpenSoulSection) : undefined}
             {...(onOpenSoulSection ? {} : { disabled: true, "data-disabled": true })}
           >
             {t("palette.editSoul")}
@@ -159,7 +157,6 @@ export function CommandSurface({
           <CommandItem
             onSelect={onOpenNote ? () => run(onOpenNote) : undefined}
             {...(onOpenNote ? {} : { disabled: true, "data-disabled": true })}
-            
           >
             {t("palette.openVaultNote")}
             {!onOpenNote && (
