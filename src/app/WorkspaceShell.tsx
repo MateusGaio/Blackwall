@@ -1105,7 +1105,7 @@ export default function WorkspaceShell({
             activeProvider
               ? () => {
                   document
-                    .querySelector<HTMLButtonElement>('[data-testid="provider-chip"]')
+                    .querySelector<HTMLButtonElement>('[data-testid="model-trigger"]')
                     ?.focus();
                 }
               : undefined

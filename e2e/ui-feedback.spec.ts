@@ -653,7 +653,7 @@ test.describe("feedback de UI — visibilidade no tema OLED", () => {
     // Fecha o diálogo e abre o popover do chip provedor › modelo.
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await page.getByTestId("provider-chip").click();
+    await page.getByTestId("model-trigger").click();
     expect(await auditOledVisibility(page)).toEqual([]);
   });
 });

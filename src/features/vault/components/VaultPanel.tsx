@@ -766,19 +766,32 @@ export function VaultPanel({
   // para a lista sem erro — recolher/reabrir nunca perde a leitura.
   const selectedNote = graph?.files.find((file) => file.path === selectedPath) ?? null;
 
-  // Restaura posições de rolagem preservadas após (re)montagem do conteúdo.
+  // Restaura posições de rolagem preservadas após (re)montagem. O layout
+  // pode não estar pronto no primeiro frame (Suspense/markdown); tenta em
+  // alguns frames até o scrollTop "pegar".
   useEffect(() => {
     if (!graph) return;
-    const frame = requestAnimationFrame(() => {
+    let attempts = 0;
+    let frame = 0;
+    const apply = () => {
       const listViewport = fileListWrapRef.current?.querySelector<HTMLElement>(
         '[data-slot="scroll-area-viewport"]',
       );
-      if (listViewport && !selectedNote) listViewport.scrollTop = memory.fileListScrollTop;
       const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
         '[data-slot="scroll-area-viewport"]',
       );
-      if (noteViewport && selectedNote) noteViewport.scrollTop = memory.noteScrollTop;
-    });
+      if (listViewport && !selectedNote && memory.fileListScrollTop > 0)
+        listViewport.scrollTop = memory.fileListScrollTop;
+      if (noteViewport && selectedNote && memory.noteScrollTop > 0)
+        noteViewport.scrollTop = memory.noteScrollTop;
+      const target = selectedNote ? noteViewport : listViewport;
+      const wanted = selectedNote ? memory.noteScrollTop : memory.fileListScrollTop;
+      if (wanted > 0 && target && Math.abs(target.scrollTop - wanted) > 1 && attempts < 10) {
+        attempts += 1;
+        frame = requestAnimationFrame(apply);
+      }
+    };
+    frame = requestAnimationFrame(apply);
     return () => cancelAnimationFrame(frame);
   }, [graph, memory.fileListScrollTop, memory.noteScrollTop, selectedNote]);
 
