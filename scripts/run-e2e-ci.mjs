@@ -5,6 +5,7 @@ const playwrightCommand = process.platform === "win32" ? "playwright.cmd" : "pla
 const exitCode = await new Promise((resolve) => {
   const child = spawn(playwrightCommand, ["test", "--forbid-only"], {
     env: { ...process.env, BLACKWALL_E2E_CI: "1" },
+    shell: process.platform === "win32",
     stdio: "inherit",
   });
 
