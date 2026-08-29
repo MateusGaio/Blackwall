@@ -91,3 +91,30 @@ jobs:
         if: runner.os == 'Windows'
         run: New-Item -ItemType Directory -Force -Path desktop-runtime
       - run: cargo check --manifest-path src-tauri/Cargo.toml
+
+  check-required:
+    name: check
+    if: always()
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every check matrix entry
+        run: test "${{ needs.check.result }}" = success
+
+  e2e-required:
+    name: e2e
+    if: always()
+    needs: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every E2E matrix entry
+        run: test "${{ needs.e2e.result }}" = success
+
+  rust-required:
+    name: rust
+    if: always()
+    needs: rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Rust matrix entry
+        run: test "${{ needs.rust.result }}" = success
