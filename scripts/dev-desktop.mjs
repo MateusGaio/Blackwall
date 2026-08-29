@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -7,6 +8,8 @@ const projectDirectory = fileURLToPath(new URL("..", import.meta.url));
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const frontendUrl = process.env.BLACKWALL_DEV_URL ?? "http://127.0.0.1:1420";
 const sidecarUrl = process.env.BLACKWALL_SIDECAR_URL ?? "http://127.0.0.1:1422";
+const suppliedSidecarToken = process.env.BLACKWALL_SIDECAR_TOKEN;
+const sidecarToken = suppliedSidecarToken ?? randomBytes(32).toString("hex");
 const reuseConfig = join(projectDirectory, "src-tauri", "tauri.reuse.conf.json");
 
 async function isHealthy(url, validate) {
@@ -23,17 +26,19 @@ async function isHealthy(url, validate) {
   }
 }
 
-const [frontendReady, sidecarReady] = await Promise.all([
-  isHealthy(`${frontendUrl}/`, (body) => body.includes("Blackwall") || body.includes("root")),
-  isHealthy(`${sidecarUrl}/health`, (body) => {
+const [frontendReady, sidecarReady] = suppliedSidecarToken
+  ? await Promise.all([
+      isHealthy(`${frontendUrl}/`, (body) => body.includes("Blackwall") || body.includes("root")),
+      isHealthy(`${sidecarUrl}/health`, (body) => {
     try {
       const payload = JSON.parse(body);
       return payload.service === "blackwall-sidecar" && payload.status === "ready";
     } catch {
       return false;
     }
-  }),
-]);
+      }),
+    ])
+  : [false, false];
 
 const args = ["exec", "tauri", "--", "dev"];
 if (frontendReady && sidecarReady) {
@@ -47,7 +52,7 @@ args.push(...process.argv.slice(2));
 
 const tauri = spawn(npmCommand, args, {
   cwd: projectDirectory,
-  env: process.env,
+  env: { ...process.env, BLACKWALL_SIDECAR_TOKEN: sidecarToken },
   stdio: "inherit",
 });
 

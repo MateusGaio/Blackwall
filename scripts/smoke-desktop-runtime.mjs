@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
 
 const projectDirectory = fileURLToPath(new URL("..", import.meta.url));
 const runtimeDirectory = resolve(
@@ -20,10 +21,12 @@ if (!existsSync(runtimeNode) || !existsSync(sidecarScript)) {
 
 const storageDirectory = await mkdtemp(join(tmpdir(), "blackwall-runtime-smoke-"));
 const port = 39000 + Math.floor(Math.random() * 1000);
+const sidecarToken = randomBytes(32).toString("hex");
 const child = spawn(runtimeNode, [sidecarScript], {
   env: {
     BLACKWALL_DATA_DIR: storageDirectory,
     BLACKWALL_SIDECAR_PORT: String(port),
+    BLACKWALL_SIDECAR_TOKEN: sidecarToken,
     PATH: process.platform === "win32" ? "" : "/nonexistent",
   },
   stdio: ["ignore", "pipe", "pipe"],

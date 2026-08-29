@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
+import { SIDECAR_WS_PROTOCOL } from "./auth.js";
 import { openDatabase } from "./db/database.js";
 import { createSidecar, healthPayload, SIDECAR_HOST, startFromEnvironment } from "./index.js";
 import { saveProvider } from "./providers.js";
@@ -557,6 +558,43 @@ describe("sidecar health", () => {
 });
 
 describe("sidecar robustez", () => {
+  it("protege HTTP e WebSocket quando o processo recebe um token", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-auth-"));
+    directories.push(directory);
+    const token = "a".repeat(64);
+    const { port, server } = await createSidecar(0, directory, { token });
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+
+    expect((await fetch(`${baseUrl}/v1/state`)).status).toBe(401);
+    expect(
+      (
+        await fetch(`${baseUrl}/v1/state`, {
+          headers: { authorization: "Bearer errado" },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await fetch(`${baseUrl}/v1/state`, {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).status,
+    ).toBe(200);
+
+    const rejected = new WebSocket(`ws://${SIDECAR_HOST}:${port}`, [SIDECAR_WS_PROTOCOL, "errado"]);
+    const rejectedOutcome = await new Promise<number | undefined>((resolve) => {
+      rejected.on("unexpected-response", (_request, response) => resolve(response.statusCode));
+      rejected.on("error", () => undefined);
+    });
+    expect(rejectedOutcome).toBe(401);
+    rejected.terminate();
+
+    const allowed = new WebSocket(`ws://${SIDECAR_HOST}:${port}`, [SIDECAR_WS_PROTOCOL, token]);
+    await once(allowed, "open");
+    allowed.close();
+  });
+
   it("recusa upgrade WebSocket com Origin fora da allowlist e aceita origem permitida", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-origin-"));
     directories.push(directory);

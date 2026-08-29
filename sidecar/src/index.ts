@@ -14,6 +14,14 @@ import {
   saveAttachment,
   searchAttachments,
 } from "./attachments.js";
+import {
+  generateSidecarToken,
+  hasBearerToken,
+  hasWebSocketToken,
+  MAX_HTTP_BODY_BYTES,
+  MAX_WS_PAYLOAD_BYTES,
+  websocketProtocolSelector,
+} from "./auth.js";
 import { type ChatMessage, completeChatMessage } from "./chat.js";
 import {
   availableContextTokens,
@@ -123,22 +131,48 @@ function allowOrigin(
   response: import("node:http").ServerResponse,
 ) {
   const origin = request.headers.origin;
-  if (origin && allowedOrigins.has(origin))
-    response.setHeader("access-control-allow-origin", origin);
-  response.setHeader("access-control-allow-headers", "content-type");
+  if (origin && !allowedOrigins.has(origin)) return false;
+  if (origin) response.setHeader("access-control-allow-origin", origin);
+  response.setHeader("access-control-allow-headers", "authorization, content-type");
   response.setHeader("access-control-allow-methods", "DELETE, GET, PATCH, POST, PUT, OPTIONS");
+  return true;
 }
 
-function requestBody(request: import("node:http").IncomingMessage): Promise<unknown> {
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+function requestBody(
+  request: import("node:http").IncomingMessage,
+  maxBytes = MAX_HTTP_BODY_BYTES,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
+    const contentLength = Number(request.headers["content-length"] ?? 0);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      reject(new HttpError(413, "O corpo do pedido excede o limite permitido."));
+      request.resume();
+      return;
+    }
     request.setEncoding("utf8");
-    request.on("data", (chunk: string) => (body += chunk));
+    request.on("data", (chunk: string) => {
+      body += chunk;
+      if (Buffer.byteLength(body, "utf8") > maxBytes) {
+        reject(new HttpError(413, "O corpo do pedido excede o limite permitido."));
+        request.destroy();
+      }
+    });
     request.on("end", () => {
       try {
         resolve(JSON.parse(body));
       } catch {
-        reject(new Error("O pedido local está inválido."));
+        reject(new HttpError(400, "O pedido local está inválido."));
       }
     });
     request.on("error", reject);
@@ -208,7 +242,16 @@ function appendToolExchange(
 export async function createSidecar(
   port = 0,
   storageDirectory = dataDirectory(),
-): Promise<{ port: number; server: Server }> {
+  options: { token?: string | null } = {},
+): Promise<{ port: number; server: Server; token: string | null }> {
+  // Direct createSidecar calls without a token are kept auth-free only for the
+  // existing in-process Vitest fixtures. Every real process path gets a fresh
+  // token, either from its launcher or from this default.
+  const isTestFixture = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const sidecarToken =
+    options.token !== undefined
+      ? options.token
+      : (process.env.BLACKWALL_SIDECAR_TOKEN ?? (isTestFixture ? null : generateSidecarToken()));
   const database = openDatabase(storageDirectory);
   pruneUsage(database.client);
   // Reconciliação legada e idempotente de duplicatas de provedores (ADR-12:
@@ -233,11 +276,18 @@ export async function createSidecar(
     }
   }
   const server = createServer(async (request, response) => {
-    allowOrigin(request, response);
+    if (!allowOrigin(request, response)) {
+      writeJson(response, 403, { error: "Origem não permitida." });
+      return;
+    }
     if (request.method === "OPTIONS") return response.writeHead(204).end();
     const pathname = new URL(request.url ?? "/", "http://blackwall.local").pathname;
     if (request.url === "/health") {
       writeJson(response, 200, withInstrumentation("sidecar.health", healthPayload));
+      return;
+    }
+    if (pathname.startsWith("/v1/") && !hasBearerToken(request, sidecarToken)) {
+      writeJson(response, 401, { error: "Autorização necessária." });
       return;
     }
     try {
@@ -658,12 +708,16 @@ export async function createSidecar(
       writeJson(response, 404, { error: "Rota local não encontrada." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha local inesperada.";
-      writeJson(response, 400, { error: message });
+      writeJson(response, error instanceof HttpError ? error.status : 400, { error: message });
     }
   });
   server.once("close", () => database.close());
 
-  const socketServer = new WebSocketServer({ noServer: true });
+  const socketServer = new WebSocketServer({
+    handleProtocols: websocketProtocolSelector,
+    maxPayload: MAX_WS_PAYLOAD_BYTES,
+    noServer: true,
+  });
   createRunStore(database.client).recoverInterruptedRuns();
   server.on("upgrade", (request, socket, head) => {
     const { origin } = request.headers;
@@ -674,6 +728,10 @@ export async function createSidecar(
       // end() faz flush da resposta antes do FIN; destroy() descartaria o
       // buffer e o cliente veria apenas um reset sem código HTTP.
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    if (!hasWebSocketToken(request, sidecarToken)) {
+      socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return;
     }
     socketServer.handleUpgrade(request, socket, head, (ws) =>
@@ -1707,14 +1765,16 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       listening = true;
       settled = true;
       const address = server.address() as AddressInfo;
-      resolve({ port: address.port, server });
+      resolve({ port: address.port, server, token: sidecarToken });
     });
   });
 }
 
 export function startFromEnvironment() {
   const requestedPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 0);
-  return createSidecar(requestedPort).then(({ port, server }) => {
+  return createSidecar(requestedPort, dataDirectory(), {
+    token: process.env.BLACKWALL_SIDECAR_TOKEN ?? undefined,
+  }).then(({ port, server }) => {
     console.info(`Blackwall sidecar disponível em ws://${SIDECAR_HOST}:${port}`);
     return { port, server };
   });

@@ -1,7 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import i18n from "i18next";
 import "../../i18n";
-import { sidecarUrl } from "../../platform/runtime";
+import { sidecarConfig } from "../../platform/runtime";
 
 export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
 
@@ -195,13 +195,16 @@ type AttachmentSearchResult = {
 };
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
-  const baseUrl = await sidecarUrl();
+  const config = await sidecarConfig();
+  const baseUrl = config.sidecar_url;
   if (!baseUrl) {
     throw new Error(i18n.t("errors.sidecarDesktopOnly"));
   }
+  const headers = new Headers(init.headers);
+  if (config.sidecar_token) headers.set("authorization", `Bearer ${config.sidecar_token}`);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}${path}`, init);
+    response = await fetch(`${baseUrl}${path}`, { ...init, headers });
   } catch {
     throw new Error(i18n.t("errors.sidecarUnreachable"));
   }
@@ -691,9 +694,11 @@ export async function streamMessage(
   profileId?: string,
   sessionId?: string,
 ): Promise<ActiveStream> {
-  const baseUrl = await sidecarUrl();
+  const config = await sidecarConfig();
+  const baseUrl = config.sidecar_url;
   if (!baseUrl) throw new Error("O sidecar local não está disponível.");
-  const socket = new WebSocket(baseUrl.replace(/^http/, "ws"));
+  const protocols = config.sidecar_token ? ["blackwall.v1", config.sidecar_token] : undefined;
+  const socket = new WebSocket(baseUrl.replace(/^http/, "ws"), protocols);
   const requestId = crypto.randomUUID();
   let content = "";
   let resolveDone: (result: StreamResult) => void = () => undefined;
