@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import type { Profile, ProviderModel } from "../../../../shared/api/sidecar";
+import type { ProviderModel } from "../../../../shared/api/sidecar";
 import type { ProviderForm } from "./providerForm";
 import type { useModelOptions } from "./useModelOptions";
 
@@ -19,14 +19,10 @@ type ProviderFormSectionProps = {
   editingId: string | null;
   error: string;
   form: ProviderForm;
-  isDeletingProfile: boolean;
   isSaving: boolean;
   modelOptions: ReturnType<typeof useModelOptions>;
-  onSignOut: () => Promise<void>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onTest: () => Promise<void>;
-  profile: Profile | null;
-  requestDeleteProfile: () => void;
   reset: () => void;
   setFormField: (field: keyof ProviderForm, value: string) => void;
   status: string;
@@ -38,14 +34,10 @@ export function ProviderFormSection({
   editingId,
   error,
   form,
-  isDeletingProfile,
   isSaving,
   modelOptions,
-  onSignOut,
   onSubmit,
   onTest,
-  profile,
-  requestDeleteProfile,
   reset,
   setFormField,
   status,
@@ -238,26 +230,6 @@ export function ProviderFormSection({
         {editingId && (
           <Button onClick={reset} size="sm" type="button" variant="ghost">
             {t("settings.cancel")}
-          </Button>
-        )}
-        <Button
-          className="text-destructive hover:text-destructive"
-          onClick={() => void onSignOut()}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          {t("settings.signOut")}
-        </Button>
-        {profile && (
-          <Button
-            disabled={isDeletingProfile}
-            onClick={requestDeleteProfile}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            <span className="text-destructive">{t("settings.deleteProfile")}</span>
           </Button>
         )}
       </div>

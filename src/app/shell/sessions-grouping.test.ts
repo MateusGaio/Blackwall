@@ -80,15 +80,30 @@ describe("groupSessionsByWorkspace", () => {
     expect(groups[0].sessionIdOrder).toEqual(["recente", "empate", "antiga"]);
   });
 
-  it("preserva a ordem dos workspaces do estado e destaca o ativo como expandido", () => {
+  it("ordena workspaces pelo chat mais recente e destaca o ativo como expandido", () => {
     const groups = groupSessionsByWorkspace(
-      [session("a1", { workspaceId: "ws-b" }), session("b1", { workspaceId: "ws-a" })],
+      [
+        session("a1", { updatedAt: 700, workspaceId: "ws-b" }),
+        session("b1", { updatedAt: 900, workspaceId: "ws-a" }),
+      ],
       [wsA, wsB],
       "ws-b",
     );
     expect(groups.map((group) => group.workspace?.id)).toEqual(["ws-a", "ws-b"]);
     expect(groups.find((group) => group.workspace?.id === "ws-b")?.isExpandedByDefault).toBe(true);
     expect(groups.find((group) => group.workspace?.id === "ws-a")?.isExpandedByDefault).toBe(false);
+  });
+
+  it("preserva a ordem do estado quando os chats mais recentes empatam", () => {
+    const groups = groupSessionsByWorkspace(
+      [
+        session("b1", { updatedAt: 900, workspaceId: "ws-b" }),
+        session("a1", { updatedAt: 900, workspaceId: "ws-a" }),
+      ],
+      [wsB, wsA],
+      null,
+    );
+    expect(groups.map((group) => group.workspace?.id)).toEqual(["ws-b", "ws-a"]);
   });
 
   it("sem workspace ativo, o grupo 'Sem workspace' nasce expandido", () => {

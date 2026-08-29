@@ -14,7 +14,8 @@ export type SessionGroup = {
  * - cada sessão aparece exatamente uma vez, sob o workspace dela;
  * - `workspaceId === null` vai para o grupo "Sem workspace", sempre por último;
  * - dentro do grupo: `updatedAt DESC`, desempate `createdAt DESC`;
- * - workspaces preservam a ordem do estado (`lastOpenedAt DESC` no sidecar);
+ * - workspaces com chats ordenam pelo chat mais recente;
+ * - empates e workspaces sem chats preservam a ordem original do estado;
  * - o grupo do workspace ativo nasce expandido.
  */
 export function groupSessionsByWorkspace(
@@ -59,7 +60,40 @@ export function groupSessionsByWorkspace(
   }
 
   const withoutWorkspace = groupByWorkspaceId.get(null);
-  const ordered = groups.filter((group) => group !== withoutWorkspace);
+  const workspaceOrder = new Map(groups.map((group, index) => [group, index]));
+  const latestByGroup = new Map<SessionGroup, { createdAt: number; updatedAt: number }>();
+  for (const group of groups) {
+    const latest = group.sessions.reduce<{ createdAt: number; updatedAt: number } | null>(
+      (current, session) => {
+        if (
+          !current ||
+          session.updatedAt > current.updatedAt ||
+          (session.updatedAt === current.updatedAt && session.createdAt > current.createdAt)
+        ) {
+          return { createdAt: session.createdAt, updatedAt: session.updatedAt };
+        }
+        return current;
+      },
+      null,
+    );
+    if (latest) latestByGroup.set(group, latest);
+  }
+  const ordered = groups
+    .filter((group) => group !== withoutWorkspace)
+    .sort((left, right) => {
+      const leftLatest = latestByGroup.get(left);
+      const rightLatest = latestByGroup.get(right);
+      if (!leftLatest && !rightLatest) {
+        return (workspaceOrder.get(left) ?? 0) - (workspaceOrder.get(right) ?? 0);
+      }
+      if (!leftLatest) return 1;
+      if (!rightLatest) return -1;
+      return (
+        rightLatest.updatedAt - leftLatest.updatedAt ||
+        rightLatest.createdAt - leftLatest.createdAt ||
+        (workspaceOrder.get(left) ?? 0) - (workspaceOrder.get(right) ?? 0)
+      );
+    });
   if (withoutWorkspace?.sessions.length) ordered.push(withoutWorkspace);
 
   for (const group of ordered) {

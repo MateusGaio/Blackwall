@@ -226,32 +226,26 @@ describe("modo automático e transições de política (#209)", () => {
     await expect(readFile(join(workspaceRoot, "auto.txt"), "utf8")).resolves.toBe("auto");
   });
 
-  it("automático nega comando com AUTOMATIC_COMMAND_NOT_CONFINED sem card e sem execução", async () => {
+  it("automático executa Bash sem card e preserva o resultado estruturado", async () => {
     const { directory, state, workspaceRoot } = await fixture("automatic");
     let approvals = 0;
-    await expect(
-      executeTool(
-        {
-          args: {
-            args: ["-e", "require('fs').writeFileSync('escape-proof.txt','x')"],
-            command: process.execPath,
-            cwd: ".",
-          },
-          requestId: "req-auto-cmd",
-          sessionId: state.activeSessionId,
-          tool: "execute_command",
-          workspaceId: state.activeWorkspaceId as string,
-        },
-        directory,
-        {
-          onApproval: () => (approvals += 1),
-          onApprovalResolved: () => (approvals += 100),
-        },
-      ),
-    ).rejects.toMatchObject({ code: "AUTOMATIC_COMMAND_NOT_CONFINED" });
+    const result = await executeTool(
+      {
+        args: { command: "printf 'auto' > escape-proof.txt" },
+        requestId: "req-auto-cmd",
+        sessionId: state.activeSessionId,
+        tool: "bash",
+        workspaceId: state.activeWorkspaceId as string,
+      },
+      directory,
+      {
+        onApproval: () => (approvals += 1),
+        onApprovalResolved: () => (approvals += 100),
+      },
+    );
     expect(approvals).toBe(0);
-    // Nenhum subprocesso rodou: o efeito colateral não existe no disco.
-    await expect(readFile(join(workspaceRoot, "escape-proof.txt"))).rejects.toThrow();
+    expect(result).toMatchObject({ exitCode: 0, ok: true });
+    await expect(readFile(join(workspaceRoot, "escape-proof.txt"), "utf8")).resolves.toBe("auto");
   });
 
   it("mudança para read-only durante a espera nega ANTES do efeito (TOCTOU)", async () => {
@@ -558,7 +552,11 @@ describe("contrato estrito de execute_command.args (#210)", () => {
     // STRING: erro estruturado, zero card, zero spawn.
     await expect(
       executeTool(
-        { ...base, args: { args: "-e process.exit(0)", command: process.execPath, cwd: "." }, requestId: "args-str" },
+        {
+          ...base,
+          args: { args: "-e process.exit(0)", command: process.execPath, cwd: "." },
+          requestId: "args-str",
+        },
         directory,
         { onApproval: () => (cards += 1) },
       ),
@@ -567,7 +565,11 @@ describe("contrato estrito de execute_command.args (#210)", () => {
     // OBJETO: mesmo contrato.
     await expect(
       executeTool(
-        { ...base, args: { args: { cmd: "x" }, command: process.execPath, cwd: "." }, requestId: "args-obj" },
+        {
+          ...base,
+          args: { args: { cmd: "x" }, command: process.execPath, cwd: "." },
+          requestId: "args-obj",
+        },
         directory,
         { onApproval: () => (cards += 1) },
       ),

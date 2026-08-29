@@ -26,33 +26,46 @@ export function MessageActions({
   regenerate,
 }: MessageActionsProps) {
   const { t } = useTranslation();
+  const isCopied = copiedMessageId === message.id;
   return (
-    <div className="mt-2 flex gap-1 opacity-70 transition-opacity duration-[120ms] hover:opacity-100">
+    <div className="message-actions mt-2 flex gap-1">
       {message.role === "user" && (
-        <button
-          aria-label={t("chat.editMessage")}
-          className={actionBar}
-          onClick={() => onEditingStart(message)}
-          title={t("chat.edit")}
-          type="button"
-        >
-          <CompactIcon kind="edit" />
-        </button>
+        <>
+          <button
+            aria-label={t("chat.editMessage")}
+            className={actionBar}
+            onClick={() => onEditingStart(message)}
+            title={t("chat.edit")}
+            type="button"
+          >
+            <CompactIcon kind="edit" />
+          </button>
+          <button
+            aria-label={isCopied ? t("chat.copied") : t("chat.copyMessage")}
+            className={actionBar}
+            onClick={() => copyMessage(message)}
+            title={isCopied ? t("chat.copied") : t("chat.copy")}
+            type="button"
+          >
+            <span aria-hidden="true">{isCopied ? "✓" : <CompactIcon kind="copy" />}</span>
+            {isCopied && (
+              <span className="sr-only" role="status">
+                {t("chat.copied")}
+              </span>
+            )}
+          </button>
+        </>
       )}
       {message.role === "assistant" && isLastAssistant && (
         <>
           <button
-            aria-label={t("chat.copyMessage")}
+            aria-label={isCopied ? t("chat.copied") : t("chat.copyMessage")}
             className={actionBar}
             onClick={() => copyMessage(message)}
-            title={copiedMessageId === message.id ? t("chat.copied") : t("chat.copy")}
+            title={isCopied ? t("chat.copied") : t("chat.copy")}
             type="button"
           >
-            {copiedMessageId === message.id ? (
-              <span aria-hidden="true">✓</span>
-            ) : (
-              <CompactIcon kind="copy" />
-            )}
+            {isCopied ? <span aria-hidden="true">✓</span> : <CompactIcon kind="copy" />}
           </button>
           <button
             aria-label={t("chat.regenerateResponse")}

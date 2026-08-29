@@ -324,4 +324,245 @@ export function applyMigrations(client: Database.Database) {
       client.exec("ALTER TABLE messages ADD COLUMN is_summary INTEGER NOT NULL DEFAULT 0");
     client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(10, Date.now());
   }
+
+  const sessionRuns = client.prepare("SELECT id FROM _migrations WHERE id = 11").get();
+  if (!sessionRuns) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS chat_runs (
+          request_id TEXT PRIMARY KEY NOT NULL,
+          session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+          profile_id TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+          state TEXT NOT NULL DEFAULT 'idle',
+          terminal TEXT,
+          terminal_event_sequence INTEGER,
+          finish_reason TEXT,
+          started_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS chat_steps (
+          step_id TEXT PRIMARY KEY NOT NULL,
+          request_id TEXT NOT NULL REFERENCES chat_runs(request_id) ON DELETE CASCADE,
+          round INTEGER NOT NULL,
+          provider_id TEXT,
+          model_id TEXT,
+          attempt INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending',
+          finish_reason TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS chat_tool_calls (
+          call_id TEXT PRIMARY KEY NOT NULL,
+          request_id TEXT NOT NULL REFERENCES chat_runs(request_id) ON DELETE CASCADE,
+          step_id TEXT NOT NULL REFERENCES chat_steps(step_id) ON DELETE CASCADE,
+          sequence INTEGER NOT NULL,
+          tool TEXT NOT NULL,
+          arguments_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          outcome_json TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(request_id, sequence)
+        );
+        CREATE TABLE IF NOT EXISTS chat_run_events (
+          request_id TEXT NOT NULL REFERENCES chat_runs(request_id) ON DELETE CASCADE,
+          sequence INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY(request_id, sequence)
+        );
+        CREATE INDEX IF NOT EXISTS chat_runs_session_state ON chat_runs(session_id, state, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS chat_steps_request_round ON chat_steps(request_id, round, attempt);
+        CREATE INDEX IF NOT EXISTS chat_tool_calls_request_sequence ON chat_tool_calls(request_id, sequence);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(11, Date.now());
+    });
+    transaction();
+  }
+
+  const vaultIndex = client.prepare("SELECT id FROM _migrations WHERE id = 12").get();
+  if (!vaultIndex) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_vault_settings (
+          workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          managed_path TEXT NOT NULL,
+          format_version INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS vault_objects (
+          row_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          portent_id TEXT,
+          path TEXT NOT NULL,
+          title TEXT NOT NULL,
+          type TEXT,
+          status TEXT,
+          content_hash TEXT NOT NULL,
+          source_mtime INTEGER NOT NULL,
+          managed INTEGER NOT NULL DEFAULT 0,
+          body TEXT NOT NULL DEFAULT '',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, path)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS vault_objects_workspace_portent
+          ON vault_objects(workspace_id, portent_id) WHERE portent_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS vault_objects_workspace_updated
+          ON vault_objects(workspace_id, updated_at DESC);
+        CREATE TABLE IF NOT EXISTS vault_relations (
+          relation_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          source_object_id TEXT NOT NULL REFERENCES vault_objects(row_id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          target_ref TEXT NOT NULL,
+          target_object_id TEXT REFERENCES vault_objects(row_id) ON DELETE SET NULL,
+          resolution TEXT NOT NULL,
+          UNIQUE(workspace_id, source_object_id, kind, target_ref)
+        );
+        CREATE INDEX IF NOT EXISTS vault_relations_workspace_source
+          ON vault_relations(workspace_id, source_object_id);
+        CREATE VIRTUAL TABLE IF NOT EXISTS vault_objects_fts USING fts5(
+          object_id UNINDEXED,
+          workspace_id UNINDEXED,
+          title,
+          body,
+          tokenize = 'unicode61'
+        );
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(12, Date.now());
+    });
+    transaction();
+  }
+
+  const memoryTables = client.prepare("SELECT id FROM _migrations WHERE id = 13").get();
+  if (!memoryTables) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS memory_capture_jobs (
+          id TEXT PRIMARY KEY NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+          session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          request_id TEXT NOT NULL,
+          turn_message_id TEXT NOT NULL,
+          source_revision_hash TEXT NOT NULL,
+          trigger TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 0,
+          input_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempts INTEGER NOT NULL DEFAULT 0,
+          available_at INTEGER NOT NULL,
+          locked_at INTEGER,
+          error_code TEXT,
+          cancel_reason TEXT,
+          pipeline_version TEXT NOT NULL DEFAULT 'v1',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS memory_capture_jobs_ready
+          ON memory_capture_jobs(status, available_at, priority DESC);
+        CREATE TABLE IF NOT EXISTS memory_candidates (
+          id TEXT PRIMARY KEY NOT NULL,
+          job_id TEXT NOT NULL REFERENCES memory_capture_jobs(id) ON DELETE CASCADE,
+          scope TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          proposed_type TEXT,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          normalized_key TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          reason_code TEXT NOT NULL,
+          occurrence_count INTEGER NOT NULL DEFAULT 1,
+          disposition TEXT NOT NULL DEFAULT 'pending',
+          expires_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS memory_candidates_dedupe
+          ON memory_candidates(scope, normalized_key, disposition);
+        CREATE TABLE IF NOT EXISTS profile_memories (
+          id TEXT PRIMARY KEY NOT NULL,
+          profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          slot_key TEXT NOT NULL,
+          value TEXT NOT NULL,
+          normalized_key TEXT NOT NULL,
+          statement TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'captured',
+          confidence REAL NOT NULL,
+          evidence_count INTEGER NOT NULL DEFAULT 1,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          first_seen_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          expires_at INTEGER,
+          superseded_by TEXT REFERENCES profile_memories(id) ON DELETE SET NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS profile_memories_active_slot
+          ON profile_memories(profile_id, slot_key) WHERE status != 'archived';
+        CREATE TABLE IF NOT EXISTS profile_memory_settings (
+          profile_id TEXT PRIMARY KEY NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          automatic_enabled INTEGER NOT NULL DEFAULT 0,
+          extractor_mode TEXT NOT NULL DEFAULT 'same_session_model',
+          max_daily_jobs INTEGER NOT NULL DEFAULT 100,
+          candidate_retention_days INTEGER NOT NULL DEFAULT 30,
+          revision_retention_days INTEGER NOT NULL DEFAULT 90,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS memory_evidence (
+          id TEXT PRIMARY KEY NOT NULL,
+          profile_memory_id TEXT REFERENCES profile_memories(id) ON DELETE CASCADE,
+          candidate_id TEXT REFERENCES memory_candidates(id) ON DELETE CASCADE,
+          vault_object_row_id TEXT REFERENCES vault_objects(row_id) ON DELETE CASCADE,
+          session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+          message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+          request_id TEXT NOT NULL,
+          source_role TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          source_revision_hash TEXT NOT NULL,
+          origin TEXT NOT NULL,
+          observed_at INTEGER NOT NULL,
+          CHECK ((profile_memory_id IS NOT NULL) + (candidate_id IS NOT NULL) + (vault_object_row_id IS NOT NULL) = 1)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS memory_evidence_candidate_key
+          ON memory_evidence(candidate_id, message_id, source_revision_hash, origin)
+          WHERE candidate_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS memory_evidence_memory_key
+          ON memory_evidence(profile_memory_id, message_id, source_revision_hash, origin)
+          WHERE profile_memory_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS memory_revisions (
+          id TEXT PRIMARY KEY NOT NULL,
+          job_id TEXT REFERENCES memory_capture_jobs(id) ON DELETE SET NULL,
+          profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+          target_kind TEXT NOT NULL,
+          vault_object_row_id TEXT REFERENCES vault_objects(row_id) ON DELETE CASCADE,
+          profile_memory_id TEXT REFERENCES profile_memories(id) ON DELETE CASCADE,
+          path TEXT,
+          operation TEXT NOT NULL,
+          before_hash TEXT,
+          after_hash TEXT,
+          before_blob TEXT,
+          after_blob TEXT,
+          expected_hash TEXT,
+          actor TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'prepared',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          CHECK ((target_kind = 'vault_object' AND vault_object_row_id IS NOT NULL AND profile_memory_id IS NULL)
+            OR (target_kind = 'profile_memory' AND profile_memory_id IS NOT NULL AND vault_object_row_id IS NULL))
+        );
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(13, Date.now());
+    });
+    transaction();
+  }
 }

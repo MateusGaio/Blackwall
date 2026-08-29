@@ -174,6 +174,16 @@ Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padr
 
 **Decisão:** se o usuário enviar uma nova mensagem enquanto a anterior ainda está sendo processada (no mesmo workspace), ela entra numa fila simples (FIFO) e é exibida como "na fila" até a anterior terminar. Sem paralelismo dentro do mesmo workspace — isso evita respostas se misturando na mesma conversa.
 
+### ADR-22: Vault Portent e camadas de continuidade
+
+**Decisão:** Markdown local é a fonte de verdade do Vault. O subconjunto gerado pelo Blackwall usa `Project`, `Event`, `Note` e `Topic`, lifecycle `captured|organized|archived`, IDs estáveis e relações `belongs_to|related_to`; tipos externos e campos desconhecidos são preservados sem alegar suporte nativo. SQLite mantém somente uma projeção reconstruível (`vault_objects`, `vault_relations` e FTS5), com diagnóstico explícito para links quebrados ou ambíguos. O parser YAML é uma dependência direta porque o contrato exige arrays, escaping e round-trip determinístico.
+
+Histórico é a conversa bruta da sessão; memória de perfil é uma preferência/constraint comportamental durável; Vault é conhecimento de projeto exportável; RAG é uma recuperação futura e não sinônimo de memória. Captura explícita usa detector determinístico e fila idempotente. Captura automática só roda com opt-in persistido, redaction local e segunda chamada técnica identificada como `memory_extract`; nunca grava conteúdo em telemetria.
+
+### ADR-23: Runs, terminal e Bash
+
+**Decisão:** cada request possui uma run persistida, estados não terminais explícitos e exatamente um terminal (`completed|blocked|failed|cancelled`). O terminal é gravado antes da publicação no WebSocket; reinício marca runs interrompidas como canceladas e cancela aprovações pendentes. O contrato público de shell é `bash`, com sintaxe de shell completa, timeout padrão de 120 s, máximo de 600 s e preview de 1 MiB. `automatic` autoriza Bash por decisão explícita do produto: não há sandbox falsa; o usuário deve entender que o comando tem a autoridade do processo host.
+
 ---
 
 ## 3. Stack resumida

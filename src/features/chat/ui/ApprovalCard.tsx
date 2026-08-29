@@ -11,7 +11,12 @@ type ApprovalCardProps = {
 };
 
 /** Ferramentas que alteram arquivos não oferecem "permitir nesta sessão". */
-const SESSION_BLOCKLIST = new Set(["apply_patch", "create_or_update_file", "execute_command"]);
+const SESSION_BLOCKLIST = new Set([
+  "apply_patch",
+  "bash",
+  "create_or_update_file",
+  "execute_command",
+]);
 
 /**
  * Aprovação de ferramenta estilo ApprovalOverlay do Codex TUI: card inline

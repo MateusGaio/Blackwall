@@ -160,7 +160,9 @@ export type ChatMessage = {
 
 export type WorkspaceToolName =
   | "apply_patch"
+  | "bash"
   | "create_or_update_file"
+  | "execute_command"
   | "execute_command"
   | "list_directory"
   | "read_file"

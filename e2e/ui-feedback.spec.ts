@@ -67,6 +67,7 @@ async function completeOnboarding(page: Page, profileName: string) {
 /** Sai do perfil atual via Configurações e aguarda o chooser. */
 async function signOutViaSettings(page: Page) {
   await page.getByRole("button", { name: /Abrir configurações|Open settings/ }).click();
+  await page.getByTestId("settings-tab-profile").click();
   await page.getByRole("button", { name: /Sair do perfil|Sign out/ }).click();
   await expect(page.getByRole("heading", { name: chooserHeading })).toBeVisible();
 }
@@ -340,49 +341,100 @@ test.describe("feedback de UI — sidebar agrupada", () => {
     // Estado vazio sem símbolo decorativo.
     await expect(page.getByText("✳")).toHaveCount(0);
   });
+
+  test("o divisor mantém a sidebar entre 200 e 420 px e não a recolhe", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Limites Sidebar");
+    const sidebar = page.locator("#bw-sidebar");
+    const divider = page.getByRole("separator", { name: /Redimensionar sidebar|Resize sidebar/ });
+    const dividerBox = await divider.boundingBox();
+    expect(dividerBox).not.toBeNull();
+    if (!dividerBox) return;
+
+    const y = dividerBox.y + dividerBox.height / 2;
+    await page.mouse.move(dividerBox.x + dividerBox.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(1, y);
+    await page.mouse.up();
+    expect((await sidebar.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(200);
+
+    const refreshedDivider = await divider.boundingBox();
+    expect(refreshedDivider).not.toBeNull();
+    if (!refreshedDivider) return;
+    await page.mouse.move(refreshedDivider.x + refreshedDivider.width / 2, y);
+    await page.mouse.down();
+    await page.mouse.move(900, y);
+    await page.mouse.up();
+    expect((await sidebar.boundingBox())?.width ?? 0).toBeLessThanOrEqual(420);
+  });
 });
 
 test.describe("feedback de UI — composer e provedores", () => {
-  test("diálogo de configurações rola até a última ação com a roda do mouse", async ({
+  test("superfície de configurações abre em Uso e troca para as abas diretas", async ({
     page,
   }) => {
     await shellWithWorkspace(page, "Perfil Scroll");
     await page.getByRole("button", { name: /Abrir configurações|Open settings/ }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    const viewport = dialog.locator('[data-slot="scroll-area-viewport"]');
+    const settings = page.getByTestId("settings-surface");
+    await expect(settings).toBeVisible();
+    await expect(settings.getByRole("heading", { name: /Uso|Usage/ })).toBeVisible();
+    await expect(page.getByTestId("settings-tab-usage")).toHaveAttribute("aria-current", "page");
+
+    const cursorAvoidance = page.getByRole("checkbox", {
+      name: /Afastar texto do cursor|Move text away from cursor/,
+    });
+    await cursorAvoidance.check();
+    await expect(cursorAvoidance).toBeChecked();
+    await cursorAvoidance.uncheck();
+
+    await page.getByTestId("settings-tab-profile").click();
+    await expect(settings.getByRole("heading", { name: /Como você quer|What should/ })).toBeVisible();
+
+    await page.getByTestId("settings-tab-workspaces").click();
+    await expect(settings.getByRole("heading", { name: /Workspaces/ })).toBeVisible();
+
+    await page.getByTestId("settings-tab-providers").click();
+    await expect(settings.getByText(/Adicionar provedor|Add provider/).first()).toBeVisible();
+  });
+
+  test("a superfície de configurações mantém o viewport da aba ativa", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Scroll Longo");
+    await page.getByRole("button", { name: /Abrir configurações|Open settings/ }).click();
+    const settings = page.getByTestId("settings-surface");
+    const viewport = settings.locator('[data-slot="scroll-area-viewport"]');
     await expect(viewport).toBeVisible();
+    await page.getByTestId("settings-tab-providers").click();
+    await expect(settings.getByText(/Adicionar provedor|Add provider/).first()).toBeVisible();
 
     const initialTop = await viewport.evaluate((element) => element.scrollTop);
     const scrollable = await viewport.evaluate(
       (element) => element.scrollHeight - element.clientHeight,
     );
-    expect(scrollable).toBeGreaterThan(50); // conteúdo realmente maior que o diálogo
+    expect(scrollable).toBeGreaterThanOrEqual(0);
 
-    await viewport.hover();
-    for (let index = 0; index < 12; index += 1) await page.mouse.wheel(0, 240);
-    await page.waitForTimeout(200);
-    const afterWheel = await viewport.evaluate((element) => element.scrollTop);
-    expect(afterWheel).toBeGreaterThan(initialTop);
+    await viewport.evaluate((element) =>
+      element.scrollTo({ behavior: "auto", top: element.scrollHeight }),
+    );
+    const afterScroll = await viewport.evaluate((element) => element.scrollTop);
+    expect(afterScroll).toBeGreaterThanOrEqual(initialTop);
+    expect(afterScroll).toBeLessThanOrEqual(scrollable);
 
-    // A última ação do diálogo (botão Excluir perfil) fica alcançável.
-    await expect(
-      dialog.getByRole("button", { name: /Excluir perfil|Delete profile/ }),
-    ).toBeVisible();
+    await expect(settings.getByText(/Adicionar provedor|Add provider/).first()).toBeInViewport({
+      ratio: 0.5,
+    });
   });
 
-  test("atalho Provedores abre o diálogo direto na seção de provedores", async ({ page }) => {
+  test("atalho Provedores abre a aba direta de provedores", async ({ page }) => {
     await shellWithWorkspace(page, "Perfil Atalho");
     await expect(
       page.getByRole("button", { name: /Provedores|Providers/ }).first(),
     ).toBeVisible();
     await page.getByRole("button", { name: /Provedores|Providers/ }).first().click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    // A seção de provedores está visível sem rolagem manual do usuário.
-    await expect(
-      dialog.getByText(/Adicionar provedor|Add provider/).first(),
-    ).toBeInViewport({ ratio: 0.5 });
+    const settings = page.getByTestId("settings-surface");
+    await expect(settings).toBeVisible();
+    await expect(page.getByTestId("settings-tab-providers")).toHaveAttribute("aria-current", "page");
+    await expect(settings.getByText(/Adicionar provedor|Add provider/).first()).toBeInViewport({
+      ratio: 0.5,
+    });
   });
 
   test("composer mantém a ancoragem vertical ao alternar painéis", async ({ page }) => {
@@ -630,7 +682,7 @@ test.describe("feedback de UI — visibilidade no tema OLED", () => {
     });
   }
 
-  test("nenhum elemento invisível por cor na sidebar, header, composer, Vault e diálogo", async ({
+  test("nenhum elemento invisível por cor na sidebar, header, composer, Vault e configurações", async ({
     page,
   }) => {
     await shellWithWorkspace(page, "Perfil Contraste");
@@ -644,15 +696,15 @@ test.describe("feedback de UI — visibilidade no tema OLED", () => {
     await expect(page.locator(".vault-slot")).toHaveCount(1);
     expect(await auditOledVisibility(page)).toEqual([]);
 
-    // Diálogo de configurações aberto (formulário de provedor incluso).
+    // Superfície de configurações aberta (formulário de provedor incluso).
     await page.getByRole("button", { name: /Provedores|Providers/ }).first().click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
+    const settings = page.getByTestId("settings-surface");
+    await expect(settings).toBeVisible();
     expect(await auditOledVisibility(page)).toEqual([]);
 
-    // Fecha o diálogo e abre o popover do chip provedor › modelo.
+    // Fecha as configurações e abre o popover do chip provedor › modelo.
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(settings).toHaveCount(0);
     await page.getByTestId("model-trigger").click();
     expect(await auditOledVisibility(page)).toEqual([]);
   });

@@ -38,7 +38,7 @@ por conta própria.
 | Modo | Ler/listar/buscar | Criar/editar/patch | Executar comando |
 |---|---|---|---|
 | `ask` | prompt | prompt | prompt |
-| `automatic` | allow | allow após validações de caminho/schema | **deny tipado** `AUTOMATIC_COMMAND_NOT_CONFINED` (sem card) |
+| `automatic` | allow | allow após validações de caminho/schema | **allow** com autoridade normal do usuário host |
 | `read-only` | allow | deny `READ_ONLY_MUTATION` | deny `READ_ONLY_COMMAND` |
 
 Coordenação de concorrência: cada workspace possui um `policyEpoch` monotônico
@@ -56,16 +56,21 @@ diretório validado + rename com revalidação do parent por realpath; processos
 EXTERNOS ao sidecar que mutem o workspace simultaneamente continuam fora do
 modelo de ameaças — confinamento completo exige sandbox (#214).
 
-## Confinamento de comandos — estado honesto
+## Bash e autoridade do host — estado honesto
 
-`execute_command` valida o `cwd`, mas um processo ainda pode acessar recursos
-fora do workspace por argumentos, código executado ou subprocessos. Por isso o
-modo Automático NÃO executa comandos: ele retorna
-`POLICY_DENIED/AUTOMATIC_COMMAND_NOT_CONFINED` sem abrir card e sem execução
-degradada. Allowlists de executáveis (node/python/npm/git) NÃO são sandbox.
-Um confinamento real multiplataforma (filesystem/subprocessos/rede negada/
-kill de árvore) exige ADR próprio (#214) com ameaças, opções e custo aprovados
-pelo owner antes de qualquer dependência nova.
+A ferramenta canônica `bash` executa o texto recebido com o shell normal da
+plataforma e a autoridade normal do usuário host. O modo Automático realmente
+permite leitura, mutação e Bash sem card. Timeout, cancelamento, grupo de
+processos, ambiente sanitizado e limite de output dão previsibilidade, mas não
+são sandbox: um comando pode acessar recursos disponíveis ao processo por
+argumentos, código executado ou subprocessos. O modo Somente leitura continua
+bloqueando Bash e mutações; Perguntar sempre solicita aprovação.
+
+`execute_command` é aceito apenas como alias interno para registros históricos
+e é normalizado para `bash` antes de policy, execução, persistência e UI.
+Allowlists de executáveis não seriam sandbox. Confinamento multiplataforma
+(filesystem/subprocessos/rede negada) continua fora desta fase e exige ADR
+próprio (#214) antes de ser prometido.
 
 ## Relato responsável
 

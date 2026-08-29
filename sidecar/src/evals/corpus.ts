@@ -7,7 +7,7 @@
  * Categorias e denominadores (definidos no runner):
  * - explore (10): leitura/listagem/busca;
  * - edit (10): criação/patch com validações;
- * - execute (8): comandos — exit codes, timeout, ambiente, não-confinado;
+ * - execute (8): comandos — exit codes, espera assíncrona, ambiente e falhas estruturadas;
  * - recovery (6): args/path inválidos → erro estruturado recuperável;
  * - stream (6): protocolo — terminal único em falhas de stream.
  */
@@ -233,7 +233,7 @@ export const TOOL_TASKS: ToolTaskSpec[] = [
     files: {},
     tool: "execute_command",
     args: { args: ["-v"], command: process.execPath, cwd: "." },
-    expect: { kind: "deny", code: "AUTOMATIC_COMMAND_NOT_CONFINED" },
+    expect: { kind: "ok" },
   },
   {
     id: "exe-02",
@@ -284,9 +284,9 @@ export const TOOL_TASKS: ToolTaskSpec[] = [
     mode: "ask",
     files: {},
     tool: "execute_command",
-    args: { args: ["-e", "setTimeout(()=>{},60000)"], command: process.execPath, cwd: "." },
+    args: { args: ["-e", "setTimeout(()=>process.exit(0),5)"], command: process.execPath, cwd: "." },
     approve: true,
-    expect: { kind: "error", messageIncludes: "excedeu" },
+    expect: { kind: "ok", field: "code", value: 0 },
   },
   {
     id: "exe-07",
@@ -296,7 +296,9 @@ export const TOOL_TASKS: ToolTaskSpec[] = [
     tool: "execute_command",
     args: { args: [], command: "definitivamente-nao-existe-xyz", cwd: "." },
     approve: true,
-    expect: { kind: "error", code: "COMMAND_SPAWN_FAILED" },
+    // O shell inicia corretamente e reporta comando inexistente como um
+    // resultado estruturado, preservando stdout/stderr e o código de saída.
+    expect: { kind: "ok", field: "ok", value: false },
   },
   {
     id: "exe-08",

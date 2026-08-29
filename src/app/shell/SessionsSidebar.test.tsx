@@ -3,7 +3,7 @@ import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import "../../i18n";
-import type { Workspace } from "../../shared/api/sidecar";
+import type { SessionSummary, Workspace } from "../../shared/api/sidecar";
 import { SessionsSidebar } from "./SessionsSidebar";
 
 const workspace = {
@@ -19,6 +19,7 @@ function baseProps(overrides: Partial<Props> = {}): Props {
     activeProfile: undefined,
     activeSessionId: undefined,
     collapsed: false,
+    cursorAvoidanceEnabled: false,
     hasActiveProfile: true,
     isCreatingSession: false,
     name: "Mateus",
@@ -26,17 +27,14 @@ function baseProps(overrides: Partial<Props> = {}): Props {
     newWorkspace: () => undefined,
     onDeleteRequest: () => undefined,
     onRenameRequest: () => undefined,
-    onRequestCloseMenu: () => undefined,
-    onToggleSessionMenu: () => undefined,
     onTogglePalette: () => undefined,
     openSession: () => undefined,
-    openSessionMenuId: null,
     openWorkspace: () => undefined,
     recentSessions: [],
     recentSessionsRef: { current: null },
-    sessionMenuPosition: null,
     settingsButtonRef: { current: null },
-    setShowSettings: () => undefined,
+    openSettings: () => undefined,
+    setCursorAvoidanceEnabled: () => undefined,
     workspace,
     workspaces: [workspace],
     ...overrides,
@@ -61,5 +59,34 @@ describe("alinhamento do projeto na sidebar", () => {
       return;
     }
     throw new Error(`botão do projeto não encontrado no markup: ${html.slice(0, 400)}`);
+  });
+
+  it("mantém renomear e excluir como ações diretas da conversa", () => {
+    const session = {
+      createdAt: 1,
+      id: "s1",
+      profileId: "p1",
+      selectedModel: null,
+      selectedProviderId: null,
+      title: "Nova conversa",
+      updatedAt: 2,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    } as SessionSummary;
+    const html = renderToStaticMarkup(
+      <SessionsSidebar {...baseProps({ recentSessions: [session] })} />,
+    );
+
+    expect(html).toContain('aria-label="Renomear Nova conversa"');
+    expect(html).toContain('aria-label="Excluir Nova conversa"');
+    expect(html).not.toContain('aria-haspopup="menu"');
+    expect(html).not.toContain("…");
+  });
+
+  it("abre configurações ao clicar em toda a linha do perfil", () => {
+    const html = renderToStaticMarkup(<SessionsSidebar {...baseProps()} />);
+
+    expect(html).toContain('aria-label="Abrir configurações"');
+    expect(html).not.toContain('data-testid="settings-tabs"');
   });
 });

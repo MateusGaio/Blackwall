@@ -68,6 +68,8 @@ describe("ChatThread", () => {
     expect(html).toContain("message-assistant");
     expect(html).toContain("Pergunta do usuário");
     expect(html).toContain("<strong>Resposta</strong>");
+    expect(html).toContain("› você");
+    expect(html).not.toContain("● Blackwall");
     expect(html).toContain('data-state="entered"');
   });
 

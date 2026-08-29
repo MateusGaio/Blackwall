@@ -21,25 +21,17 @@ describe("matriz de política de ferramentas (#209)", () => {
 
     expect(evaluateToolPolicy("automatic", "read")).toEqual({ kind: "allow" });
     expect(evaluateToolPolicy("automatic", "mutate")).toEqual({ kind: "allow" });
-    expect(evaluateToolPolicy("automatic", "command")).toMatchObject({
-      kind: "deny",
-      reasonCode: "AUTOMATIC_COMMAND_NOT_CONFINED",
-    });
+    expect(evaluateToolPolicy("automatic", "command")).toEqual({ kind: "allow" });
 
     expect(evaluateToolPolicy("read-only", "read")).toEqual({ kind: "allow" });
     expect(evaluateToolPolicy("read-only", "mutate").kind).toBe("deny");
     expect(evaluateToolPolicy("read-only", "command").kind).toBe("deny");
   });
 
-  it("automático nunca converte deny de segurança em prompt", () => {
+  it("automático permite Bash com autoridade explícita do host", () => {
     for (let round = 0; round < modes.length; round += 1) {
       const decision = evaluateToolPolicy(modes[round] as PermissionMode, "command");
-      if (modes[round] === "automatic") {
-        expect(decision).toMatchObject({
-          kind: "deny",
-          reasonCode: "AUTOMATIC_COMMAND_NOT_CONFINED",
-        });
-      }
+      if (modes[round] === "automatic") expect(decision).toEqual({ kind: "allow" });
     }
   });
 
@@ -56,7 +48,7 @@ describe("matriz de política de ferramentas (#209)", () => {
   it("negativas carregam mensagem útil para o usuário", () => {
     const readOnly = evaluateToolPolicy("read-only", "mutate");
     expect(readOnly.kind === "deny" && readOnly.userMessage).toContain("somente leitura");
-    const unconfined = evaluateToolPolicy("automatic", "command");
-    expect(unconfined.kind === "deny" && unconfined.userMessage).toContain("confinamento");
+    const automatic = evaluateToolPolicy("automatic", "command");
+    expect(automatic).toEqual({ kind: "allow" });
   });
 });

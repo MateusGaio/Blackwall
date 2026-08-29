@@ -6,18 +6,29 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { resolveVaultLink, wikilinksToMarkdown } from "../../features/vault/note-links";
 import type { VaultFile } from "../api/sidecar";
+import { CursorAvoidingParagraph } from "./CursorAvoidingParagraph";
 
 type SafeMarkdownProps = {
   content: string;
   currentPath?: string;
   files?: VaultFile[];
   onLocalLink?: (path: string) => void;
+  cursorAvoidanceEnabled?: boolean;
+  streaming?: boolean;
 };
 
 // Identidade estável: um `files = []` literal por render mataria o memo.
 const NO_FILES: VaultFile[] = [];
 
-function CodeBlock({ children }: { children: ReactNode }) {
+function CodeBlock({
+  children,
+  cursorAvoidanceEnabled,
+  streaming,
+}: {
+  children: ReactNode;
+  cursorAvoidanceEnabled: boolean;
+  streaming: boolean;
+}) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const textContent = (node: ReactNode): string => {
@@ -38,7 +49,15 @@ function CodeBlock({ children }: { children: ReactNode }) {
       >
         {copied ? t("chat.copied") : t("chat.copy")}
       </button>
-      <pre>{children}</pre>
+      <CursorAvoidingParagraph
+        as="pre"
+        className="cursor-pretext-code"
+        enabled={cursorAvoidanceEnabled}
+        preformatted
+        streaming={streaming}
+      >
+        {children}
+      </CursorAvoidingParagraph>
     </div>
   );
 }
@@ -48,6 +67,8 @@ function SafeMarkdownImpl({
   currentPath,
   files = NO_FILES,
   onLocalLink,
+  cursorAvoidanceEnabled = false,
+  streaming = false,
 }: SafeMarkdownProps) {
   const { t } = useTranslation();
   // Durante o streaming cada delta re-renderiza a thread; sem este memo o
@@ -57,6 +78,105 @@ function SafeMarkdownImpl({
     <div className="safe-markdown">
       <ReactMarkdown
         components={{
+          p: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          h1: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="h1"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          h2: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="h2"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          h3: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="h3"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          h4: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="h4"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          h5: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="h5"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          h6: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="h6"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          li: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="li"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          th: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="th"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
+          td: ({ children, className }) => (
+            <CursorAvoidingParagraph
+              as="td"
+              className={className}
+              enabled={cursorAvoidanceEnabled}
+              streaming={streaming}
+            >
+              {children}
+            </CursorAvoidingParagraph>
+          ),
           a: ({ children, href = "" }) => {
             const localPath = onLocalLink ? resolveVaultLink(currentPath, href, files) : null;
             if (localPath && onLocalLink) {
@@ -91,7 +211,11 @@ function SafeMarkdownImpl({
               </a>
             );
           },
-          pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+          pre: ({ children }) => (
+            <CodeBlock cursorAvoidanceEnabled={cursorAvoidanceEnabled} streaming={streaming}>
+              {children}
+            </CodeBlock>
+          ),
         }}
         rehypePlugins={[rehypeSanitize]}
         remarkPlugins={[remarkGfm]}

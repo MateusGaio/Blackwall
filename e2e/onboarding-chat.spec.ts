@@ -91,6 +91,9 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
       .evaluate((element) => element.getBoundingClientRect().height);
     expect(graphHeight).toBeGreaterThan(slotHeight * 0.55);
     expect(graphBackground).toBe("rgb(10, 10, 11)");
+    await graphCanvas.hover();
+    for (let index = 0; index < 60; index += 1) await page.mouse.wheel(0, 240);
+    await expect(graphCanvas).toHaveAttribute("data-zoom", "0.15");
     await page.getByRole("button", { name: /Esconder sidebar|Hide sidebar/ }).click();
     await expect(page.getByRole("button", { name: /Mostrar sidebar|Show sidebar/ })).toBeVisible();
     await expect(page.getByRole("img", { name: "Blackwall" })).toBeHidden();

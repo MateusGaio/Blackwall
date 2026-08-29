@@ -44,8 +44,8 @@ describe("streaming de provedores", () => {
         { content: '{"entries":[]}', name: "list_directory", role: "tool" },
       ])?.toolCalls[0],
     ).toMatchObject({
-      arguments: '{"command":"node --version","cwd":"/workspace"}',
-      name: "execute_command",
+      arguments: '{"command":"node --version","workdir":"/workspace"}',
+      name: "bash",
     });
   });
   it("rejeita streaming com modelo vazio e erro acionável", async () => {

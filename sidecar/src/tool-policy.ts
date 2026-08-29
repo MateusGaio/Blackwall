@@ -10,7 +10,7 @@
  * Matriz:
  * | modo       | ler/listar/buscar | criar/editar/patch   | executar comando      |
  * | ask        | prompt            | prompt               | prompt                |
- * | automatic  | allow             | allow após validações| deny tipado (sandbox) |
+ * | automatic  | allow             | allow após validações| allow                 |
  * | read-only  | allow             | deny                 | deny                  |
  */
 
@@ -24,13 +24,11 @@ export type PolicyDecision =
   | { kind: "prompt"; reasonCode: "ASK_MODE" }
   | {
       kind: "deny";
-      reasonCode: "READ_ONLY_MUTATION" | "READ_ONLY_COMMAND" | "AUTOMATIC_COMMAND_NOT_CONFINED";
+      reasonCode: "READ_ONLY_MUTATION" | "READ_ONLY_COMMAND";
       userMessage: string;
     };
 
 const USER_MESSAGES = {
-  AUTOMATIC_COMMAND_NOT_CONFINED:
-    "O modo Automático não executa comandos ainda: não há confinamento comprovado de subprocessos nesta plataforma. Use o modo Perguntar sempre para aprovar este comando.",
   READ_ONLY_COMMAND: "O workspace está em modo somente leitura; executar comandos foi bloqueado.",
   READ_ONLY_MUTATION: "O workspace está em modo somente leitura; esta ação foi bloqueada.",
 } as const;
@@ -41,7 +39,8 @@ export function classifyTool(tool: string): PolicyToolClass {
     case "apply_patch":
     case "create_or_update_file":
       return "mutate";
-    case "execute_command":
+    case "bash":
+    case "execute_command": // alias de histórico; chamadas novas usam bash
       return "command";
     case "list_directory":
     case "read_file":
@@ -78,13 +77,8 @@ export function evaluateToolPolicy(
       };
     return { kind: "allow" };
   }
-  // automatic
-  if (toolClass === "command")
-    return {
-      kind: "deny",
-      reasonCode: "AUTOMATIC_COMMAND_NOT_CONFINED",
-      userMessage: USER_MESSAGES.AUTOMATIC_COMMAND_NOT_CONFINED,
-    };
-  // Leitura e mutação de arquivos são confinadas por safePath/realpath.
+  // automatic: Bash roda com a autoridade normal do usuário host. Timeouts,
+  // cancelamento, ambiente deliberado e output limitado dão previsibilidade,
+  // mas não são sandbox.
   return { kind: "allow" };
 }

@@ -23,6 +23,7 @@ async function resetToOnboarding(page: Page) {
       .getByRole("button", { name: /Abrir configurações|Open settings/ })
       .first()
       .click();
+    await page.getByTestId("settings-tab-profile").click();
     await page.getByRole("button", { name: /Sair do perfil|Sign out/ }).click();
     await expect(chooser).toBeVisible({ timeout: 10_000 });
   }
@@ -52,6 +53,7 @@ async function resetToOnboarding(page: Page) {
       .getByRole("button", { name: /Abrir configurações|Open settings/ })
       .first()
       .click();
+    await page.getByTestId("settings-tab-profile").click();
     await page.getByRole("button", { name: /Sair do perfil|Sign out/ }).click();
   }
   await expect(setupRegion).toBeVisible({ timeout: 15_000 });
@@ -104,7 +106,7 @@ async function enterShellWithWorkspace(page: Page, profileName: string, options:
       '![imagem sintética](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR42mP8z8AARIQBEwMDAwJkAgOYIgEAAAAASUVORK5CYII=)',
       "",
       "Este parágrafo sintético existe para verificar quebra de linha dentro do painel do Vault em larguras reduzidas. ".repeat(
-        4,
+        10,
       ),
       "",
       "| Coluna A | Coluna B | Coluna C | Coluna D | Coluna E |",
@@ -275,7 +277,7 @@ test.describe("feedback 24/08 — comentário 2: paleta de comandos", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(searchButton).toBeFocused();
 
-    // 2) Enter EXECUTA o handler observável (Provedores → diálogo na seção).
+    // 2) Enter EXECUTA o handler observável (Provedores → aba na seção).
     await page.keyboard.press("ControlOrMeta+k");
     await expect(page.getByRole("dialog").getByRole("option").first()).toBeVisible();
     // ArrowDown navega; seleção visível no item.
@@ -293,14 +295,15 @@ test.describe("feedback 24/08 — comentário 2: paleta de comandos", () => {
       .fill(needle);
     await expect(page.getByRole("dialog").getByRole("option")).toHaveCount(1);
     await page.keyboard.press("Enter");
-    // O diálogo da central de provedores é o que contém a seção.
-    await expect(
-      page
-        .getByRole("dialog")
-        .filter({ hasText: /Provedores|Providers/i })
-        .first(),
-    ).toBeVisible();
-    // Fecha QUALQUER diálogo remanescente para o próximo bloco.
+    // A superfície central de configurações está na aba de provedores.
+    await expect(page.getByTestId("settings-surface")).toBeVisible();
+    await expect(page.getByTestId("settings-tab-providers")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Fecha as configurações para o próximo bloco.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(220);
     while ((await page.getByRole("dialog").count()) > 0) {
       await page.keyboard.press("Escape");
       await page.waitForTimeout(50);

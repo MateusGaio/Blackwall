@@ -5,19 +5,20 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { dataDirectory, openSharedDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
+import { normalizeToolArguments } from "./tool-contract.js";
 import {
   classifyTool,
   evaluateToolPolicy,
   type PermissionMode,
   type PolicyDecision,
 } from "./tool-policy.js";
-import { normalizeCommandArgs } from "./tool-contract.js";
 
 const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
-const maxCommandCaptureChars = 1_000_000;
-const commandTimeoutMs = 15_000;
-const commandKillGraceMs = 2_000;
+const maxCommandCaptureBytes = 1_048_576;
+const defaultCommandTimeoutMs = 120_000;
+const maxCommandTimeoutMs = 600_000;
+const commandKillGraceMs = 3_000;
 const ignoredDirectoryNames = new Set([
   ".cache",
   ".git",
@@ -72,6 +73,7 @@ const commandEnvironmentKeys = [
 
 export type ToolName =
   | "apply_patch"
+  | "bash"
   | "create_or_update_file"
   | "execute_command"
   | "list_directory"
@@ -100,6 +102,7 @@ type ToolExecutionOptions = {
   onApproval?: (approval: ApprovalRequest) => void;
   /** Evento para o cliente remover o ApprovalCard mesmo sem ação do botão. */
   onApprovalResolved?: (event: { requestId: string; status: string }) => void;
+  signal?: AbortSignal;
 };
 
 /** Negação de POLÍTICA (não de execução): carrega código estável + mensagem. */
@@ -493,13 +496,15 @@ export async function executeTool(
   storageDirectory = dataDirectory(),
   options: ToolExecutionOptions = {},
 ) {
+  const canonicalTool = input.tool === "execute_command" ? "bash" : input.tool;
+  const executionArgs =
+    input.tool === "execute_command"
+      ? normalizeToolArguments("execute_command", input.args)
+      : input.args;
+  const canonicalInput = { ...input, args: executionArgs, tool: canonicalTool } as ToolInput;
   // Commit point da política (Issue #209): o modo é RELIDO imediatamente
   // antes do efeito — nem o modo em cache, nem o modo de cinco minutos atrás.
-  const toolClass = classifyTool(input.tool);
-  // Contrato estrito (#210): args inválidos falham AQUI — antes de política,
-  // aprovação ou spawn. Ausente/null → []; não-array → erro estruturado.
-  const commandArgs =
-    input.tool === "execute_command" ? normalizeCommandArgs(input.args.args) : undefined;
+  const toolClass = classifyTool(canonicalTool);
   const workspace = await workspaceFor(input.workspaceId, storageDirectory);
   let decision: PolicyDecision = evaluateToolPolicy(
     workspace.permissionMode as PermissionMode,
@@ -510,18 +515,22 @@ export async function executeTool(
   }
 
   if (decision.kind === "prompt") {
-    const key = `${workspace.id}:${input.sessionId ?? ""}:${input.tool}`;
+    const key = `${workspace.id}:${input.sessionId ?? ""}:${canonicalTool}`;
     if (!sessionApprovals.has(key)) {
       const requestId = input.requestId ?? randomUUID();
       const approval: ApprovalRequest = {
         id: randomUUID(),
         requestId,
         sessionId: input.sessionId ?? null,
-        tool: input.tool,
+        tool: canonicalTool,
         workspaceId: input.workspaceId,
       };
       options.onApproval?.(approval);
-      const decided = await requestApproval({ ...input, requestId }, storageDirectory, approval);
+      const decided = await requestApproval(
+        { ...canonicalInput, requestId },
+        storageDirectory,
+        approval,
+      );
       if (decided === "deny") {
         const policyMessage = policyDeniedMessages.get(requestId);
         policyDeniedMessages.delete(requestId);
@@ -540,7 +549,7 @@ export async function executeTool(
   }
 
   const runEffect = async (root: string): Promise<unknown> => {
-    switch (input.tool) {
+    switch (canonicalTool) {
       case "list_directory": {
         const path = await safePath(root, String(input.args.path || "."));
         const entries = await readdir(path, { withFileTypes: true });
@@ -659,52 +668,137 @@ export async function executeTool(
         );
         return { path: relative(root, path) };
       }
-      case "execute_command": {
-        const command = String(input.args.command ?? "").trim();
-        const args = commandArgs as string[];
+      case "bash": {
+        const command = String(executionArgs.command ?? "").trim();
         if (!command) throw new Error("Informe um comando estruturado.");
-        const cwd = await safePath(root, String(input.args.cwd ?? "."));
+        const cwd = await safePath(root, String(executionArgs.workdir ?? executionArgs.cwd ?? "."));
         const { spawn } = await import("node:child_process");
         const env = Object.fromEntries(
           commandEnvironmentKeys.flatMap((key) =>
             process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
           ),
         );
-        return new Promise<{ code: number | null; stderr: string; stdout: string }>(
-          (resolveCommand, reject) => {
-            const child = spawn(command, args, { cwd, env, shell: false });
-            let stdout = "";
-            let stderr = "";
-            let killTimer: NodeJS.Timeout | undefined;
-            const timer = setTimeout(() => {
-              child.kill("SIGTERM");
-              // Processo que ignora SIGTERM não emite close — sem o SIGKILL de
-              // escalão a promessa (e o turno inteiro) fica pendurada para sempre.
-              killTimer = setTimeout(() => child.kill("SIGKILL"), commandKillGraceMs);
-              reject(new Error("O comando excedeu o limite de 15 segundos."));
-            }, commandTimeoutMs);
-            child.stdout.on("data", (chunk: Buffer) => {
-              if (stdout.length < maxCommandCaptureChars) stdout += chunk.toString();
-            });
-            child.stderr.on("data", (chunk: Buffer) => {
-              if (stderr.length < maxCommandCaptureChars) stderr += chunk.toString();
-            });
-            child.on("error", (error) => {
-              clearTimeout(timer);
-              if (killTimer) clearTimeout(killTimer);
-              const wrapped = new Error(
-                `O comando não pôde ser iniciado: ${error instanceof Error ? error.message : String(error)}`,
-              );
-              (wrapped as Error & { code?: string }).code = "COMMAND_SPAWN_FAILED";
-              reject(wrapped);
-            });
-            child.on("close", (code) => {
-              clearTimeout(timer);
-              if (killTimer) clearTimeout(killTimer);
-              resolveCommand({ code, stderr: clipped(stderr), stdout: clipped(stdout) });
-            });
-          },
+        const requestedTimeout = Number(executionArgs.timeout ?? defaultCommandTimeoutMs);
+        const timeoutMs = Math.min(
+          maxCommandTimeoutMs,
+          Math.max(
+            defaultCommandTimeoutMs,
+            Number.isFinite(requestedTimeout) ? requestedTimeout : defaultCommandTimeoutMs,
+          ),
         );
+        const shell =
+          process.platform === "win32"
+            ? process.env.COMSPEC || "cmd.exe"
+            : process.env.SHELL || "/bin/sh";
+        return new Promise<{
+          code: number | null;
+          exitCode: number | null;
+          stderr: string;
+          stdout: string;
+          output: string;
+          ok: boolean;
+          timedOut: boolean;
+          truncated: boolean;
+          durationMs: number;
+          outputBytes: number;
+        }>((resolveCommand, reject) => {
+          const startedAt = Date.now();
+          const child = spawn(command, {
+            cwd,
+            env,
+            shell,
+            detached: process.platform !== "win32",
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          let stdout = "";
+          let stderr = "";
+          let output = "";
+          let outputBytes = 0;
+          let truncated = false;
+          let timedOut = false;
+          let settled = false;
+          let killTimer: NodeJS.Timeout | undefined;
+          const killTree = (signal: "SIGTERM" | "SIGKILL") => {
+            if (process.platform !== "win32" && child.pid) {
+              try {
+                process.kill(-child.pid, signal);
+                return;
+              } catch {
+                // Fall through to the direct child when the group already exited.
+              }
+            }
+            child.kill(signal);
+          };
+          const timer = setTimeout(() => {
+            timedOut = true;
+            killTree("SIGTERM");
+            killTimer = setTimeout(() => killTree("SIGKILL"), commandKillGraceMs);
+          }, timeoutMs);
+          const append = (kind: "stdout" | "stderr", chunk: Buffer) => {
+            const text = chunk.toString();
+            const bytes = Buffer.byteLength(text);
+            outputBytes += bytes;
+            if (Buffer.byteLength(output) < maxCommandCaptureBytes) {
+              const remaining = maxCommandCaptureBytes - Buffer.byteLength(output);
+              const part = Buffer.from(text).subarray(0, remaining).toString();
+              output += part;
+              if (part.length < text.length) truncated = true;
+            } else truncated = true;
+            if (kind === "stdout") {
+              const remaining = maxCommandCaptureBytes - Buffer.byteLength(stdout);
+              const part = Buffer.from(text).subarray(0, Math.max(0, remaining)).toString();
+              stdout += part;
+              if (part.length < text.length) truncated = true;
+            } else {
+              const remaining = maxCommandCaptureBytes - Buffer.byteLength(stderr);
+              const part = Buffer.from(text).subarray(0, Math.max(0, remaining)).toString();
+              stderr += part;
+              if (part.length < text.length) truncated = true;
+            }
+          };
+          child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
+          child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
+          const abort = () => {
+            if (settled) return;
+            killTree("SIGTERM");
+            killTimer = setTimeout(() => killTree("SIGKILL"), commandKillGraceMs);
+          };
+          if (options.signal?.aborted) abort();
+          else options.signal?.addEventListener("abort", abort, { once: true });
+          child.on("error", (error) => {
+            clearTimeout(timer);
+            if (killTimer) clearTimeout(killTimer);
+            options.signal?.removeEventListener("abort", abort);
+            const wrapped = new Error(
+              `O comando não pôde ser iniciado: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            (wrapped as Error & { code?: string }).code = "COMMAND_SPAWN_FAILED";
+            if (!settled) {
+              settled = true;
+              reject(wrapped);
+            }
+          });
+          child.on("close", (code) => {
+            clearTimeout(timer);
+            if (killTimer) clearTimeout(killTimer);
+            options.signal?.removeEventListener("abort", abort);
+            if (settled) return;
+            settled = true;
+            const exitCode = code ?? (options.signal?.aborted || timedOut ? null : 1);
+            resolveCommand({
+              code: exitCode,
+              exitCode,
+              ok: exitCode === 0 && !timedOut && !options.signal?.aborted,
+              output: truncated ? `${output}\n[output truncated]` : output,
+              outputBytes,
+              stderr: clipped(stderr),
+              stdout: clipped(stdout),
+              timedOut,
+              truncated,
+              durationMs: Date.now() - startedAt,
+            });
+          });
+        });
       }
     }
   };

@@ -55,11 +55,35 @@ export type StreamOptions = {
 
 export type StreamResponse = {
   content: string;
+  finishReason: FinishReason;
   provider: Provider;
   toolCalls: ToolCall[];
   tokens?: TokenUsage;
   windows: UsageWindow[];
 };
+
+export type FinishReason =
+  | "stop"
+  | "tool-calls"
+  | "length"
+  | "content-filter"
+  | "error"
+  | "cancelled"
+  | "unknown";
+
+export function normalizeFinishReason(value: unknown): FinishReason {
+  if (typeof value !== "string") return "unknown";
+  const normalized = value.trim().toLocaleLowerCase().replaceAll("_", "-");
+  if (normalized === "stop" || normalized === "end" || normalized === "completed") return "stop";
+  if (normalized === "tool-calls" || normalized === "tool-call" || normalized === "function-call")
+    return "tool-calls";
+  if (normalized === "length" || normalized === "max-tokens" || normalized === "max-output")
+    return "length";
+  if (normalized === "content-filter" || normalized === "content-filtered") return "content-filter";
+  if (normalized === "error") return "error";
+  if (normalized === "cancelled" || normalized === "canceled") return "cancelled";
+  return "unknown";
+}
 
 export type CapabilityProbeResult = {
   protocol: ResolvedProtocol;
@@ -110,7 +134,7 @@ export function scriptedHarnessTurn(messages: StreamMessage[]): {
   const calls: Array<{ arguments: Record<string, unknown>; name: ToolName }> = [
     { arguments: { path: "." }, name: "list_directory" },
     // Intentionally malformed: the agent runtime must repair the missing args and workspace alias.
-    { arguments: { command: "node --version", cwd: "/workspace" }, name: "execute_command" },
+    { arguments: { command: "node --version", workdir: "/workspace" }, name: "bash" },
     { arguments: { path: "README.md" }, name: "read_file" },
     { arguments: { path: "ARCHITECTURE.md" }, name: "read_file" },
     { arguments: { path: "src/index.ts" }, name: "read_file" },
@@ -162,6 +186,12 @@ export class ProviderRequestError extends ProviderHttpError {
 
 export function isRetryableProviderError(error: unknown): boolean {
   if (error instanceof ProviderRequestError) return error.retryable;
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "STREAM_INCOMPLETE"
+  )
+    return true;
   return error instanceof TypeError || (error instanceof Error && error.name === "AbortError");
 }
 
@@ -172,7 +202,12 @@ type ParsedToolCall = {
   name?: string;
   replaceArguments?: boolean;
 };
-type ParsedChunk = { content?: string; toolCalls?: ParsedToolCall[]; tokens?: TokenUsage };
+type ParsedChunk = {
+  content?: string;
+  finishReason?: FinishReason;
+  toolCalls?: ParsedToolCall[];
+  tokens?: TokenUsage;
+};
 
 function messagesForProvider(messages: StreamMessage[], ollama: boolean): StreamMessage[] {
   if (!ollama) return messages;
@@ -218,6 +253,7 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
   try {
     const body = JSON.parse(value) as {
       choices?: Array<{
+        finish_reason?: string | null;
         delta?: {
           content?: string;
           tool_calls?: Array<{
@@ -269,7 +305,12 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
     };
     if (protocol === "openai-responses") {
       if (body.type === "response.completed" && body.response?.usage) {
-        return { tokens: normalizeTokenUsage({ usage: body.response.usage }) };
+        return {
+          finishReason: normalizeFinishReason(
+            (body.response as Record<string, unknown>).status ?? "stop",
+          ),
+          tokens: normalizeTokenUsage({ usage: body.response.usage }),
+        };
       }
       if (body.type === "response.output_text.delta") return { content: body.delta };
       if (body.type === "response.function_call_arguments.delta") {
@@ -341,6 +382,7 @@ function parseLine(line: string, protocol: ResolvedProtocol): ParsedChunk | null
     }));
     return {
       content: source?.content,
+      finishReason: normalizeFinishReason(body.choices?.[0]?.finish_reason),
       toolCalls: calls,
       tokens: normalizeTokenUsage({
         ...(body.usage ?? {}),
@@ -357,12 +399,18 @@ async function readStream(
   body: ReadableStream<Uint8Array>,
   protocol: ResolvedProtocol,
   onDelta: StreamDelta,
-): Promise<{ content: string; toolCalls: ToolCall[]; tokens?: TokenUsage }> {
+): Promise<{
+  content: string;
+  finishReason: FinishReason;
+  toolCalls: ToolCall[];
+  tokens?: TokenUsage;
+}> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
   let tokens: TokenUsage | undefined;
+  let finishReason: FinishReason = "unknown";
   const calls = new Map<string, ParsedToolCall>();
   const callKeysByIndex = new Map<number, string>();
   const consume = (line: string) => {
@@ -373,6 +421,7 @@ async function readStream(
       onDelta(chunk.content);
     }
     if (chunk.tokens) tokens = { ...tokens, ...chunk.tokens };
+    if (chunk.finishReason) finishReason = chunk.finishReason;
     for (const call of chunk.toolCalls ?? []) {
       // Providers commonly send the id only in the first fragment. Index is
       // the stable correlation key for all subsequent fragments.
@@ -401,6 +450,7 @@ async function readStream(
   consume(buffer);
   return {
     content,
+    finishReason,
     toolCalls: [...calls.values()]
       .filter((call): call is ParsedToolCall & { name: string } => Boolean(call.name))
       .map((call) => ({
@@ -437,13 +487,24 @@ export async function streamChatMessage(
     if (scripted) {
       if (scripted.content) onDelta(scripted.content);
       for (const call of scripted.toolCalls) options.onToolCall?.(call);
-      return { ...scripted, provider, windows: [] };
+      return {
+        ...scripted,
+        finishReason: scripted.toolCalls.length ? "tool-calls" : "stop",
+        provider,
+        windows: [],
+      };
     }
   }
   if (process.env.BLACKWALL_E2E_MOCK === "1") {
     onDelta("Resposta ");
     onDelta("de teste.");
-    return { content: "Resposta de teste.", provider, toolCalls: [], windows: [] };
+    return {
+      content: "Resposta de teste.",
+      finishReason: "stop",
+      provider,
+      toolCalls: [],
+      windows: [],
+    };
   }
   const adapter = createProviderAdapter({
     apiKey,
@@ -475,6 +536,7 @@ export async function streamChatMessage(
   for (const call of toolCalls) options.onToolCall?.(call);
   return {
     content: compatibilityCall ? "" : result.content,
+    finishReason: result.finishReason,
     provider,
     toolCalls,
     tokens: result.tokens,

@@ -5,21 +5,16 @@ import {
   type KeyboardEvent,
   type RefObject,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/shared/components/motion/Skeleton";
 import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
 import { cn } from "@/shared/lib/utils";
-import type {
-  ConnectedProvider,
-  ProviderModel,
-  UsageSummary,
-  Workspace,
-} from "../../shared/api/sidecar";
+import type { ConnectedProvider, ProviderModel, Workspace } from "../../shared/api/sidecar";
 import { isSubmitShortcut } from "../composer";
 import { CompactIcon } from "./CompactIcon";
 
@@ -37,7 +32,6 @@ type ComposerProps = {
   onAttachFile: (file: File) => void;
   onEditQueued?: () => void;
   onOpenProviders?: () => void;
-  onOpenUsage: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   permissionError: string;
   queuedCount?: number;
@@ -45,8 +39,6 @@ type ComposerProps = {
   selectedModel: string;
   setDraft: (draft: string) => void;
   stopGeneration: () => void;
-  streamingStatus: string;
-  usageSummary: UsageSummary | null;
   workspace: Workspace | undefined;
 };
 
@@ -79,7 +71,6 @@ export function Composer({
   onAttachFile,
   onEditQueued,
   onOpenProviders,
-  onOpenUsage,
   onSubmit,
   permissionError,
   queuedCount = 0,
@@ -87,8 +78,6 @@ export function Composer({
   selectedModel,
   setDraft,
   stopGeneration,
-  streamingStatus,
-  usageSummary,
   workspace,
 }: ComposerProps) {
   const { t } = useTranslation();
@@ -99,15 +88,33 @@ export function Composer({
   // inline abaixo da lista (sem rollback invisível).
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [modelError, setModelError] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
   const modelListRef = useRef<HTMLDivElement | null>(null);
+  const modelSearchRef = useRef<HTMLInputElement | null>(null);
   const chipRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedStillLoading = isModelsLoading && models.length === 0;
+  const normalizedModelQuery = modelQuery
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase();
+  const filteredModels = models.filter((model) => {
+    if (!normalizedModelQuery) return true;
+    return [model.name, model.id].some((value) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase()
+        .includes(normalizedModelQuery),
+    );
+  });
 
   useEffect(() => {
     if (!modelOpen) return;
     // Item selecionado entra na viewport sem animação intrusiva.
     const frame = requestAnimationFrame(() => {
+      modelSearchRef.current?.focus();
       modelListRef.current
         ?.querySelector<HTMLButtonElement>('[data-checked="true"]')
         ?.scrollIntoView({ block: "nearest" });
@@ -144,6 +151,13 @@ export function Composer({
     focusModelAt(move);
   }
 
+  function handleModelSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusModelAt("first");
+    }
+  }
+
   async function chooseModel(model: ProviderModel) {
     if (pendingModelId) return;
     setPendingModelId(model.id);
@@ -157,20 +171,6 @@ export function Composer({
       setPendingModelId(null);
     }
   }
-
-  const last = usageSummary?.lastRequest;
-  const ctxLabel = useMemo(() => {
-    if (!last || last.totalTokens <= 0) return null;
-    const compact = new Intl.NumberFormat(undefined, {
-      maximumFractionDigits: 1,
-      notation: "compact",
-    });
-    const percent =
-      last.contextLimit && last.contextLimit > 0
-        ? ` ${Math.min(100, Math.round((last.totalTokens / last.contextLimit) * 100))}%`
-        : "";
-    return `${t("chat.ctx")}${percent} ${compact.format(last.totalTokens)}`;
-  }, [last, t]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
@@ -344,30 +344,12 @@ export function Composer({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {streamingStatus && (
-            <span
-              aria-live="polite"
-              className="hidden font-mono text-[0.68rem] text-muted-foreground sm:inline"
-            >
-              {streamingStatus}
-            </span>
-          )}
-          {ctxLabel && (
-            <button
-              aria-haspopup="dialog"
-              className="rounded px-1.5 py-1 font-mono text-[0.68rem] text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
-              onClick={onOpenUsage}
-              title={t("chat.viewFullUsage")}
-              type="button"
-            >
-              {ctxLabel}
-            </button>
-          )}
           {activeProvider && (
             <Popover
               onOpenChange={(next) => {
                 setModelOpen(next);
                 if (!next) {
+                  setModelQuery("");
                   // Retorno de foco determinístico ao trigger (#208).
                   const chip = chipRef.current;
                   requestAnimationFrame(() => chip?.focus());
@@ -380,7 +362,7 @@ export function Composer({
                 interno para roteamento e é identificado apenas no popover. */}
                 <Button
                   aria-label={`${t("chat.selectModel")}: ${modelName}`}
-                  className="max-w-[22ch] gap-1 px-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground max-[420px]:max-w-[120px]"
+                  className="max-w-[22ch] gap-1 px-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground max-[420px]:max-w-[120px]"
                   data-testid="model-trigger"
                   ref={chipRef}
                   size="sm"
@@ -401,14 +383,23 @@ export function Composer({
               </PopoverTrigger>
               <PopoverContent
                 align="end"
-                aria-haspopup="listbox"
                 className={popoverContent}
-                role="menu"
+                aria-label={t("chat.selectModel")}
               >
                 {/* O provedor pode ser identificado aqui dentro — só não no trigger. */}
                 <p className="px-2 pb-1 font-mono text-[0.68rem] tracking-wide text-muted-foreground uppercase">
                   {activeProvider.name}
                 </p>
+                <Input
+                  aria-label={t("chat.searchModels")}
+                  className="mb-1 h-8 text-xs"
+                  onChange={(event) => setModelQuery(event.target.value)}
+                  onKeyDown={handleModelSearchKeyDown}
+                  placeholder={t("chat.searchModels")}
+                  ref={modelSearchRef}
+                  role="searchbox"
+                  value={modelQuery}
+                />
                 {selectedStillLoading && (
                   <div aria-busy="true" className="grid gap-1 px-1 py-1">
                     <Skeleton className="h-7 w-full" />
@@ -416,12 +407,14 @@ export function Composer({
                     <Skeleton className="h-7 w-3/5" />
                   </div>
                 )}
-                {!selectedStillLoading && models.length === 0 && (
+                {!selectedStillLoading && filteredModels.length === 0 && (
                   <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                    {t("settings.thisProviderReturnedNoModels")}
+                    {models.length === 0
+                      ? t("settings.thisProviderReturnedNoModels")
+                      : t("chat.noModelsFound")}
                   </p>
                 )}
-                {models.length > 0 && (
+                {filteredModels.length > 0 && (
                   <div
                     className={modelListClass}
                     data-testid="model-list"
@@ -429,7 +422,7 @@ export function Composer({
                     ref={modelListRef}
                     role="listbox"
                   >
-                    {models.map((model) => {
+                    {filteredModels.map((model) => {
                       const checked = model.id === selectedModel;
                       const busy = pendingModelId === model.id;
                       return (

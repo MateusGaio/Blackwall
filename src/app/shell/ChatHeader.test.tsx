@@ -36,9 +36,7 @@ describe("controle único do Vault no topo (#218)", () => {
   });
 
   it("BLOQUEADO: sem aria-controls/aria-expanded, rótulo acessível mantido", () => {
-    const html = renderToStaticMarkup(
-      <ChatHeader {...base} vaultBlocked vaultMode="rail" />,
-    );
+    const html = renderToStaticMarkup(<ChatHeader {...base} vaultBlocked vaultMode="rail" />);
     const start = html.indexOf('data-testid="vault-toggle"');
     expect(start).toBeGreaterThan(0);
     // Escopo: apenas a tag do toggle do Vault (a sidebar usa aria-expanded).

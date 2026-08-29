@@ -20,6 +20,7 @@ import { ToolStepsDisclosure } from "./thread/ToolStepsDisclosure";
 type ChatThreadProps = {
   copiedMessageId: string | null;
   copyMessage: (message: ChatMessage) => void;
+  cursorAvoidanceEnabled?: boolean;
   editingMessageDraft: string;
   editingMessageId: string | null;
   listRef: RefObject<HTMLDivElement | null>;
@@ -110,6 +111,7 @@ function ScrollBottomPill({
 export function ChatThread({
   copiedMessageId,
   copyMessage,
+  cursorAvoidanceEnabled = false,
   editingMessageDraft,
   editingMessageId,
   listRef,
@@ -167,7 +169,7 @@ export function ChatThread({
       <div className="relative h-full min-h-0">
         <ThreadPrimitive.Viewport
           autoScroll
-          className="h-full overflow-y-auto overscroll-contain [scrollbar-color:#3d3d43_transparent] [scrollbar-width:thin]"
+          className="chat-transcript h-full overflow-x-hidden overflow-y-auto overscroll-contain"
           onScroll={handleScroll}
           ref={listRef}
         >
@@ -207,7 +209,11 @@ export function ChatThread({
                     <>
                       <RoleMarker role={message.role} />
                       {message.content.trim() ? (
-                        <SafeMarkdown content={message.content} />
+                        <SafeMarkdown
+                          content={message.content}
+                          cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+                          streaming={isStreaming}
+                        />
                       ) : (
                         isStreaming && (
                           <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">

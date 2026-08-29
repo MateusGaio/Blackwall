@@ -15,6 +15,10 @@
   sólidas #252527 são o mecanismo de separação; sem sombras/elevação.
 */
 :root {
+  /* Escala compacta inspirada no Codex: mais conteúdo visível sem perder
+     legibilidade, preservando 16px como referência para medidas explícitas. */
+  font-size: 14px;
+
   --radius-control: 8px;
   --radius-panel: 12px;
   --radius-surface: 10px;
@@ -251,54 +255,10 @@ button:disabled {
   border-color: #a35e64;
   color: #fff0f1;
 }
-.session-menu {
-  animation: card-enter 120ms ease-out both;
-  background: #1a1a1d;
-  border: 1px solid #39393e;
-  border-radius: var(--radius-surface);
-  box-shadow: 0 12px 30px rgb(0 0 0 / 32%);
-  display: grid;
-  gap: 2px;
-  min-width: 130px;
-  padding: 4px;
-  position: absolute;
-  right: 4px;
-  top: calc(100% - 1px);
-  z-index: 4;
-}
-
-.session-menu-floating {
-  position: fixed;
-  right: auto;
-  top: auto;
-  z-index: 30;
-}
-
-.session-menu button {
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-control);
-  color: #cfcfd2;
-  padding: 8px 9px;
-  text-align: left;
-}
-
-.session-menu button:hover,
-.session-menu button:focus-visible {
-  background: #2a2a2e;
-  color: #f2f2f3;
-  outline: none;
-}
-
-.session-menu .session-menu-danger:hover,
-.session-menu .session-menu-danger:focus-visible {
-  color: #f08c8c;
-}
-
 .vault-rail button {
   align-items: center;
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 6px;
   color: #89898e;
   display: inline-flex;
@@ -315,9 +275,9 @@ button:disabled {
 .vault-rail button:hover,
 .vault-rail button:focus-visible {
   background: #1a1a1d;
-  border-color: #353539;
   color: #f2f2f3;
-  outline: none;
+  outline: 2px solid #77777c;
+  outline-offset: 2px;
 }
 
 .vault-rail svg {
@@ -410,7 +370,6 @@ button:disabled {
 }
 
 .vault-rail {
-  border-left: 1px solid #26262b;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -418,6 +377,77 @@ button:disabled {
   height: 100%;
   padding: 24px 0;
   width: 42px;
+}
+
+.message-user .message-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease-out-quart);
+}
+
+.message-user:hover .message-actions,
+.message-user:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .message-user .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.chat-transcript {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.chat-transcript::-webkit-scrollbar {
+  width: 5px;
+}
+
+.chat-transcript::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+.chat-transcript::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-transcript::-webkit-scrollbar-thumb {
+  background: transparent;
+  background-clip: content-box;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.chat-transcript:hover {
+  scrollbar-color: rgb(242 242 243 / 22%) transparent;
+}
+
+.chat-transcript:hover::-webkit-scrollbar-thumb {
+  background: rgb(242 242 243 / 28%);
+  background-clip: content-box;
+}
+
+@media (forced-colors: active) {
+  .chat-transcript {
+    scrollbar-color: auto;
+  }
+
+  .chat-transcript::-webkit-scrollbar-thumb {
+    background: auto;
+    border: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-user .message-actions {
+    transition: none;
+  }
 }
 
 .vault-rail button {
@@ -505,7 +535,6 @@ button:disabled {
   max-width: 100%;
   min-width: 0;
 }
-
 
 .safe-markdown h1,
 .safe-markdown h2,

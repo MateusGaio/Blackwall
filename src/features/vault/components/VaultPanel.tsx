@@ -34,6 +34,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { cn } from "@/shared/lib/utils";
+import type { VaultMemory } from "../../../app/shell/VaultSlot";
 import type { VaultTab } from "../../../app/vault-view";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
 import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
@@ -45,11 +46,7 @@ import {
   readGraphPreferences,
   writeGraphPreferences,
 } from "../graph-preferences";
-
-type VaultMemory = {
-  fileListScrollTop: number;
-  noteScrollTop: number;
-};
+import { clampGraphZoom } from "../graph-zoom";
 
 type VaultPanelProps = {
   memory: VaultMemory;
@@ -308,6 +305,7 @@ function GraphView({
   const [preferences, setPreferences] = useState<GraphPreferences>(() =>
     readGraphPreferences(workspaceId),
   );
+  const [zoomScale, setZoomScale] = useState(1);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const filesByPath = useMemo(
@@ -368,6 +366,7 @@ function GraphView({
   const colorByGroupRef = useRef(colorByGroup);
   useEffect(() => {
     colorByGroupRef.current = colorByGroup;
+    drawRef.current();
   }, [colorByGroup]);
 
   useEffect(() => {
@@ -542,6 +541,7 @@ function GraphView({
       <canvas
         aria-label={t("vault.interactiveMarkdownLinkGraph")}
         className="vault-graph-canvas absolute inset-0 h-full w-full cursor-grab touch-none active:cursor-grabbing"
+        data-zoom={zoomScale}
         onPointerDown={(event) => {
           const point = pointFor(event);
           const node = nodeAt(point);
@@ -602,15 +602,13 @@ function GraphView({
           event.preventDefault();
           const point = pointFor(event);
           const current = transformRef.current;
-          const scale = Math.min(
-            3.5,
-            Math.max(0.35, current.scale * (event.deltaY > 0 ? 0.9 : 1.1)),
-          );
+          const scale = clampGraphZoom(current.scale * (event.deltaY > 0 ? 0.9 : 1.1));
           transformRef.current = {
             scale,
             x: point.x - ((point.x - current.x) / current.scale) * scale,
             y: point.y - ((point.y - current.y) / current.scale) * scale,
           };
+          setZoomScale(scale);
           drawRef.current();
         }}
         ref={canvasRef}
@@ -742,6 +740,10 @@ export function VaultPanel({
   const [error, setError] = useState("");
   const fileListWrapRef = useRef<HTMLDivElement | null>(null);
   const noteWrapRef = useRef<HTMLDivElement | null>(null);
+  const memoryRef = useRef(memory);
+  const restoreIdentityRef = useRef<string | null>(null);
+  const restoreCancelledRef = useRef(false);
+  memoryRef.current = memory;
 
   useEffect(() => {
     // The increment is the explicit signal that a tool changed workspace files.
@@ -766,26 +768,32 @@ export function VaultPanel({
   // para a lista sem erro — recolher/reabrir nunca perde a leitura.
   const selectedNote = graph?.files.find((file) => file.path === selectedPath) ?? null;
 
-  // Restaura posições de rolagem preservadas após (re)montagem. O layout
-  // pode não estar pronto no primeiro frame (Suspense/markdown); tenta em
-  // alguns frames até o scrollTop "pegar".
+  // Restaura uma única vez por workspace + nota. O efeito não depende da
+  // posição que o próprio scroll atualiza, portanto wheel/inércia não rearma
+  // a restauração nem concorre com o usuário.
   useEffect(() => {
     if (!graph) return;
+    const identity = `${workspaceId}:${selectedPath ?? "__file-list__"}`;
+    if (restoreIdentityRef.current === identity) return;
+    restoreIdentityRef.current = identity;
+    restoreCancelledRef.current = false;
     let attempts = 0;
     let frame = 0;
     const apply = () => {
+      if (restoreCancelledRef.current) return;
       const listViewport = fileListWrapRef.current?.querySelector<HTMLElement>(
         '[data-slot="scroll-area-viewport"]',
       );
       const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
         '[data-slot="scroll-area-viewport"]',
       );
-      if (listViewport && !selectedNote && memory.fileListScrollTop > 0)
-        listViewport.scrollTop = memory.fileListScrollTop;
-      if (noteViewport && selectedNote && memory.noteScrollTop > 0)
-        noteViewport.scrollTop = memory.noteScrollTop;
+      const notePosition = selectedPath
+        ? (memoryRef.current.noteScrollTops?.[selectedPath] ?? 0)
+        : 0;
+      const wanted = selectedNote ? notePosition : memoryRef.current.fileListScrollTop;
+      if (listViewport && !selectedNote && wanted > 0) listViewport.scrollTop = wanted;
+      if (noteViewport && selectedNote && wanted > 0) noteViewport.scrollTop = wanted;
       const target = selectedNote ? noteViewport : listViewport;
-      const wanted = selectedNote ? memory.noteScrollTop : memory.fileListScrollTop;
       if (wanted > 0 && target && Math.abs(target.scrollTop - wanted) > 1 && attempts < 10) {
         attempts += 1;
         frame = requestAnimationFrame(apply);
@@ -793,12 +801,10 @@ export function VaultPanel({
     };
     frame = requestAnimationFrame(apply);
     return () => cancelAnimationFrame(frame);
-  }, [graph, memory.fileListScrollTop, memory.noteScrollTop, selectedNote]);
+  }, [graph, selectedNote, selectedPath, workspaceId]);
 
   // No desmonte (recolher para rail), captura a posição ATUAL do DOM —
   // o último evento de scroll pode ter sido perdido antes do unmount.
-  const memoryRef = useRef(memory);
-  memoryRef.current = memory;
   useEffect(
     () => () => {
       const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
@@ -810,6 +816,7 @@ export function VaultPanel({
       onMemoryChange({
         fileListScrollTop: listViewport?.scrollTop ?? memoryRef.current.fileListScrollTop,
         noteScrollTop: noteViewport?.scrollTop ?? memoryRef.current.noteScrollTop,
+        noteScrollTops: memoryRef.current.noteScrollTops ?? {},
       });
     },
     [onMemoryChange],
@@ -818,15 +825,27 @@ export function VaultPanel({
   function trackListScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
     if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
-      onMemoryChange({ ...memory, fileListScrollTop: target.scrollTop });
+      onMemoryChange({ ...memoryRef.current, fileListScrollTop: target.scrollTop });
     }
   }
 
   function trackNoteScroll(event: UIEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null;
     if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
-      onMemoryChange({ ...memory, noteScrollTop: target.scrollTop });
+      if (!selectedPath) return;
+      onMemoryChange({
+        ...memoryRef.current,
+        noteScrollTop: target.scrollTop,
+        noteScrollTops: {
+          ...memoryRef.current.noteScrollTops,
+          [selectedPath]: target.scrollTop,
+        },
+      });
     }
+  }
+
+  function cancelRestore() {
+    restoreCancelledRef.current = true;
   }
 
   function openNote(path: string) {
@@ -883,9 +902,14 @@ export function VaultPanel({
               </p>
               <h2 className="mt-1 mb-2 text-lg font-medium">{selectedNote.title}</h2>
             </header>
-            <div
+            <section
+              aria-label={`${t("vault.note")} ${selectedNote.title}`}
               className="min-h-0 min-w-0 flex-1"
+              onKeyDown={cancelRestore}
+              onPointerDown={cancelRestore}
               onScrollCapture={trackNoteScroll}
+              onTouchStart={cancelRestore}
+              onWheel={cancelRestore}
               ref={noteWrapRef}
             >
               <ScrollArea className="h-full">
@@ -898,14 +922,23 @@ export function VaultPanel({
                   />
                 </article>
               </ScrollArea>
-            </div>
+            </section>
           </section>
         ) : graph.files.length ? (
-          <div ref={fileListWrapRef} className="min-h-0 flex-1" onScrollCapture={trackListScroll}>
+          <section
+            aria-label={t("vault.files")}
+            className="min-h-0 flex-1"
+            onKeyDown={cancelRestore}
+            onPointerDown={cancelRestore}
+            onScrollCapture={trackListScroll}
+            onTouchStart={cancelRestore}
+            onWheel={cancelRestore}
+            ref={fileListWrapRef}
+          >
             <ScrollArea className="h-full">
               <FileTree activePath={selectedPath} files={graph.files} onOpenFile={openNote} />
             </ScrollArea>
-          </div>
+          </section>
         ) : (
           <p className="p-4 text-sm leading-relaxed text-muted-foreground">
             {t("vault.noMarkdownFilesWereFound")}

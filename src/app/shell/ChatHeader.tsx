@@ -54,9 +54,7 @@ export function ChatHeader({
       <div className="flex shrink-0 items-center gap-1">
         <button
           aria-label={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}
-          className={`group relative inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/50 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none ${
-            vaultBlocked ? "opacity-50" : ""
-          }`}
+          className={`workspace-header-trigger group relative ${vaultBlocked ? "opacity-50" : ""}`}
           data-testid="vault-toggle"
           onClick={onToggleVault}
           title={vaultExpanded ? t("chat.hideVault") : t("chat.showVault")}

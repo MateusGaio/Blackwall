@@ -10,9 +10,14 @@ import { CompactIcon } from "./CompactIcon";
 export type VaultMemory = {
   fileListScrollTop: number;
   noteScrollTop: number;
+  noteScrollTops: Record<string, number>;
 };
 
-export const emptyVaultMemory: VaultMemory = { fileListScrollTop: 0, noteScrollTop: 0 };
+export const emptyVaultMemory: VaultMemory = {
+  fileListScrollTop: 0,
+  noteScrollTop: 0,
+  noteScrollTops: {},
+};
 
 export const minimumVaultWidth = 300;
 export const maximumVaultWidth = 680;
