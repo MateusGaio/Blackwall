@@ -13,9 +13,6 @@ jobs:
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: ../blackwall
     strategy:
       fail-fast: false
       matrix:
@@ -27,7 +24,6 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-          path: ../blackwall
 
       - name: Verify tag belongs to main
         if: runner.os == 'Linux'
@@ -43,7 +39,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: ../blackwall/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -108,8 +103,8 @@ jobs:
         with:
           name: blackwall-${{ github.ref_name }}-${{ runner.os }}
           path: |
-            ../blackwall/src-tauri/target/release/bundle/
-            ../blackwall/SHA256SUMS
+            src-tauri/target/release/bundle/
+            SHA256SUMS
           if-no-files-found: error
           retention-days: 14
 
