@@ -229,7 +229,7 @@ export function currentRuntime(): "desktop" | "web" {
   return isTauri() ? "desktop" : "web";
 }
 
-export type SidecarRuntimeConfig = {
+type SidecarRuntimeConfig = {
   sidecar_token: string;
   sidecar_url: string;
 };
@@ -246,10 +246,6 @@ export async function sidecarConfig(): Promise<SidecarRuntimeConfig> {
         });
   }
   return runtimeConfigPromise;
-}
-
-export async function sidecarUrl(): Promise<string> {
-  return (await sidecarConfig()).sidecar_url;
 }
 
 export async function pickDirectory(): Promise<FolderSelection | null> {
