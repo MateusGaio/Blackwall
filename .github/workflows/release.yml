@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: ${{ runner.os == 'Windows' && '../blackwall' || '.' }}
+        working-directory: ../blackwall
     strategy:
       fail-fast: false
       matrix:
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-          path: ${{ runner.os == 'Windows' && '../blackwall' || '.' }}
+          path: ../blackwall
 
       - name: Verify tag belongs to main
         if: runner.os == 'Linux'
@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: ${{ runner.os == 'Windows' && '../blackwall/package-lock.json' || 'package-lock.json' }}
+          cache-dependency-path: ../blackwall/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -108,8 +108,8 @@ jobs:
         with:
           name: blackwall-${{ github.ref_name }}-${{ runner.os }}
           path: |
-            ${{ runner.os == 'Windows' && '../blackwall/src-tauri/target/release/bundle/' || 'src-tauri/target/release/bundle/' }}
-            ${{ runner.os == 'Windows' && '../blackwall/SHA256SUMS' || 'SHA256SUMS' }}
+            ../blackwall/src-tauri/target/release/bundle/
+            ../blackwall/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
 
