@@ -98,6 +98,7 @@ export type Session = {
   selectedModel: string | null;
   selectedProviderId: string | null;
   title: string;
+  executionMode: "default" | "plan";
   updatedAt: number;
   workspaceId: string | null;
 };
@@ -350,6 +351,21 @@ export async function setSessionModel(
     headers: { "content-type": "application/json" },
     method: "POST",
   });
+  return response.session;
+}
+
+export async function setSessionExecutionMode(
+  sessionId: string,
+  mode: Session["executionMode"],
+): Promise<Session> {
+  const response = await request<{ session: Session }>(
+    `/v1/sessions/${encodeURIComponent(sessionId)}/execution-mode`,
+    {
+      body: JSON.stringify({ mode }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
   return response.session;
 }
 
@@ -700,6 +716,7 @@ export async function streamMessage(
   handlers: StreamHandlers,
   profileId?: string,
   sessionId?: string,
+  executionMode: Session["executionMode"] = "default",
 ): Promise<ActiveStream> {
   const config = await sidecarConfig();
   const baseUrl = config.sidecar_url;
@@ -728,6 +745,7 @@ export async function streamMessage(
       JSON.stringify({
         messages,
         model,
+        executionMode,
         profileId,
         providerId,
         requestId,

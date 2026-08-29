@@ -8,6 +8,7 @@ import { type DatabaseHandle, dataDirectory } from "./database.js";
 import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
 
 export type PermissionMode = "ask" | "automatic" | "read-only";
+export type ExecutionMode = "default" | "plan";
 type Profile = typeof profiles.$inferSelect;
 type Workspace = typeof workspaces.$inferSelect;
 type Session = typeof sessions.$inferSelect;
@@ -275,6 +276,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
       profileId,
       selectedModel: null,
       selectedProviderId: null,
+      executionMode: "default",
       title: input.title?.trim() || "Nova conversa",
       updatedAt: timestamp,
       workspaceId: workspace?.id ?? null,
@@ -308,6 +310,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
         profileId: sessions.profileId,
         selectedModel: sessions.selectedModel,
         selectedProviderId: sessions.selectedProviderId,
+        executionMode: sessions.executionMode,
         title: sessions.title,
         updatedAt: sessions.updatedAt,
         workspaceId: sessions.workspaceId,
@@ -341,6 +344,20 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
         selectedProviderId: providerId ?? null,
         updatedAt: now(),
       })
+      .where(eq(sessions.id, sessionId))
+      .run();
+    return database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+  }
+
+  function setSessionExecutionMode(sessionId: string, mode: ExecutionMode) {
+    const session = database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!session) throw new Error("A sessão selecionada não existe.");
+    if (mode !== "plan" && mode !== "default") {
+      throw new Error("Modo de execução inválido.");
+    }
+    database.db
+      .update(sessions)
+      .set({ executionMode: mode, updatedAt: now() })
       .where(eq(sessions.id, sessionId))
       .run();
     return database.db.select().from(sessions).where(eq(sessions.id, sessionId)).get();
@@ -713,6 +730,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     deleteSession,
     deleteProfile,
     setSessionModel,
+    setSessionExecutionMode,
     setWorkspaceSoul,
     setWorkspacePermissionMode,
     selectSession,

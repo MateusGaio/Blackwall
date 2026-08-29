@@ -28,6 +28,7 @@ type SidecarChatLabels = {
 };
 
 type SidecarChatRunConfig = {
+  executionMode?: "default" | "plan";
   model: string;
   profileId?: string | null;
   providerId?: string | null;
@@ -498,6 +499,7 @@ export class SidecarChatStore {
         },
         requestProfileId,
         sessionId,
+        this.runConfig.executionMode,
       );
       this.streamHandle = stream;
       const result = await stream.done;

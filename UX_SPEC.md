@@ -24,6 +24,16 @@ Este documento existe porque decisão de stack não garante experiência boa —
 
 A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer agora" — são complementares, não redundantes.
 
+### 2.1 Comandos de barra
+
+O composer aceita comandos rápidos com nomes sempre em inglês, independentemente do locale da
+interface. A primeira versão expõe `/note [request]`, `/model [model-id]`, `/plan [on|off|status]`,
+`/mode <ask|automatic|read-only>` e `/help`. `/nota` continua apenas como alias legado do protocolo
+de notas e não aparece nas sugestões. Comandos locais não viram mensagens no histórico nem fazem
+chamada ao modelo. Em `plan mode`, leituras continuam permitidas, mas edição, patch, Bash, comandos
+e `/note` são bloqueados pelo sidecar. `plan mode` é estado da sessão; não substitui o modo de
+permissões do workspace.
+
 **Estrutura de páginas de topo:**
 - `Chat` (padrão, com painel de grafo do Vault podendo abrir ao lado — ver seção 5)
 - `Vault` (visualizador de markdown + notas em lista, quando não se quer só o grafo)
@@ -57,7 +67,8 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 
 ### 3.4 Preservações obrigatórias (não negociável)
 - Contrato do `SidecarChatStore`/adaptador intacto; fila FIFO; guards de sessão/epoch.
-- Modos ask/automatic/read-only; anexos textuais/PDF; resumo automático; usage dialog; command palette.
+- Modos ask/automatic/read-only; `plan mode` por sessão; anexos textuais/PDF; resumo automático;
+  usage dialog; command palette e comandos de barra em inglês.
 - Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `model-trigger` (antigo `provider-chip`), `session-statusline`, `menuitemradio` de permissões.
 - Labels i18n pt/en conforme tabela registrada no plano da fase C (`docs/plans/`).
 

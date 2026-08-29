@@ -6,9 +6,11 @@ type ExplicitCaptureIntent = {
   reason: "explicit_request" | "missing_referent" | "not_detected";
 };
 
-// Captura é deliberadamente opt-in: somente o comando exato /nota inicia o
-// protocolo. Texto natural, perguntas e negações nunca criam memória.
-const commandPattern = /^\/nota(?:\s+([\s\S]*?))?$/;
+// Captura é deliberadamente opt-in: somente o comando exato /note inicia o
+// protocolo. /nota é mantido apenas como alias legado para não quebrar
+// sessões existentes; não é anunciado pela interface. Texto natural,
+// perguntas e negações nunca criam memória.
+const commandPattern = /^\/(?:note|nota)(?:\s+([\s\S]*?))?$/i;
 
 function clean(value: string) {
   return value
@@ -33,7 +35,7 @@ export function detectExplicitCaptureIntent(
       : { kind: "ambiguous", reason: "missing_referent" };
   }
   // Mantém a assinatura compatível com os consumidores antigos sem usar
-  // contexto implícito: /nota sem payload é resolvido pelo turno de chat.
+  // contexto implícito: /note sem payload é resolvido pelo turno de chat.
   void activeTurnContent;
   return { kind: "none", reason: "not_detected" };
 }

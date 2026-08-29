@@ -592,4 +592,16 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const sessionExecutionMode = client.prepare("SELECT id FROM _migrations WHERE id = 15").get();
+  if (!sessionExecutionMode) {
+    const columns = new Set(
+      (client.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
+    if (!columns.has("execution_mode"))
+      client.exec("ALTER TABLE sessions ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'default'");
+    client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(15, Date.now());
+  }
 }

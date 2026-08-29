@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 import { detectExplicitCaptureIntent, redactMemoryInput } from "./memory-intent.js";
 
 describe("intenção explícita de memória", () => {
-  it("reconhece somente o comando /nota", () => {
+  it("reconhece o comando público /note e o alias legado /nota", () => {
+    expect(detectExplicitCaptureIntent("/note use SQLite as the source of truth")).toMatchObject({
+      kind: "command",
+      reason: "explicit_request",
+    });
     expect(detectExplicitCaptureIntent("/nota usar SQLite como fonte de verdade")).toMatchObject({
       kind: "command",
       reason: "explicit_request",

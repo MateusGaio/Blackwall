@@ -41,6 +41,7 @@ export const sessions = sqliteTable("sessions", {
   title: text("title").notNull(),
   selectedProviderId: text("selected_provider_id"),
   selectedModel: text("selected_model"),
+  executionMode: text("execution_mode").notNull().default("default"),
   ...timestamps,
 });
 

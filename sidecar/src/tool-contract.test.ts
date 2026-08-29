@@ -111,6 +111,40 @@ describe("contrato de ferramentas", () => {
     ).toThrow("não é aceito");
   });
 
+  it("canonicaliza relações vazias e sentinelas textuais de create_vault_note", () => {
+    expect(
+      parseToolArguments(
+        "create_vault_note",
+        JSON.stringify({
+          belongsTo: " NULL ",
+          body: "Conteúdo",
+          relatedTo: ["null", "", " project-x ", "project-x"],
+          title: "Título",
+          type: "Note",
+        }),
+      ),
+    ).toEqual({
+      belongsTo: null,
+      body: "Conteúdo",
+      relatedTo: ["project-x"],
+      title: "Título",
+      type: "Note",
+    });
+
+    expect(
+      parseToolArguments(
+        "create_vault_note",
+        JSON.stringify({
+          belongsTo: "   ",
+          body: "Conteúdo",
+          relatedTo: [],
+          title: "Título",
+          type: "Note",
+        }),
+      ).belongsTo,
+    ).toBeNull();
+  });
+
   it("serializa o mesmo contrato para Chat, Responses e Ollama", () => {
     for (const tool of workspaceToolDefinitions) {
       const properties = tool.function.parameters.properties as Record<string, unknown>;

@@ -660,10 +660,29 @@ describe("providers", () => {
         { content: "ok", role: "tool", tool_call_id: "call_1" },
       ],
       undefined,
-      { protocol: "openai-responses", toolMode: "auto", tools: [] },
+      {
+        parallelToolCalls: "disabled",
+        protocol: "openai-responses",
+        toolMode: "auto",
+        tools: [
+          {
+            function: {
+              description: "read",
+              name: "read_file",
+              parameters: { additionalProperties: false, type: "object" },
+              strict: true,
+            },
+            type: "function",
+          },
+        ],
+      },
     );
     expect(request.endpoint).toBe("https://api.openai.com/v1/responses");
-    expect(JSON.parse(String(request.body))).toMatchObject({ store: false, stream: true });
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      parallel_tool_calls: false,
+      store: false,
+      stream: true,
+    });
   });
 
   it("sincroniza modelos no SQLite e preserva a ordem configurada da rota", async () => {

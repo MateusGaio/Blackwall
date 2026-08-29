@@ -353,6 +353,56 @@ test.describe("feedback 24/08 — comentário 2: paleta de comandos", () => {
   });
 });
 
+test.describe("slash commands", () => {
+  test("autocomplete is English-only and plan/help commands execute locally", async ({ page }) => {
+    await enterShellWithWorkspace(page, "Perfil Slash");
+    const composer = page.getByTestId("chat-composer");
+
+    await composer.fill("/mo");
+    const menu = page.getByTestId("slash-command-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("slash-command-model")).toBeVisible();
+    await expect(menu.getByTestId("slash-command-mode")).toBeVisible();
+    await expect(page.getByTestId("slash-command-nota")).toHaveCount(0);
+
+    await composer.press("Escape");
+    await composer.fill("/plan on");
+    await composer.press("Enter");
+    await expect(page.getByTestId("plan-mode-indicator")).toBeVisible();
+    await expect(page.getByText("Plan mode enabled.", { exact: true })).toBeVisible();
+
+    await composer.fill("/help");
+    await composer.press("Enter");
+    await expect(page.getByText(/Available commands: \/note, \/model, \/plan/)).toBeVisible();
+
+    await composer.fill("/plan off");
+    await composer.press("Enter");
+    await expect(page.getByTestId("plan-mode-indicator")).toHaveCount(0);
+  });
+
+  test("/note normalizes a textual null relation and saves one Vault note", async ({ page }) => {
+    const { workspaceId } = await enterShellWithWorkspace(page, "Perfil Note E2E");
+    const composer = page.getByTestId("chat-composer");
+
+    await composer.fill("/note save this end-to-end capture");
+    await composer.press("Enter");
+
+    const approval = page.getByRole("alertdialog");
+    await expect(approval).toContainText("create_vault_note");
+    await approval.getByRole("button", { name: /Permitir uma vez|Allow once/ }).click();
+    await expect(page.getByText(/Salvo no Vault: E2E capture/)).toBeVisible();
+    await expect
+      .poll(async () => {
+        const response = await page.request.get(
+          `http://127.0.0.1:1423/v1/workspaces/${workspaceId}/vault`,
+        );
+        const vault = (await response.json()) as { files?: Array<{ path?: string }> };
+        return vault.files?.filter((file) => file.path?.includes("e2e-capture")).length ?? 0;
+      })
+      .toBe(1);
+  });
+});
+
 test.describe("feedback 24/08 — comentário 3: projeto alinhado à esquerda", () => {
   test("texto do projeto tem text-align left calculado", async ({ page }) => {
     await enterShellWithWorkspace(page, "Perfil Alinhamento");

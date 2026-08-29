@@ -167,6 +167,18 @@ uma fase posterior e só entra com ADR/revisão próprios.
 
 **Decisão:** projetando para **300–500 notas por workspace** por enquanto. Cada workspace tem sua própria tabela no LanceDB. Reindexação é **incremental por nota** — quando uma nota é criada/editada, só ela é re-embeddada e atualizada no índice (debounced, para não reindexar a cada tecla digitada). Uma reindexação completa manual fica disponível como comando, para os casos raros de precisar reconstruir o índice do zero.
 
+### ADR-21: Comandos de barra e plan mode
+
+**Decisão:** comandos digitados no composer usam identificadores públicos sempre em inglês e são
+separados entre ações locais e turnos enviados ao modelo. `/model`, `/mode`, `/plan` e `/help` são
+ações locais; `/note` é um turno explícito do sidecar e mantém o alias legado `/nota` somente para
+compatibilidade. Comandos desconhecidos não são enviados silenciosamente ao modelo.
+
+`plan mode` pertence à sessão e é persistido em SQLite. A policy do sidecar recebe o modo de
+execução junto da permissão do workspace: leituras são permitidas, enquanto mutações e comandos
+são negados antes do efeito. O modo não depende de regex na UI e não pode ser contornado por um
+pedido WebSocket forjado.
+
 ### ADR-20: Estratégia de contexto — cache e compactação (inspirado no OpenCode)
 
 Pesquisei especificamente como o OpenCode faz isso, porque você pediu esse padrão. Ele combina duas técnicas, e o Blackwall replica as duas:
@@ -242,7 +254,7 @@ Histórico é a conversa bruta da sessão; memória de perfil é uma preferênci
 
 ### Fase 2 — RAG e MCP
 - Edição de notas, atualização em tempo real por watcher e recursos avançados do Vault.
-- Autodetecção de "crie uma nota sobre isso" no chat + comando `/nota`.
+- Autodetecção de "crie uma nota sobre isso" no chat + comando `/note` (com alias legado `/nota`).
 - RAG com LanceDB, embeddings locais (Ollama) ou API, configurável.
 - MCP client (consumir servidores externos) e MCP server (expor o Blackwall).
 - Motion audit completo da interface do Vault.

@@ -15,6 +15,7 @@
  */
 
 export type PermissionMode = "ask" | "automatic" | "read-only";
+export type ExecutionMode = "default" | "plan";
 
 /** Classe de risco da ferramenta, independente do nome. */
 type PolicyToolClass = "read" | "mutate" | "command";
@@ -24,13 +25,14 @@ export type PolicyDecision =
   | { kind: "prompt"; reasonCode: "ASK_MODE" }
   | {
       kind: "deny";
-      reasonCode: "READ_ONLY_MUTATION" | "READ_ONLY_COMMAND";
+      reasonCode: "READ_ONLY_MUTATION" | "READ_ONLY_COMMAND" | "PLAN_MODE_MUTATION";
       userMessage: string;
     };
 
 const USER_MESSAGES = {
   READ_ONLY_COMMAND: "O workspace está em modo somente leitura; executar comandos foi bloqueado.",
   READ_ONLY_MUTATION: "O workspace está em modo somente leitura; esta ação foi bloqueada.",
+  PLAN_MODE_MUTATION: "O plan mode está ativo; alterações e comandos estão bloqueados.",
 } as const;
 
 /** Classe de risco por ferramenta suportada. */
@@ -61,7 +63,14 @@ export function classifyTool(tool: string): PolicyToolClass {
 export function evaluateToolPolicy(
   mode: PermissionMode,
   toolClass: PolicyToolClass,
+  executionMode: ExecutionMode = "default",
 ): PolicyDecision {
+  if (executionMode === "plan" && toolClass !== "read")
+    return {
+      kind: "deny",
+      reasonCode: "PLAN_MODE_MUTATION",
+      userMessage: USER_MESSAGES.PLAN_MODE_MUTATION,
+    };
   if (mode === "ask") return { kind: "prompt", reasonCode: "ASK_MODE" };
   if (mode === "read-only") {
     if (toolClass === "mutate")

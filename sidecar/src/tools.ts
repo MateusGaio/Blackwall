@@ -13,6 +13,7 @@ import {
 } from "./tool-contract.js";
 import {
   classifyTool,
+  type ExecutionMode,
   evaluateToolPolicy,
   type PermissionMode,
   type PolicyDecision,
@@ -89,6 +90,7 @@ export type ToolName =
 
 type ToolInput = {
   args: Record<string, unknown>;
+  executionMode?: ExecutionMode;
   requestId?: string;
   sessionId?: string | null;
   tool: ToolName;
@@ -525,6 +527,7 @@ export async function executeTool(
   let decision: PolicyDecision = evaluateToolPolicy(
     workspace.permissionMode as PermissionMode,
     toolClass,
+    input.executionMode,
   );
   if (decision.kind === "deny") {
     throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
@@ -557,7 +560,11 @@ export async function executeTool(
       // Reavaliação pós-espera (fecha a janela TOCTOU): se o modo mudou
       // enquanto o card estava aberto, a política ATUAL decide o efeito.
       const fresh = await workspaceFor(input.workspaceId, storageDirectory);
-      decision = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+      decision = evaluateToolPolicy(
+        fresh.permissionMode as PermissionMode,
+        toolClass,
+        input.executionMode,
+      );
       if (decision.kind === "deny") {
         throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
       }
@@ -864,7 +871,11 @@ export async function executeTool(
   const snapshotEpoch = gateFor(input.workspaceId).epoch;
   return withWorkspaceGate(input.workspaceId, async (gate) => {
     const fresh = await workspaceFor(input.workspaceId, storageDirectory);
-    const committed = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+    const committed = evaluateToolPolicy(
+      fresh.permissionMode as PermissionMode,
+      toolClass,
+      input.executionMode,
+    );
     if (gate.epoch !== snapshotEpoch) {
       throw new ToolPolicyDenied(
         "POLICY_EPOCH_CHANGED",

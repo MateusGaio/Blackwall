@@ -52,4 +52,16 @@ describe("matriz de política de ferramentas (#209)", () => {
     const automatic = evaluateToolPolicy("automatic", "command");
     expect(automatic).toEqual({ kind: "allow" });
   });
+
+  it("plan mode permite leitura, mas bloqueia mutações e comandos", () => {
+    expect(evaluateToolPolicy("automatic", "read", "plan")).toEqual({ kind: "allow" });
+    expect(evaluateToolPolicy("ask", "mutate", "plan")).toMatchObject({
+      kind: "deny",
+      reasonCode: "PLAN_MODE_MUTATION",
+    });
+    expect(evaluateToolPolicy("automatic", "command", "plan")).toMatchObject({
+      kind: "deny",
+      reasonCode: "PLAN_MODE_MUTATION",
+    });
+  });
 });
