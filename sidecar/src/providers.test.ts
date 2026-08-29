@@ -3,15 +3,18 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { openSharedDatabase } from "./db/database.js";
 import {
   applyPromptCaching,
   getProvider,
   listProviderModels,
+  listProviders,
   normalizeBaseUrl,
   OpenAICompatibleProvider,
   type ProviderConnectionError,
   ProviderHttpError,
   providerApiKey,
+  reconcileProviderDuplicates,
   removeProvider,
   resolveProviderModelInput,
   routeCandidates,
@@ -58,6 +61,184 @@ describe("providers", () => {
   it("recusa endpoints remotos sem HTTPS", () => {
     expect(() => normalizeBaseUrl("http://example.com/v1")).toThrow("HTTPS");
     expect(normalizeBaseUrl("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
+  });
+
+  it("valida a conexão sem exigir modelo padrão", async () => {
+    const request = vi.fn().mockImplementation(async (url: string | URL) => {
+      const target = String(url);
+      if (target.endsWith("/api/tags"))
+        return new Response(JSON.stringify({ models: [{ name: "llama3.2" }] }), {
+          status: 200,
+        }) as unknown as Response;
+      return new Response(JSON.stringify({ data: [{ id: "gpt-mini" }] }), {
+        status: 200,
+      }) as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    // OpenAI-compatible: credencial validada pela listagem /models.
+    await expect(
+      validateProvider(
+        {
+          apiKey: "key",
+          baseUrl: "https://api.example.com/v1",
+          model: "",
+          name: "Example",
+        },
+        request,
+      ),
+    ).resolves.toBeUndefined();
+
+    // Ollama: endpoint validado por /api/tags, modelo opcional.
+    await expect(
+      validateProvider(
+        { baseUrl: "http://127.0.0.1:11434", model: "", name: "Ollama", type: "ollama" },
+        request,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("salva provedor com modelo padrão vazio sem quebrar leituras antigas", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-nomodel-"));
+    directories.push(directory);
+    const saved = await saveProvider(
+      { baseUrl: "http://127.0.0.1:11434", model: "", name: "Ollama local", type: "ollama" },
+      directory,
+    );
+    expect(saved.model).toBe("");
+    await expect(getProvider(saved.id, directory)).resolves.toMatchObject({
+      model: "",
+      name: "Ollama local",
+    });
+  });
+
+  it("duas submissões Ollama idênticas resultam em um provedor com N modelos", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-dedupe-"));
+    directories.push(directory);
+    const request = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          models: [{ name: "qwen2.5:7b" }, { name: "llama3.2" }, { name: "qwen2.5:7b" }],
+        }),
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const input = {
+      baseUrl: "http://127.0.0.1:11434/",
+      model: "qwen2.5:7b",
+      name: "Ollama local",
+      type: "ollama" as const,
+    };
+
+    const first = await saveProvider(input, directory);
+    const second = await saveProvider({ ...input, model: "llama3.2" }, directory);
+    expect(second.id).toBe(first.id);
+    const all = await listProviders(directory);
+    expect(all).toHaveLength(1);
+    // Modelos pertencem ao catálogo do provedor, não criam provedores novos.
+    const synced = await syncProviderModels(first.id, input, directory, request);
+    const ids = new Set(synced.map((model) => model.id));
+    expect(ids.size).toBe(2); // qwen duplicado na resposta vira uma entrada
+  });
+
+  it("dois OpenAI-compatible com credenciais distintas não são mesclados", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-distinct-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const base = {
+      baseUrl: "https://api.example.com/v1",
+      model: "m1",
+      name: "Example",
+      type: "openai-compatible" as const,
+    };
+    const first = await saveProvider({ ...base, apiKey: "key-one" }, directory);
+    const second = await saveProvider({ ...base, apiKey: "key-two", model: "m2" }, directory);
+    expect(second.id).not.toBe(first.id);
+    expect(await listProviders(directory)).toHaveLength(2);
+
+    // Mesma chave (identidade comprovada) + mesmo nome/endpoint: idempotente.
+    const third = await saveProvider({ ...base, apiKey: "key-one", model: "m3" }, directory);
+    expect(third.id).toBe(first.id);
+    expect(await listProviders(directory)).toHaveLength(2);
+    delete process.env.BLACKWALL_DATA_DIR;
+  });
+
+  it("reconcilia duplicatas Ollama legadas preservando referências e é idempotente", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-reconcile-"));
+    directories.push(directory);
+    const keeper = await saveProvider(
+      { baseUrl: "http://127.0.0.1:11434", model: "m1", name: "Ollama", type: "ollama" },
+      directory,
+    );
+    const duplicateId = "legacy-dup";
+
+    // Simula o estado legado: segunda conexão idêntica com referências.
+    const document = JSON.parse(await readFile(join(directory, "providers.json"), "utf8")) as {
+      providers: Array<Record<string, unknown>>;
+    };
+    document.providers.push({
+      baseUrl: "http://127.0.0.1:11434",
+      id: duplicateId,
+      model: "m2",
+      name: "Ollama extra",
+      type: "ollama",
+    });
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(directory, "providers.json"), JSON.stringify(document));
+
+    const database = openSharedDatabase(directory);
+    database.client
+      .prepare(
+        "INSERT INTO providers (id, type, name, base_url, status, created_at, updated_at) VALUES (?, 'ollama', 'Ollama extra', ?, 'connected', 1, 1)",
+      )
+      .run(duplicateId, keeper.baseUrl);
+    // Modelo que conflita com o keeper + modelo exclusivo da duplicata.
+    database.client
+      .prepare(
+        "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_mode, parallel_tool_calls, updated_at) VALUES (?, ?, 'm1', 'm1', '[]', 1, 'auto', NULL, 'unknown', 'auto', 'auto', 1)",
+      )
+      .run(`${keeper.id}:m1`, keeper.id);
+    database.client
+      .prepare(
+        "INSERT INTO models (id, provider_id, model_id, display_name, capabilities, available, protocol_preference, resolved_protocol, tool_support, tool_mode, parallel_tool_calls, updated_at) VALUES ('dup:m2', ?, 'm2', 'm2', '[]', 1, 'auto', NULL, 'unknown', 'auto', 'auto', 1)",
+      )
+      .run(duplicateId);
+    // Sessão e uso apontando para a duplicata.
+    database.client
+      .prepare(
+        "INSERT INTO sessions (id, title, selected_provider_id, selected_model, created_at, updated_at) VALUES ('sess-1', 'S', ?, 'm2', 1, 1)",
+      )
+      .run(duplicateId);
+    database.client
+      .prepare(
+        "INSERT INTO provider_usage_daily (profile_id, provider_id, model_id, date_key, requests, input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, updated_at) VALUES ('', ?, 'm2', '2026-08-24', 3, 30, 3, 0, 0, 33, 1)",
+      )
+      .run(duplicateId);
+    database.close();
+
+    const merges = await reconcileProviderDuplicates(directory);
+    expect(merges).toEqual([{ duplicateId, keeperId: keeper.id }]);
+    expect(await listProviders(directory)).toHaveLength(1);
+
+    const after = openSharedDatabase(directory);
+    const session = after.client
+      .prepare("SELECT selected_provider_id AS pid FROM sessions WHERE id = 'sess-1'")
+      .get() as { pid: string };
+    expect(session.pid).toBe(keeper.id);
+    const models = after.client
+      .prepare("SELECT id, provider_id AS pid, model_id AS mid FROM models ORDER BY mid")
+      .all() as Array<{ id: string; mid: string; pid: string }>;
+    expect(models).toEqual([
+      { id: `${keeper.id}:m1`, mid: "m1", pid: keeper.id }, // conflito: keeper vence
+      { id: `${keeper.id}:m2`, mid: "m2", pid: keeper.id }, // exclusivo: migrado
+    ]);
+    const daily = after.client
+      .prepare("SELECT requests FROM provider_usage_daily WHERE provider_id = ?")
+      .all(keeper.id) as Array<{ requests: number }>;
+    expect(daily).toEqual([{ requests: 3 }]);
+    after.close();
+
+    // Segunda execução não encontra nada (idempotente).
+    await expect(reconcileProviderDuplicates(directory)).resolves.toEqual([]);
   });
 
   it("mostra erro acionável para uma chave recusada", async () => {

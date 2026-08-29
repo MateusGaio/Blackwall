@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  cursorTextAvoidancePreference,
   readBooleanPreference,
   readNumberPreference,
   sidebarCollapsedPreference,
@@ -29,6 +30,12 @@ describe("panel preferences", () => {
     writeBooleanPreference(sidebarCollapsedPreference, true);
 
     expect(readBooleanPreference(sidebarCollapsedPreference)).toBe(true);
+  });
+
+  it("persists the opt-in cursor text avoidance preference", () => {
+    writeBooleanPreference(cursorTextAvoidancePreference, true);
+
+    expect(readBooleanPreference(cursorTextAvoidancePreference)).toBe(true);
   });
 
   it("falls back to expanded when storage is unavailable", () => {

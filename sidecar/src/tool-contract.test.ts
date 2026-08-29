@@ -4,12 +4,14 @@ import {
   DEFAULT_TOOL_CALL_BUDGET,
   MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS,
   MAX_TOOL_CALL_BUDGET,
+  normalizeCommandArgs,
   normalizeToolArguments,
   parseCompatibilityToolCall,
   parseToolArguments,
   resolveToolCallBudget,
   shouldStopAfterNoProgress,
   shouldStopAfterRepeatedToolError,
+  ToolValidationFailure,
   toOllamaTools,
   toOpenAIChatTools,
   toOpenAIResponsesTools,
@@ -30,25 +32,21 @@ describe("contrato de ferramentas", () => {
     );
   });
 
-  it("repara args ausente, flags misturadas e o alias do workspace", () => {
+  it("normaliza o alias histórico para o contrato canônico de Bash", () => {
     expect(
       parseToolArguments(
         "execute_command",
         JSON.stringify({ command: 'ls -la "pasta com espaços"', cwd: "/workspace" }),
       ),
-    ).toEqual({ args: ["-la", "pasta com espaços"], command: "ls", cwd: "." });
+    ).toEqual({ command: 'ls -la "pasta com espaços"', workdir: "." });
     expect(parseToolArguments("execute_command", '{"command":"node"}')).toEqual({
-      args: [],
       command: "node",
-      cwd: ".",
     });
   });
 
-  it("não transforma sintaxe de shell em execução", () => {
+  it("aceita a sintaxe normal de shell no Bash canônico", () => {
     for (const command of ["ls | cat", "echo ok > file", "A=1 node", "git status && pwd"]) {
-      expect(() => normalizeToolArguments("execute_command", { command })).toThrow(
-        /não são permitidos/,
-      );
+      expect(normalizeToolArguments("bash", { command })).toMatchObject({ command });
     }
   });
 
@@ -72,7 +70,14 @@ describe("contrato de ferramentas", () => {
 
   it("explica o formato correto dos argumentos de comandos", () => {
     expect(() => parseToolArguments("execute_command", '{"command":"ls","args":"-la"}')).toThrow(
-      "lista de textos",
+      /LISTA de textos/,
+    );
+  });
+
+  it("anuncia somente bash ao modelo e mantém o alias fora das definições", () => {
+    expect(workspaceToolDefinitions.map((tool) => tool.function.name)).toContain("bash");
+    expect(workspaceToolDefinitions.map((tool) => tool.function.name)).not.toContain(
+      "execute_command",
     );
   });
 
@@ -81,7 +86,8 @@ describe("contrato de ferramentas", () => {
       const properties = tool.function.parameters.properties as Record<string, unknown>;
       const required = tool.function.parameters.required as string[];
       expect(tool.function.parameters.additionalProperties).toBe(false);
-      expect(required.slice().sort()).toEqual(Object.keys(properties).sort());
+      expect(required.every((field) => field in properties)).toBe(true);
+      expect(Object.keys(properties).length).toBeGreaterThanOrEqual(required.length);
     }
     expect(toOpenAIChatTools(workspaceToolDefinitions)[0]?.function.strict).toBe(true);
     expect(toOllamaTools(workspaceToolDefinitions)[0]?.function.strict).toBe(true);
@@ -90,5 +96,34 @@ describe("contrato de ferramentas", () => {
       strict: true,
       type: "function",
     });
+  });
+});
+
+describe("normalizeCommandArgs (#210)", () => {
+  it("ausente ou null significa lista vazia", () => {
+    expect(normalizeCommandArgs(undefined)).toEqual([]);
+    expect(normalizeCommandArgs(null)).toEqual([]);
+  });
+
+  it("array válido é normalizado para textos", () => {
+    expect(normalizeCommandArgs(["status", "--short"])).toEqual(["status", "--short"]);
+    expect(normalizeCommandArgs([])).toEqual([]);
+    expect(normalizeCommandArgs([7, true])).toEqual(["7", "true"]);
+  });
+
+  it("string e objeto produzem falha estruturada invalid_tool_arguments", () => {
+    for (const bad of ["-e process.exit(0)", { cmd: "x" }]) {
+      try {
+        normalizeCommandArgs(bad);
+        throw new Error("deveria ter rejeitado");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ToolValidationFailure);
+        if (error instanceof ToolValidationFailure) {
+          expect(error.code).toBe("invalid_tool_arguments");
+          expect(error.retryable).toBe(true);
+          expect(error.message).toContain("LISTA");
+        }
+      }
+    }
   });
 });

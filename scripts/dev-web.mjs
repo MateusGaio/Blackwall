@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,9 +18,11 @@ if (dataDirectory) process.env.BLACKWALL_DATA_DIR = dataDirectory;
 // Development has one shared, deterministic sidecar. Both the browser at
 // localhost:1420 and Tauri dev use it, avoiding concurrent SQLite writers.
 const sidecarPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 1422);
+const sidecarToken = process.env.BLACKWALL_SIDECAR_TOKEN ?? randomBytes(32).toString("hex");
+process.env.BLACKWALL_SIDECAR_TOKEN = sidecarToken;
 let sidecar;
 try {
-  sidecar = await createSidecar(sidecarPort);
+  sidecar = await createSidecar(sidecarPort, undefined, { token: sidecarToken });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("EADDRINUSE") || message.includes("address already in use")) {
@@ -64,7 +67,12 @@ console.info(`Blackwall sidecar de desenvolvimento disponível em ${sidecarUrl}`
 
 const vite = spawn(npmCommand, ["exec", "vite", "--", ...viteArguments], {
   cwd: projectDirectory,
-  env: { ...process.env, VITE_SIDECAR_URL: sidecarUrl },
+  env: {
+    ...process.env,
+    BLACKWALL_SIDECAR_TOKEN: sidecarToken,
+    VITE_SIDECAR_TOKEN: sidecarToken,
+    VITE_SIDECAR_URL: sidecarUrl,
+  },
   stdio: "inherit",
 });
 

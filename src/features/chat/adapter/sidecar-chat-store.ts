@@ -406,6 +406,16 @@ export class SidecarChatStore {
         requestModel || undefined,
         requestWorkspaceId,
         {
+          onAttemptStarted: () => {
+            // Substituto começou: parcial do candidato anterior é descartado
+            // AGORA (nunca antes — se nenhum vencer, o parcial permanece).
+            if (!this.matchesRun(sessionId, runEpoch)) return;
+            this.streamingBuffer = "";
+            this.messages = this.messages.map((message) =>
+              message.id === placeholderId ? { ...message, content: "" } : message,
+            );
+            setStatus(labels.consulting);
+          },
           onApproval: (approval, resolveDecision) => {
             if (!this.matchesRun(sessionId, runEpoch)) {
               resolveDecision("deny");
@@ -414,6 +424,14 @@ export class SidecarChatStore {
             this.approvalResolver = resolveDecision;
             this.toolApproval = approval;
             setStatus(labels.waitingForPermission);
+          },
+          onApprovalResolved: () => {
+            // Resolução sem o botão (transição de modo/stop no sidecar):
+            // remove o card imediatamente — zero órfãos.
+            if (!this.matchesRun(sessionId, runEpoch)) return;
+            this.approvalResolver = null;
+            this.toolApproval = null;
+            this.notify();
           },
           onCompacting: () => {
             if (!this.matchesRun(sessionId, runEpoch)) return;

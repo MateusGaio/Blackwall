@@ -55,4 +55,18 @@ describe("exclusão de perfil na tela de seleção", () => {
     );
     expect(html).not.toContain("dialog");
   });
+
+  it("marca a lista como ocupada durante operação e bloqueia seleção", () => {
+    const html = renderToStaticMarkup(
+      <ProfileChooser
+        isSelecting
+        onCreate={() => undefined}
+        onDelete={() => Promise.resolve()}
+        onSelect={() => undefined}
+        profiles={profiles}
+      />,
+    );
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("disabled=");
+  });
 });

@@ -229,12 +229,23 @@ export function currentRuntime(): "desktop" | "web" {
   return isTauri() ? "desktop" : "web";
 }
 
-export async function sidecarUrl(): Promise<string> {
-  if (isTauri()) {
-    const config = await invoke<{ sidecar_url: string }>("runtime_config");
-    return config.sidecar_url;
+type SidecarRuntimeConfig = {
+  sidecar_token: string;
+  sidecar_url: string;
+};
+
+let runtimeConfigPromise: Promise<SidecarRuntimeConfig> | null = null;
+
+export async function sidecarConfig(): Promise<SidecarRuntimeConfig> {
+  if (!runtimeConfigPromise) {
+    runtimeConfigPromise = isTauri()
+      ? invoke<SidecarRuntimeConfig>("runtime_config")
+      : Promise.resolve({
+          sidecar_token: import.meta.env.VITE_SIDECAR_TOKEN ?? "",
+          sidecar_url: import.meta.env.VITE_SIDECAR_URL ?? "",
+        });
   }
-  return import.meta.env.VITE_SIDECAR_URL ?? "";
+  return runtimeConfigPromise;
 }
 
 export async function pickDirectory(): Promise<FolderSelection | null> {

@@ -1,7 +1,9 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 export const sidebarCollapsedPreference = "blackwall:sidebar-collapsed";
-export const vaultCollapsedPreference = "blackwall:vault-collapsed";
+export const sidebarPanelWidthPreference = "blackwall:sidebar-panel-width";
 export const vaultPanelWidthPreference = "blackwall:vault-panel-width";
+export const skipSessionDeleteConfirmationPreference = "blackwall:skip-session-delete-confirmation";
+export const cursorTextAvoidancePreference = "blackwall:cursor-text-avoidance";
 
 export function readBooleanPreference(key: string) {
   if (typeof localStorage === "undefined") return false;

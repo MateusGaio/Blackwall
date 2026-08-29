@@ -3,13 +3,15 @@
 import {
   type FormEvent,
   type KeyboardEvent,
-  type ReactNode,
   type RefObject,
+  useEffect,
   useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { Skeleton } from "@/shared/components/motion/Skeleton";
 import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
 import { cn } from "@/shared/lib/utils";
 import type { ConnectedProvider, ProviderModel, Workspace } from "../../shared/api/sidecar";
@@ -19,22 +21,23 @@ import { CompactIcon } from "./CompactIcon";
 type ComposerProps = {
   activeProvider: ConnectedProvider | null;
   activeSessionId: string | undefined;
-  changeModel: (model: string) => void;
+  changeModel: (model: string) => Promise<void>;
   changePermissionMode: (mode: Workspace["permissionMode"]) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
   isSending: boolean;
+  isModelsLoading?: boolean;
   modelName: string;
   models: ProviderModel[];
   onAttachFile: (file: File) => void;
   onEditQueued?: () => void;
+  onOpenProviders?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   permissionError: string;
   queuedCount?: number;
   queuedPreview?: string | null;
   selectedModel: string;
   setDraft: (draft: string) => void;
-  statusFooter?: ReactNode;
   stopGeneration: () => void;
   workspace: Workspace | undefined;
 };
@@ -47,9 +50,13 @@ function resizeComposer(target: HTMLTextAreaElement) {
 const menuItem =
   "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors duration-[120ms] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none aria-checked:bg-accent/60";
 
-const popoverContent = "w-64 p-1";
+const popoverContent = "w-60 p-1";
 
-/** Linha de prompt (U4): borda 1px, prefixo ❯ e uma linha de controles no rodapé. */
+/** Altura máxima do menu de modelos (comentário 7): cabe na viewport e rola. */
+const modelListClass =
+  "max-h-[min(18rem,50vh)] overflow-y-auto overscroll-contain [scrollbar-width:thin]";
+
+/** Card flutuante estilo Claude: textarea expansível + rodapé único de controles. */
 export function Composer({
   activeProvider,
   activeSessionId,
@@ -57,18 +64,19 @@ export function Composer({
   changePermissionMode,
   composerRef,
   draft,
+  isModelsLoading = false,
   isSending,
   modelName,
   models,
   onAttachFile,
   onEditQueued,
+  onOpenProviders,
   onSubmit,
   permissionError,
   queuedCount = 0,
   queuedPreview = null,
   selectedModel,
   setDraft,
-  statusFooter,
   stopGeneration,
   workspace,
 }: ComposerProps) {
@@ -76,6 +84,93 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
+  // Troca assíncrona de modelo: busy bloqueia cliques repetidos; erro cai
+  // inline abaixo da lista (sem rollback invisível).
+  const [pendingModelId, setPendingModelId] = useState<string | null>(null);
+  const [modelError, setModelError] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
+  const modelListRef = useRef<HTMLDivElement | null>(null);
+  const modelSearchRef = useRef<HTMLInputElement | null>(null);
+  const chipRef = useRef<HTMLButtonElement | null>(null);
+
+  const selectedStillLoading = isModelsLoading && models.length === 0;
+  const normalizedModelQuery = modelQuery
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase();
+  const filteredModels = models.filter((model) => {
+    if (!normalizedModelQuery) return true;
+    return [model.name, model.id].some((value) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase()
+        .includes(normalizedModelQuery),
+    );
+  });
+
+  useEffect(() => {
+    if (!modelOpen) return;
+    // Item selecionado entra na viewport sem animação intrusiva.
+    const frame = requestAnimationFrame(() => {
+      modelSearchRef.current?.focus();
+      modelListRef.current
+        ?.querySelector<HTMLButtonElement>('[data-checked="true"]')
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [modelOpen]);
+
+  function focusModelAt(offset: number | "first" | "last") {
+    const items = modelListRef.current?.querySelectorAll<HTMLButtonElement>("[data-model-item]");
+    if (!items || items.length === 0) return;
+    const current = Array.prototype.indexOf.call(items, document.activeElement);
+    const nextIndex =
+      offset === "first" ? 0 : offset === "last" ? items.length - 1 : current + offset;
+    const bounded = Math.max(0, Math.min(items.length - 1, nextIndex));
+    const target = items[bounded];
+    if (!target) return;
+    for (const item of items) item.tabIndex = -1;
+    target.tabIndex = 0;
+    target.focus();
+    target.scrollIntoView({ block: "nearest" });
+  }
+
+  function handleModelListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const moves: Record<string, number | "first" | "last"> = {
+      ArrowDown: 1,
+      ArrowUp: -1,
+      End: "last",
+      Home: "first",
+    };
+    const move = moves[event.key];
+    if (move === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focusModelAt(move);
+  }
+
+  function handleModelSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusModelAt("first");
+    }
+  }
+
+  async function chooseModel(model: ProviderModel) {
+    if (pendingModelId) return;
+    setPendingModelId(model.id);
+    setModelError("");
+    try {
+      await changeModel(model.id);
+      setModelOpen(false);
+    } catch (reason) {
+      setModelError(reason instanceof Error ? reason.message : t("chat.couldNotChangeTheModel"));
+    } finally {
+      setPendingModelId(null);
+    }
+  }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
@@ -94,7 +189,7 @@ export function Composer({
 
   return (
     <form
-      className="relative z-10 rounded-lg border border-input bg-muted transition-colors duration-150 focus-within:border-ring"
+      className="relative z-10 rounded-2xl border border-neutral-800 bg-[#121215] transition-colors duration-150 focus-within:border-neutral-700"
       onSubmit={onSubmit}
     >
       <input
@@ -108,31 +203,36 @@ export function Composer({
         ref={fileInput}
         type="file"
       />
-      <div className="flex items-start gap-2 px-3 pt-2.5">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 font-mono text-sm leading-6 text-muted-foreground select-none"
-        >
-          ❯
+      <textarea
+        aria-label={t("composer.message")}
+        className="max-h-[180px] min-h-[44px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        data-testid="chat-composer"
+        disabled={!activeSessionId || isSending}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          resizeComposer(event.target);
+        }}
+        onKeyDown={handleKeyDown}
+        placeholder={t("composer.writeAMessage")}
+        ref={composerRef}
+        rows={2}
+        value={draft}
+      />
+      {!selectedModel.trim() && (
+        // Sem provedor/modelo escolhido: orienta e abre a seleção em vez de
+        // deixar o botão de enviar silenciosamente desabilitado.
+        <span className="mx-4 mb-1 w-fit" role="status">
+          <button
+            className="rounded px-0 text-left text-xs text-muted-foreground underline-offset-2 transition-colors duration-[120ms] hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
+            onClick={() => setModelOpen(true)}
+            type="button"
+          >
+            {t("chat.chooseModelHint")}
+          </button>
         </span>
-        <textarea
-          aria-label={t("composer.message")}
-          className="max-h-[180px] flex-1 resize-none border-0 bg-transparent p-0 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-          data-testid="chat-composer"
-          disabled={!activeProvider || !activeSessionId || isSending}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            resizeComposer(event.target);
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={t("composer.writeAMessage")}
-          ref={composerRef}
-          rows={1}
-          value={draft}
-        />
-      </div>
-      <div className="flex items-center justify-between gap-1 px-1.5 pb-1.5 pt-1">
-        <div className="flex items-center gap-0.5">
+      )}
+      <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+        <div className="flex min-w-0 items-center gap-0.5">
           <Button
             aria-label={t("composer.attachFile")}
             disabled={!activeSessionId || !workspace || isSending}
@@ -144,6 +244,22 @@ export function Composer({
           >
             <CompactIcon kind="clip" />
           </Button>
+          {/* Segundo controle: central de provedores (selecionar/cadastrar). */}
+          {onOpenProviders && (
+            <Button
+              aria-label={t("composer.providers")}
+              className="gap-1.5 px-2"
+              disabled={isSending}
+              onClick={onOpenProviders}
+              size="sm"
+              title={t("composer.providers")}
+              type="button"
+              variant="ghost"
+            >
+              <CompactIcon kind="providers" />
+              <span className="hidden text-xs md:inline">{t("composer.providers")}</span>
+            </Button>
+          )}
           {workspace && (
             <Popover onOpenChange={setPermissionOpen} open={permissionOpen}>
               <PopoverTrigger asChild>
@@ -160,7 +276,16 @@ export function Composer({
                   type="button"
                   variant="ghost"
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <svg
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path d="M12 3 5 6v5c0 4.3 2.8 8.2 7 10 4.2-1.8 7-5.7 7-10V6l-7-3Z" />
                     <path d="m9 12 2 2 4-4" />
                   </svg>
@@ -207,54 +332,6 @@ export function Composer({
               </PopoverContent>
             </Popover>
           )}
-          {activeProvider && (
-            <Popover onOpenChange={setModelOpen} open={modelOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  className="gap-1.5 px-2 font-mono text-xs"
-                  data-testid="provider-chip"
-                  size="sm"
-                  title={modelName}
-                  type="button"
-                  variant="ghost"
-                >
-                  <span className="hidden text-muted-foreground sm:inline">
-                    {activeProvider.name}
-                  </span>
-                  <span aria-hidden="true" className="hidden text-muted-foreground sm:inline">
-                    ›
-                  </span>
-                  <span className="truncate">{modelName}</span>
-                  <CompactIcon kind="chevron" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className={popoverContent} role="menu">
-                <p className="px-2 pb-1 font-mono text-[0.68rem] tracking-wide text-muted-foreground uppercase">
-                  {activeProvider.name}
-                </p>
-                {models.map((model) => (
-                  <button
-                    aria-checked={model.id === selectedModel}
-                    className={cn(menuItem, model.id === selectedModel && "aria-checked:bg-accent")}
-                    key={model.id}
-                    onClick={() => {
-                      changeModel(model.id);
-                      setModelOpen(false);
-                    }}
-                    role="menuitemradio"
-                    type="button"
-                  >
-                    <span>{model.name}</span>
-                    {model.id === selectedModel && (
-                      <span aria-hidden="true" className="text-xs text-muted-foreground">
-                        ✓
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
-          )}
           {queuedCount > 0 && onEditQueued && (
             <button
               className="rounded-full border border-border bg-muted px-2.5 py-1 font-mono text-[0.68rem] text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -266,31 +343,164 @@ export function Composer({
             </button>
           )}
         </div>
-        {isSending ? (
-          <Button
-            aria-label={t("composer.stopGenerating")}
-            onClick={stopGeneration}
-            size="icon-sm"
-            title={t("composer.stop")}
-            type="button"
-            variant="destructive"
-          >
-            <CompactIcon kind="stop" />
-          </Button>
-        ) : (
-          <Button
-            aria-label={t("composer.sendMessage")}
-            disabled={!draft.trim() || !activeProvider || !activeSessionId}
-            size="icon-sm"
-            title={t("composer.sendMessage")}
-            type="submit"
-            variant="secondary"
-          >
-            <CompactIcon kind="send" />
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {activeProvider && (
+            <Popover
+              onOpenChange={(next) => {
+                setModelOpen(next);
+                if (!next) {
+                  setModelQuery("");
+                  // Retorno de foco determinístico ao trigger (#208).
+                  const chip = chipRef.current;
+                  requestAnimationFrame(() => chip?.focus());
+                }
+              }}
+              open={modelOpen}
+            >
+              <PopoverTrigger asChild>
+                {/* Somente o modelo ativo (comentário 6): provedor permanece
+                interno para roteamento e é identificado apenas no popover. */}
+                <Button
+                  aria-label={`${t("chat.selectModel")}: ${modelName}`}
+                  className="max-w-[22ch] gap-1 px-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground max-[420px]:max-w-[120px]"
+                  data-testid="model-trigger"
+                  ref={chipRef}
+                  size="sm"
+                  title={modelName}
+                  type="button"
+                  variant="ghost"
+                >
+                  {!selectedModel.trim() && (
+                    <span className="text-muted-foreground">{t("chat.selectModel")}</span>
+                  )}
+                  <span className="min-w-0 truncate" data-model-trigger-label>
+                    {modelName}
+                  </span>
+                  <span aria-hidden="true" className="[&_svg]:size-3 shrink-0">
+                    <CompactIcon kind="chevron" />
+                  </span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className={popoverContent}
+                aria-label={t("chat.selectModel")}
+              >
+                {/* O provedor pode ser identificado aqui dentro — só não no trigger. */}
+                <p className="px-2 pb-1 font-mono text-[0.68rem] tracking-wide text-muted-foreground uppercase">
+                  {activeProvider.name}
+                </p>
+                <Input
+                  aria-label={t("chat.searchModels")}
+                  className="mb-1 h-8 text-xs"
+                  onChange={(event) => setModelQuery(event.target.value)}
+                  onKeyDown={handleModelSearchKeyDown}
+                  placeholder={t("chat.searchModels")}
+                  ref={modelSearchRef}
+                  role="searchbox"
+                  value={modelQuery}
+                />
+                {selectedStillLoading && (
+                  <div aria-busy="true" className="grid gap-1 px-1 py-1">
+                    <Skeleton className="h-7 w-full" />
+                    <Skeleton className="h-7 w-4/5" />
+                    <Skeleton className="h-7 w-3/5" />
+                  </div>
+                )}
+                {!selectedStillLoading && filteredModels.length === 0 && (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {models.length === 0
+                      ? t("settings.thisProviderReturnedNoModels")
+                      : t("chat.noModelsFound")}
+                  </p>
+                )}
+                {filteredModels.length > 0 && (
+                  <div
+                    className={modelListClass}
+                    data-testid="model-list"
+                    onKeyDown={handleModelListKeyDown}
+                    ref={modelListRef}
+                    role="listbox"
+                  >
+                    {filteredModels.map((model) => {
+                      const checked = model.id === selectedModel;
+                      const busy = pendingModelId === model.id;
+                      return (
+                        <button
+                          aria-selected={checked}
+                          className={cn(menuItem, checked && "bg-accent")}
+                          data-checked={checked || undefined}
+                          data-model-item=""
+                          disabled={pendingModelId !== null}
+                          key={model.id}
+                          onClick={() => void chooseModel(model)}
+                          role="option"
+                          tabIndex={checked ? 0 : -1}
+                          title={model.name}
+                          type="button"
+                        >
+                          <span className="min-w-0 truncate text-xs">{model.name}</span>
+                          <span className="flex shrink-0 items-center gap-1">
+                            {busy && (
+                              <span
+                                aria-hidden="true"
+                                className="size-3 animate-spin rounded-full border border-muted-foreground border-t-transparent motion-reduce:animate-none"
+                              />
+                            )}
+                            {checked && (
+                              <span aria-hidden="true" className="text-xs text-muted-foreground">
+                                ✓
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {pendingModelId && (
+                  <p
+                    aria-live="polite"
+                    className="px-2 py-1 font-mono text-[0.68rem] text-muted-foreground"
+                  >
+                    {t("composer.switchingModel")}
+                  </p>
+                )}
+                {modelError && (
+                  <p className="px-2 py-1 text-xs text-destructive" role="alert">
+                    {modelError}
+                  </p>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
+          {isSending ? (
+            <Button
+              aria-label={t("composer.stopGenerating")}
+              onClick={stopGeneration}
+              size="icon-sm"
+              title={t("composer.stop")}
+              type="button"
+              variant="destructive"
+            >
+              <CompactIcon kind="stop" />
+            </Button>
+          ) : (
+            <Button
+              aria-label={t("composer.sendMessage")}
+              disabled={
+                !draft.trim() || !activeProvider || !activeSessionId || !selectedModel.trim()
+              }
+              size="icon-sm"
+              title={t("composer.sendMessage")}
+              type="submit"
+              variant="secondary"
+            >
+              <CompactIcon kind="send" />
+            </Button>
+          )}
+        </div>
       </div>
-      {statusFooter && <div className="border-t border-border/60 px-3 py-1.5">{statusFooter}</div>}
     </form>
   );
 }

@@ -10,7 +10,10 @@ type CompactIconKind =
   | "minimize"
   | "new-thread"
   | "panel"
+  | "panel-right"
+  | "providers"
   | "refresh"
+  | "search"
   | "send"
   | "settings"
   | "stop"
@@ -32,7 +35,12 @@ const paths = {
   minimize: <path d="M5 12h14" />,
   "new-thread": <path d="M12 5v14M5 12h14" />,
   panel: <path d="M4 5h16v14H4V5Zm5 0v14M12 9l3 3-3 3" />,
+  "panel-right": <path d="M4 5h16v14H4V5Zm15 0v14M12 9l3 3-3 3" />,
+  providers: (
+    <path d="M5 4h14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm0 9h14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1Zm2.5-7h.01M7.5 17h.01" />
+  ),
   refresh: <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v5h-5" />,
+  search: <path d="m21 21-4.35-4.35M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />,
   send: <path d="M12 19V5M5 12l7-7 7 7" />,
   settings: (
     <path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Zm0-5.3 1 2.3 2.4.5 1.9-1.5 1.7 1.7-1.5 1.9.5 2.4 2.3 1v2.4l-2.3 1-.5 2.4 1.5 1.9-1.7 1.7-1.9-1.5-2.4.5-1 2.3h-2.4l-1-2.3-2.4-.5-1.9 1.5-1.7-1.7 1.5-1.9-.5-2.4-2.3-1v-2.4l2.3-1 .5-2.4-1.5-1.9 1.7-1.7 1.9 1.5 2.4-.5 1-2.3H12Z" />
@@ -42,7 +50,20 @@ const paths = {
 
 export function CompactIcon({ kind }: { kind: CompactIconKind }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
+    // Autocontido: sem os atributos de apresentação o SVG usa fill preto
+    // padrão do navegador e some no tema OLED (e sem dimensão vira gigante).
+    // `currentColor` herda a cor do controle; o tamanho padrão é 16px e as
+    // regras escopadas (.workspace-header-trigger svg etc.) continuam valendo.
+    <svg
+      aria-hidden="true"
+      className="size-4 shrink-0"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       {paths[kind]}
     </svg>
   );

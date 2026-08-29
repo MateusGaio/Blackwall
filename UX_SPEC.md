@@ -19,8 +19,8 @@ Este documento existe porque decisão de stack não garante experiência boa —
 ## 2. Navegação
 
 **Decisão: os dois modelos, não um só.**
-- **Sidebar persistente** à esquerda para navegação estrutural: Perfil atual no topo → lista de Workspaces do perfil → seção `Recentes` com até 30 sessões do perfil ativo. Cada sessão mostra título, workspace secundário (`Sem workspace` quando aplicável) e um único menu de ações.
-- **Command palette (Cmd/Ctrl+K)** para qualquer ação rápida: trocar de perfil, criar workspace, trocar Soul, trocar modelo, abrir uma nota do Vault por nome, ir para a página de Agentes.
+- **Sidebar persistente** à esquerda para navegação estrutural: Perfil atual no topo → lista de Workspaces do perfil → dentro do workspace, lista de sessões.
+- **Command palette (Cmd/Ctrl+K)** para qualquer ação rápida: nova conversa, abrir sessão recente, criar workspace, central de provedores, configurações. A paleta fica montada persistentemente (controle `open`) para preservar animação de saída e retorno de foco; a busca recomeça vazia a cada abertura. Ações cujo destino ainda não existe (ex.: página Agentes) aparecem desabilitadas com motivo acessível — nunca abrem tela fictícia.
 
 A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer agora" — são complementares, não redundantes.
 
@@ -38,7 +38,7 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 > **Contrato v2 (2026-08-23, Issue #181).** Referência: transcript do Codex App + rodapé/status do Codex CLI (TUI). Substitui integralmente a versão anterior desta seção (Fases U4/U5), que descrevia a estética terminal inicial. Implementação rastreada nas Issues #182–#186.
 
 ### 3.1 Transcript
-- **Mensagens sem bolha** — usuário alinhado à direita com marcador mono `❯ você`; assistente à esquerda em **bloco único** por turno, com marcador mono `● blackwall`. Largura máxima ~640px; nenhuma superfície de fundo ou borda de balão.
+- **Mensagens sem bolha** — usuário alinhado à direita com marcador mono `› você`; assistente à esquerda em **bloco único** por turno, sem marcador de papel. Largura máxima ~640px; nenhuma superfície de fundo ou borda de balão.
 - **Passos agênticos colapsados** — o trabalho de ferramentas de um turno não polui o transcript: aparece como um grupo recolhido (`agiu · N ações`, com duração quando conhecida) entre a mensagem do usuário e a resposta final. Expandido, revela linhas mono com nome da ferramenta e trecho cru truncado. Colapsado por padrão; estado respeita `prefers-reduced-motion`.
 - **Streaming token a token** com cursor de bloco piscando e linha de status em mono no cabeçalho do bloco ativo (`▸ pensando…` → `▸ gerando…`).
 - **Resumo automático** aparece como card próprio (`conversation-summary-card`), nunca como mensagem comum.
@@ -47,7 +47,7 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 ### 3.2 Bottom pane (composer)
 - Composer único no formato de **linha de prompt**: borda 1px, raio `--radius-control`, prefixo mono `❯`, auto-resize.
 - **Botão enviar↔parar na mesma posição** (`↑` ↔ `⏹` conforme estado) — nunca dois botões disputando lugares diferentes.
-- **Chips inline**: escudo de permissões (`Perguntar sempre` / `Automático` / `Somente leitura` — ausente sem workspace), chip provedor › modelo (popover), anexos como tokens `[arquivo.md]` removíveis.
+- **Chips inline**: escudo de permissões (`Perguntar sempre` / `Automático` / `Somente leitura` — ausente sem workspace), chip **somente modelo** (popover; o provedor é identificado apenas dentro do popover e na central de provedores — nunca no trigger), anexos como tokens `[arquivo.md]` removíveis. A lista de modelos é rolável (`max-height: min(18rem, 50vh)`), com navegação por setas/Home/End/Enter/Escape e o item selecionado já rolado para visível ao abrir; troca de modelo mostra busy e bloqueia cliques repetidos.
 - **Fila visível** (ADR-21): pill `N na fila` com preview da próxima mensagem enfileirada.
 - **Status line como rodapé** (herança U5): provedor › modelo · contexto `▓▓░ %` (botão que abre o dialog de uso) · janela mais restritiva do roteador · fila. Formato mono, discreta, sempre abaixo do composer.
 - Erros de envio como linha mono discreta com ação de retry — nunca modal bloqueante.
@@ -58,7 +58,7 @@ A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer a
 ### 3.4 Preservações obrigatórias (não negociável)
 - Contrato do `SidecarChatStore`/adaptador intacto; fila FIFO; guards de sessão/epoch.
 - Modos ask/automatic/read-only; anexos textuais/PDF; resumo automático; usage dialog; command palette.
-- Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `provider-chip`, `session-statusline`, `menuitemradio` de permissões.
+- Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `model-trigger` (antigo `provider-chip`), `session-statusline`, `menuitemradio` de permissões.
 - Labels i18n pt/en conforme tabela registrada no plano da fase C (`docs/plans/`).
 
 ---
@@ -114,7 +114,7 @@ Fluxo passo a passo obrigatório antes da primeira tela "normal":
 7. Provedor OpenAI-compatible ou Ollama detectado/configurado.
 8. Vault e entrada no chat com estado local persistente; os Markdown da pasta já aparecem no Vault e no grafo lateral.
 
-O Vault lê os Markdown selecionados/escaneados na pasta. No modo sem workspace, o chat e as sessões continuam funcionando sem arquivos, Vault ou ferramentas de filesystem e nenhuma coluna direita vazia é reservada. O painel lateral do Vault 2D só é criado quando há workspace e o usuário o abre; o mesmo slot fica reservado para o futuro `graph3d`. O botão de Vault permanece visível para explicar o bloqueio: "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace." O aviso oferece a ação "Adicionar workspace nas configurações". A área de configurações lista os workspaces do perfil e permite criar outro escolhendo uma pasta; depois da criação, o novo workspace e uma sessão ficam ativos. Edição de notas, RAG semântico e notas geradas entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
+O Vault lê os Markdown selecionados/escaneados na pasta. Markdown continua sendo a fonte de verdade; objetos Portent, relações quebradas/ambíguas e estado `captured` aparecem como diagnósticos/inbox, sem conectar silenciosamente o basename errado. A captura explícita oferece confirmação discreta com **Abrir** e **Desfazer**; captura automática informa que pode fazer uma segunda chamada paga e só existe quando habilitada no perfil. No modo sem workspace, o chat e as sessões continuam funcionando sem arquivos, Vault ou ferramentas de filesystem e nenhuma coluna direita vazia é reservada. O painel lateral do Vault 2D só é criado quando há workspace e o usuário o abre; o mesmo slot fica reservado para o futuro `graph3d`. O botão de Vault permanece visível para explicar o bloqueio: "Para usar o Vault e o grafo, selecione uma pasta para configurar seu workspace." O aviso oferece a ação "Adicionar workspace nas configurações". A área de configurações lista os workspaces do perfil e permite criar outro escolhendo uma pasta; depois da criação, o novo workspace e uma sessão ficam ativos. RAG semântico e edição avançada entram nas fases seguintes. O guia e ações rápidas continuam disponíveis pela command palette (`Ctrl/Cmd+K`).
 
 ---
 
@@ -135,6 +135,8 @@ Quando todas as 8 tentativas do fallback (ADR-16) falham, a mensagem é **acion�
 ## 11. Layout responsivo
 
 - **Painéis colapsáveis** (sidebar, painel de grafo dentro do chat) — o usuário pode recolher qualquer painel lateral para focar só no conteúdo central.
+- **Preview Markdown do Vault contido na largura do painel** (300–680px): prosa quebra dentro da coluna; blocos intrinsecamente largos (tabela, código) rolam apenas dentro do próprio bloco; imagens limitadas a 100%. Nenhum scroll horizontal no painel inteiro.
+- **Vault com dois estados e um único controle, no TOPO GLOBAL** (decisão do owner, #218): o desenho é o do antigo botão interno — painel dividido com chevron apontando para recolher o painel direito quando expandido e espelhado quando recolhido. Nada dentro de `VaultPanel` o duplica. Estados: painel completo ou trilho (~42px), sem divisor/borda estrutural contínua, com atalhos **Arquivos** e **Grafo** (tooltip real em hover e focus). Clique num atalho reabre na aba correspondente; aba, nota e posição de leitura são preservados. Sem workspace, nenhum estado é criado — o botão explica o bloqueio.
 - Redução de janela colapsa painéis automaticamente na ordem de menor prioridade primeiro (grafo lateral → sidebar), nunca corta conteúdo sem dar controle ao usuário sobre isso.
 
 ---

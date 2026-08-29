@@ -13,7 +13,7 @@ Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que t
 ## Princípios de produto
 
 1. **Local-first e privado.** Dados, Vault e chaves pertencem ao usuário; telemetria é opt-in e nunca carrega conteúdo de conversas.
-2. **Continuidade de contexto.** Perfis, workspaces, Souls e um Vault Markdown combinam memória durável com conversas de trabalho.
+2. **Continuidade de contexto.** Perfis, workspaces, Souls, histórico local e um Vault Markdown combinam memória durável com conversas de trabalho sem confundir conversa bruta, memória comportamental e conhecimento de projeto.
 3. **Falha com transparência.** O roteador tenta provedores configurados em ordem e explica claramente a tentativa e o erro final.
 4. **Sem lock-in de notas.** O Vault usa arquivos `.md` e `[[wikilinks]]` compatíveis com Obsidian.
 5. **Foco no trabalho.** A interface prioriza legibilidade, velocidade e controle, com tema OLED monocromático.
@@ -33,4 +33,4 @@ As chaves ficam exclusivamente em `secrets.enc`; prompts, respostas e telemetria
 
 Observabilidade é opt-in: Sentry, Datadog e New Relic podem receber somente metadados técnicos por um endpoint configurado pelo usuário. Sem configuração explícita, nenhum exporter é iniciado.
 
-RAG semântico/LanceDB e MCP vêm na segunda fase; edição avançada do Vault, orquestração de agentes e LoRA/QLoRA são capacidades posteriores.
+O Vault já possui uma fundação Portent read-only: Markdown é a fonte de verdade, SQLite mantém uma projeção reconstruível, links ambíguos viram diagnóstico e tipos externos são preservados. Captura explícita entra numa fila local idempotente; captura automática permanece opt-in, com disclosure de custo e redaction antes de qualquer chamada externa. RAG semântico/LanceDB e MCP vêm na segunda fase; edição avançada do Vault, orquestração de agentes e LoRA/QLoRA são capacidades posteriores.

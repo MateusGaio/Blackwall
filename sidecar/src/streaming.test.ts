@@ -44,10 +44,34 @@ describe("streaming de provedores", () => {
         { content: '{"entries":[]}', name: "list_directory", role: "tool" },
       ])?.toolCalls[0],
     ).toMatchObject({
-      arguments: '{"command":"node --version","cwd":"/workspace"}',
-      name: "execute_command",
+      arguments: '{"command":"node --version","workdir":"/workspace"}',
+      name: "bash",
     });
   });
+  it("rejeita streaming com modelo vazio e erro acionável", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-nomodel-"));
+    directories.push(directory);
+    process.env.BLACKWALL_DATA_DIR = directory;
+    const provider = await saveProvider({
+      baseUrl: "https://example.com/v1",
+      model: "",
+      name: "Example",
+    });
+    const request = vi.fn() as unknown as typeof fetch;
+    await expect(
+      streamChatMessage(
+        provider.id,
+        [{ content: "Oi", role: "user" }],
+        "   ",
+        () => undefined,
+        new AbortController().signal,
+        request,
+      ),
+    ).rejects.toThrow("Nenhum modelo foi escolhido");
+    // A API nunca é chamada sem modelo.
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("emite deltas de OpenAI-compatible", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-stream-"));
     directories.push(directory);

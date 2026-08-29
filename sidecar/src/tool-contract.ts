@@ -27,12 +27,15 @@ export type ResponsesToolDefinition = {
 
 export type ToolName =
   | "apply_patch"
+  | "bash"
   | "blackwall_capability_probe"
   | "create_or_update_file"
-  | "execute_command"
   | "list_directory"
   | "read_file"
   | "search_text";
+
+/** Nome aceito somente ao ler chamadas históricas de provedores. */
+export type LegacyToolName = "execute_command";
 
 export type ToolCall = {
   id: string;
@@ -184,15 +187,15 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
   {
     function: {
       description:
-        "Run one executable with structured arguments inside the workspace; args must be an array of strings, and shell interpretation is disabled.",
-      name: "execute_command",
+        "Run a shell command in the workspace. Supports normal shell quoting, pipes, chaining, redirection, variables and multiline commands.",
+      name: "bash",
       parameters: objectSchema(
         {
-          args: { description: "Executable arguments.", items: { type: "string" }, type: "array" },
-          command: stringProperty("Executable name or path."),
-          cwd: stringProperty("Relative working directory."),
+          command: stringProperty("Shell command to execute."),
+          timeout: { description: "Timeout in milliseconds (120000–600000).", type: "number" },
+          workdir: stringProperty("Working directory, relative to the workspace when relative."),
         },
-        ["command", "args", "cwd"],
+        ["command"],
       ),
       strict: true,
     },
@@ -212,11 +215,46 @@ export const capabilityProbeTool: ToolDefinition = {
 
 const toolNames = new Set<ToolName>(workspaceToolDefinitions.map((item) => item.function.name));
 
-export function isToolName(value: unknown): value is ToolName {
-  return typeof value === "string" && toolNames.has(value as ToolName);
+export function canonicalToolName(value: string): ToolName | null {
+  if (value === "execute_command") return "bash";
+  if (value === "blackwall_capability_probe") return "blackwall_capability_probe";
+  return toolNames.has(value as ToolName) ? (value as ToolName) : null;
 }
 
-export function parseToolArguments(name: ToolName, raw: string): Record<string, unknown> {
+export function isToolName(value: unknown): value is ToolName {
+  return typeof value === "string" && canonicalToolName(value) !== null;
+}
+
+/**
+ * Contrato de `execute_command.args` (#210): ausente/null significa lista
+ * vazia; presente DEVE ser array de valores serializáveis como texto —
+ * string ou objeto produzem falha estruturada ANTES de qualquer aprovação
+ * ou spawn (nada é executado com args silenciosamente descartados).
+ */
+export function normalizeCommandArgs(raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    throw new ToolValidationFailure({
+      code: "invalid_tool_arguments",
+      expectedExample: { args: ["--flag", "valor"], command: "git", cwd: "." },
+      message:
+        "O campo args de execute_command precisa ser uma LISTA de textos; recebi " +
+        (typeof raw === "string"
+          ? "uma string"
+          : typeof raw === "object"
+            ? "um objeto"
+            : typeof raw) +
+        '. Ex.: {"args": ["status", "--short"], "command": "git"}',
+      retryable: true,
+    });
+  }
+  return raw.map((value) => String(value));
+}
+
+export function parseToolArguments(
+  name: ToolName | LegacyToolName,
+  raw: string,
+): Record<string, unknown> {
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -226,43 +264,42 @@ export function parseToolArguments(name: ToolName, raw: string): Record<string, 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`Os argumentos da ferramenta ${name} devem ser um objeto.`);
   }
+  const canonicalName = canonicalToolName(name);
+  if (!canonicalName) throw new Error(`A ferramenta ${name} não é permitida.`);
   const args = normalizeToolArguments(name, value as Record<string, unknown>);
   const fields: Record<ToolName, { required: string[]; optional: string[] }> = {
     apply_patch: { optional: [], required: ["path", "oldText", "newText"] },
+    bash: { optional: ["workdir", "timeout"], required: ["command"] },
     blackwall_capability_probe: { optional: [], required: ["nonce"] },
     create_or_update_file: { optional: [], required: ["path", "content"] },
-    execute_command: { optional: [], required: ["command", "args", "cwd"] },
     list_directory: { optional: [], required: ["path"] },
     read_file: { optional: [], required: ["path"] },
     search_text: { optional: [], required: ["path", "query"] },
   };
-  const allowed = new Set([...fields[name].required, ...fields[name].optional]);
+  const allowed = new Set([...fields[canonicalName].required, ...fields[canonicalName].optional]);
   for (const key of Object.keys(args)) {
     if (!allowed.has(key))
       throw new Error(`O argumento ${key} não é aceito pela ferramenta ${name}.`);
   }
-  for (const field of fields[name].required) {
+  for (const field of fields[canonicalName].required) {
     if (!(field in args)) throw new Error(`O argumento ${field} é obrigatório para ${name}.`);
   }
-  const stringFields = name === "list_directory" ? ["path"] : [];
-  if (name === "read_file") stringFields.push("path");
-  if (name === "search_text") stringFields.push("query", "path");
-  if (name === "create_or_update_file") stringFields.push("path", "content");
-  if (name === "apply_patch") stringFields.push("path", "oldText", "newText");
-  if (name === "blackwall_capability_probe") stringFields.push("nonce");
-  if (name === "execute_command") stringFields.push("command", "cwd");
+  const stringFields = canonicalName === "list_directory" ? ["path"] : [];
+  if (canonicalName === "read_file") stringFields.push("path");
+  if (canonicalName === "search_text") stringFields.push("query", "path");
+  if (canonicalName === "create_or_update_file") stringFields.push("path", "content");
+  if (canonicalName === "apply_patch") stringFields.push("path", "oldText", "newText");
+  if (canonicalName === "blackwall_capability_probe") stringFields.push("nonce");
+  if (canonicalName === "bash") stringFields.push("command", "workdir");
   for (const field of stringFields) {
     if (args[field] !== undefined && typeof args[field] !== "string") {
       throw new Error(`O argumento ${field} da ferramenta ${name} deve ser texto.`);
     }
   }
-  if (
-    name === "execute_command" &&
-    (!Array.isArray(args.args) || args.args.some((arg) => typeof arg !== "string"))
-  ) {
-    throw new Error(
-      'Os argumentos do comando devem ser uma lista de textos, por exemplo: {"args":["-la","src"]}.',
-    );
+  if (canonicalName === "bash" && args.timeout !== undefined) {
+    if (typeof args.timeout !== "number" || !Number.isFinite(args.timeout))
+      throw new Error("O argumento timeout da ferramenta bash deve ser um número.");
+    args.timeout = Math.min(600_000, Math.max(120_000, Math.floor(args.timeout)));
   }
   return args;
 }
@@ -307,86 +344,35 @@ export function toCompatibilityPrompt(tools: ToolDefinition[]): string {
   ].join("\n");
 }
 
-const unsafeShellSyntax = /(?:\|\||&&|[|;<>`]|\$\(|\$\{|\n|\r)/;
-const environmentAssignment = /^[A-Za-z_][A-Za-z\d_]*=/;
-
-/**
- * Repairs only common provider formatting mistakes. This is not a shell
- * parser: operators, substitutions and environment assignments are rejected
- * before tokenization, and the resulting command is still executed with
- * `shell: false`.
- */
 export function normalizeToolArguments(
-  name: ToolName,
+  name: ToolName | LegacyToolName,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
   const result = { ...input };
   if (name === "search_text" && !("path" in result)) result.path = ".";
-  if (name !== "execute_command") return result;
-  if (!("args" in result)) result.args = [];
-  if (!("cwd" in result) || result.cwd === "/workspace" || result.cwd === "workspace")
-    result.cwd = ".";
-  if (typeof result.command !== "string") return result;
-  const rawCommand = result.command.trim();
-  if (!rawCommand) return result;
-  if (unsafeShellSyntax.test(rawCommand) || environmentAssignment.test(rawCommand)) {
-    throw new ToolValidationFailure({
-      code: "unsafe_command_syntax",
-      expectedExample: { args: ["status", "--short"], command: "git", cwd: "." },
-      message:
-        "Operadores de shell, redireções e variáveis inline não são permitidos. Se precisar rodar mais de um comando, chame execute_command novamente para cada um, em sequência — nunca encadeie com &&, |, ; ou similares.",
-      retryable: false,
-    });
+  if (name === "execute_command") {
+    const args = normalizeCommandArgs(result.args);
+    const command = typeof result.command === "string" ? result.command.trim() : result.command;
+    if (typeof command === "string" && args.length > 0) {
+      result.command = [shellQuote(command), ...args.map(shellQuote)].join(" ");
+    }
+    if (!("workdir" in result) && "cwd" in result) result.workdir = result.cwd;
+    if (result.workdir === "/workspace" || result.workdir === "workspace") result.workdir = ".";
+    delete result.cwd;
+    delete result.args;
+    return result;
   }
-  const tokens: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | null = null;
-  let escaped = false;
-  for (const character of rawCommand) {
-    if (escaped) {
-      current += character;
-      escaped = false;
-      continue;
-    }
-    if (character === "\\" && quote !== "'") {
-      escaped = true;
-      continue;
-    }
-    if (quote) {
-      if (character === quote) quote = null;
-      else current += character;
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      quote = character;
-      continue;
-    }
-    if (/\s/.test(character)) {
-      if (current) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += character;
-  }
-  if (escaped || quote) {
-    throw new ToolValidationFailure({
-      code: "invalid_command_quoting",
-      expectedExample: { args: ["path with spaces"], command: "ls", cwd: "." },
-      message: "As aspas ou escapes do comando estão incompletos.",
-      retryable: true,
-    });
-  }
-  if (current) tokens.push(current);
-  if (tokens.length > 1) {
-    const existingArgs = Array.isArray(result.args) ? result.args : [];
-    result.command = tokens[0];
-    result.args = [...tokens.slice(1), ...existingArgs];
-  } else {
-    result.command = tokens[0] ?? rawCommand;
+  if (name === "bash") {
+    if (!("workdir" in result) && "cwd" in result) result.workdir = result.cwd;
+    delete result.cwd;
+    delete result.args;
+    return result;
   }
   return result;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 export function parseCompatibilityToolCall(content: string): ToolCall | null {

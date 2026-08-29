@@ -80,13 +80,13 @@ export function ProfileChooser({
             <p className="mb-6 max-w-[52ch] text-[0.88rem] leading-relaxed text-muted-foreground">
               {t("onboarding.chooseASavedProfileOr")}
             </p>
-            <ul className="m-0 grid list-none gap-2 p-0">
+            <ul aria-busy={isDeleting || isSelecting} className="m-0 grid list-none gap-2 p-0">
               {profiles.map((profile) => (
                 <li className="flex min-w-0 items-center gap-1.5" key={profile.id}>
                   <button
                     className={`${choiceCardBase} w-full rounded-lg py-3`}
                     data-testid="profile-option"
-                    disabled={isSelecting}
+                    disabled={isSelecting || isDeleting}
                     onClick={() => onSelect(profile.id)}
                     type="button"
                   >
@@ -132,6 +132,20 @@ export function ProfileChooser({
             {deleteError && (
               <p className="mt-2 text-[0.76rem] text-muted-foreground" role="alert">
                 {deleteError}
+              </p>
+            )}
+            {isDeleting && (
+              // Estado ocupado da exclusão: bloqueia repetição nos botões acima
+              // e anuncia o progresso sem interromper o leitor de tela em loop.
+              <p
+                className="mt-2 flex items-center gap-2 text-[0.76rem] text-muted-foreground"
+                role="status"
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-2 animate-pulse rounded-full bg-muted-foreground motion-reduce:animate-none"
+                />
+                {t("settings.deletingProfile")}
               </p>
             )}
             <Button className="mt-[18px] w-fit" onClick={onCreate} variant="default">

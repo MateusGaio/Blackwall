@@ -15,11 +15,12 @@ import { groupThreadItems } from "./thread/groupThreadItems";
 import { MessageActions } from "./thread/MessageActions";
 import { messageClasses, streamingMinHeight } from "./thread/messageClasses";
 import { RoleMarker } from "./thread/RoleMarker";
-import { ToolStepsCard } from "./thread/ToolStepsCard";
+import { ToolStepsDisclosure } from "./thread/ToolStepsDisclosure";
 
 type ChatThreadProps = {
   copiedMessageId: string | null;
   copyMessage: (message: ChatMessage) => void;
+  cursorAvoidanceEnabled?: boolean;
   editingMessageDraft: string;
   editingMessageId: string | null;
   listRef: RefObject<HTMLDivElement | null>;
@@ -110,6 +111,7 @@ function ScrollBottomPill({
 export function ChatThread({
   copiedMessageId,
   copyMessage,
+  cursorAvoidanceEnabled = false,
   editingMessageDraft,
   editingMessageId,
   listRef,
@@ -167,20 +169,27 @@ export function ChatThread({
       <div className="relative h-full min-h-0">
         <ThreadPrimitive.Viewport
           autoScroll
-          className="h-full overflow-y-auto overscroll-contain [scrollbar-color:#3d3d43_transparent] [scrollbar-width:thin]"
+          className="chat-transcript h-full overflow-x-hidden overflow-y-auto overscroll-contain"
           onScroll={handleScroll}
           ref={listRef}
         >
-          <ol className="flex flex-col gap-6 px-1 pb-7 pt-5">
+          <ol className="flex flex-col gap-6 px-1 pb-7 pt-5 md:px-2">
             {groupThreadItems(visibleMessages).map((item) => {
-              if (item.kind === "steps") {
+              if (item.kind === "orphan-steps") {
+                // Passos sem resposta posterior não desaparecem (#218).
                 return (
-                  <ToolStepsCard key={`steps-${item.steps[0]?.id ?? "empty"}`} steps={item.steps} />
+                  <li key={`orphan-${item.steps[0]?.id ?? "empty"}`}>
+                    <ToolStepsDisclosure steps={item.steps} variant="fallback" />
+                  </li>
                 );
               }
               if (item.message.isSummary) {
                 return (
-                  <ConversationSummaryCard content={item.message.content} key={item.message.id} />
+                  <ConversationSummaryCard
+                    content={item.message.content}
+                    cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+                    key={item.message.id}
+                  />
                 );
               }
               const message = item.message;
@@ -204,7 +213,11 @@ export function ChatThread({
                     <>
                       <RoleMarker role={message.role} />
                       {message.content.trim() ? (
-                        <SafeMarkdown content={message.content} />
+                        <SafeMarkdown
+                          content={message.content}
+                          cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+                          streaming={isStreaming}
+                        />
                       ) : (
                         isStreaming && (
                           <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
@@ -220,16 +233,20 @@ export function ChatThread({
                         />
                       )}
                       {!isStreaming && (
-                        <MessageActions
-                          copiedMessageId={copiedMessageId}
-                          copyMessage={copyMessage}
-                          isLastAssistant={
-                            message.role === "assistant" && message.id === lastAssistantId
-                          }
-                          message={message}
-                          onEditingStart={onEditingStart}
-                          regenerate={regenerate}
-                        />
+                        <div className="flex items-end gap-1">
+                          <MessageActions
+                            copiedMessageId={copiedMessageId}
+                            copyMessage={copyMessage}
+                            isLastAssistant={
+                              message.role === "assistant" && message.id === lastAssistantId
+                            }
+                            message={message}
+                            onEditingStart={onEditingStart}
+                            regenerate={regenerate}
+                          />
+                          {/* Passos da resposta, na linha de ações (#218). */}
+                          <ToolStepsDisclosure steps={item.steps} />
+                        </div>
                       )}
                     </>
                   )}

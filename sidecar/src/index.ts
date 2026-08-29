@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
@@ -14,6 +14,14 @@ import {
   saveAttachment,
   searchAttachments,
 } from "./attachments.js";
+import {
+  generateSidecarToken,
+  hasBearerToken,
+  hasWebSocketToken,
+  MAX_HTTP_BODY_BYTES,
+  MAX_WS_PAYLOAD_BYTES,
+  websocketProtocolSelector,
+} from "./auth.js";
 import { type ChatMessage, completeChatMessage } from "./chat.js";
 import {
   availableContextTokens,
@@ -26,6 +34,8 @@ import {
 import { dataDirectory, openDatabase } from "./db/database.js";
 import { models, profiles, routerEntries, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
+import { enqueueExplicitCapture } from "./memory-capture.js";
+import { detectExplicitCaptureIntent } from "./memory-intent.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
   getProvider,
@@ -35,6 +45,7 @@ import {
   type ParallelToolCallsMode,
   type ProviderInput,
   providerApiKey,
+  reconcileProviderDuplicates,
   removeProvider,
   resolveProviderModelInput,
   routeCandidates,
@@ -46,6 +57,8 @@ import {
   syncProviderModels,
   validateProvider,
 } from "./providers.js";
+import { withRetry } from "./retry.js";
+import { createRunStore } from "./run-store.js";
 import {
   isRetryableProviderError,
   ProviderRequestError,
@@ -53,6 +66,7 @@ import {
   streamChatMessage,
 } from "./streaming.js";
 import {
+  canonicalToolName,
   isToolName,
   MAX_TOOL_RESULT_BYTES_PER_TURN,
   parseToolArguments,
@@ -64,11 +78,18 @@ import {
   toCompatibilityPrompt,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
+import { errorFingerprint, extractErrorCode } from "./tool-outcome.js";
+import { classifyTool } from "./tool-policy.js";
 import {
   type ApprovalDecision,
   cancelPendingApprovals,
   executeTool,
+  notifyWorkspacePolicyChanged,
   resolveApproval,
+  revokeGrants,
+  setWorkspacePermissionModeGuarded,
+  ToolPolicyDenied,
+  terminateStaleApprovals,
 } from "./tools.js";
 import {
   clearUsageHistory,
@@ -110,22 +131,48 @@ function allowOrigin(
   response: import("node:http").ServerResponse,
 ) {
   const origin = request.headers.origin;
-  if (origin && allowedOrigins.has(origin))
-    response.setHeader("access-control-allow-origin", origin);
-  response.setHeader("access-control-allow-headers", "content-type");
+  if (origin && !allowedOrigins.has(origin)) return false;
+  if (origin) response.setHeader("access-control-allow-origin", origin);
+  response.setHeader("access-control-allow-headers", "authorization, content-type");
   response.setHeader("access-control-allow-methods", "DELETE, GET, PATCH, POST, PUT, OPTIONS");
+  return true;
 }
 
-function requestBody(request: import("node:http").IncomingMessage): Promise<unknown> {
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+function requestBody(
+  request: import("node:http").IncomingMessage,
+  maxBytes = MAX_HTTP_BODY_BYTES,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
+    const contentLength = Number(request.headers["content-length"] ?? 0);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      reject(new HttpError(413, "O corpo do pedido excede o limite permitido."));
+      request.resume();
+      return;
+    }
     request.setEncoding("utf8");
-    request.on("data", (chunk: string) => (body += chunk));
+    request.on("data", (chunk: string) => {
+      body += chunk;
+      if (Buffer.byteLength(body, "utf8") > maxBytes) {
+        reject(new HttpError(413, "O corpo do pedido excede o limite permitido."));
+        request.destroy();
+      }
+    });
     request.on("end", () => {
       try {
         resolve(JSON.parse(body));
       } catch {
-        reject(new Error("O pedido local está inválido."));
+        reject(new HttpError(400, "O pedido local está inválido."));
       }
     });
     request.on("error", reject);
@@ -192,19 +239,55 @@ function appendToolExchange(
   ];
 }
 
-export function createSidecar(
+export async function createSidecar(
   port = 0,
   storageDirectory = dataDirectory(),
-): Promise<{ port: number; server: Server }> {
+  options: { token?: string | null } = {},
+): Promise<{ port: number; server: Server; token: string | null }> {
+  // Direct createSidecar calls without a token are kept auth-free only for the
+  // existing in-process Vitest fixtures. Every real process path gets a fresh
+  // token, either from its launcher or from this default.
+  const isTestFixture = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const sidecarToken =
+    options.token !== undefined
+      ? options.token
+      : (process.env.BLACKWALL_SIDECAR_TOKEN ?? (isTestFixture ? null : generateSidecarToken()));
   const database = openDatabase(storageDirectory);
   pruneUsage(database.client);
+  // Reconciliação legada e idempotente de duplicatas de provedores (ADR-12:
+  // sem geração automática de schema; só dados). Nunca derruba o sidecar.
+  try {
+    const merges = await reconcileProviderDuplicates(storageDirectory);
+    if (merges.length)
+      console.info(`[blackwall] ${merges.length} provedor(es) duplicado(s) reconciliado(s).`);
+  } catch (error) {
+    console.error(
+      "[blackwall] reconciliação de provedores falhou:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  terminateStaleApprovals(storageDirectory);
   const store = createStore(database, storageDirectory);
+  // Registro de sockets para eventos push globais (ex.: approval.resolved).
+  const connectedSockets = new Set<import("ws").WebSocket>();
+  function broadcast(payload: string) {
+    for (const socket of connectedSockets) {
+      if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  }
   const server = createServer(async (request, response) => {
-    allowOrigin(request, response);
+    if (!allowOrigin(request, response)) {
+      writeJson(response, 403, { error: "Origem não permitida." });
+      return;
+    }
     if (request.method === "OPTIONS") return response.writeHead(204).end();
     const pathname = new URL(request.url ?? "/", "http://blackwall.local").pathname;
     if (request.url === "/health") {
       writeJson(response, 200, withInstrumentation("sidecar.health", healthPayload));
+      return;
+    }
+    if (pathname.startsWith("/v1/") && !hasBearerToken(request, sidecarToken)) {
+      writeJson(response, 401, { error: "Autorização necessária." });
       return;
     }
     try {
@@ -365,8 +448,20 @@ export function createSidecar(
         /^\/v1\/workspaces\/[^/]+\/permission-mode$/.test(pathname)
       ) {
         const input = (await requestBody(request)) as { mode: PermissionMode };
+        const workspaceId = pathname.split("/")[3];
+        // Guardada: epoch/gate + revogação de grants daquele workspace.
         writeJson(response, 200, {
-          workspace: store.setWorkspacePermissionMode(pathname.split("/")[3], input.mode),
+          workspace: await setWorkspacePermissionModeGuarded(
+            workspaceId,
+            input.mode,
+            storageDirectory,
+          ),
+        });
+        // Transição de modo reavalia cards pendentes AGORA (#209): allow
+        // executa uma vez; caso contrário nega com motivo — sem card órfão.
+        notifyWorkspacePolicyChanged(workspaceId, storageDirectory, {
+          onApprovalResolved: (event) =>
+            broadcast(JSON.stringify({ ...event, type: "approval.resolved" })),
         });
         return;
       }
@@ -403,10 +498,14 @@ export function createSidecar(
         return;
       }
       if (request.method === "POST" && /^\/v1\/sessions\/[^/]+\/select$/.test(pathname)) {
+        // Troca de sessão revoga grants da sessão ANTERIOR (#209).
+        revokeGrants({ sessionId: store.getState().activeSessionId ?? undefined });
         writeJson(response, 200, store.selectSession(pathname.split("/")[3]));
         return;
       }
       if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/select$/.test(pathname)) {
+        // Troca de workspace revoga grants do workspace ANTERIOR.
+        revokeGrants({ workspaceId: store.getState().activeWorkspaceId ?? undefined });
         writeJson(response, 200, store.selectWorkspace(pathname.split("/")[3]));
         return;
       }
@@ -609,12 +708,17 @@ export function createSidecar(
       writeJson(response, 404, { error: "Rota local não encontrada." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha local inesperada.";
-      writeJson(response, 400, { error: message });
+      writeJson(response, error instanceof HttpError ? error.status : 400, { error: message });
     }
   });
   server.once("close", () => database.close());
 
-  const socketServer = new WebSocketServer({ noServer: true });
+  const socketServer = new WebSocketServer({
+    handleProtocols: websocketProtocolSelector,
+    maxPayload: MAX_WS_PAYLOAD_BYTES,
+    noServer: true,
+  });
+  createRunStore(database.client).recoverInterruptedRuns();
   server.on("upgrade", (request, socket, head) => {
     const { origin } = request.headers;
     // Clientes locais sem Origin (testes, harness, Tauri nativo) passam;
@@ -626,13 +730,22 @@ export function createSidecar(
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
     }
+    if (!hasWebSocketToken(request, sidecarToken)) {
+      socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      return;
+    }
     socketServer.handleUpgrade(request, socket, head, (ws) =>
       socketServer.emit("connection", ws, request),
     );
   });
   const activeRequests = new Map<
     string,
-    { controller: AbortController; socket: import("ws").WebSocket }
+    {
+      controller: AbortController;
+      socket: import("ws").WebSocket;
+      sessionId?: string | null;
+      workspaceId?: string | null;
+    }
   >();
   const queues = new Map<string, Promise<void>>();
 
@@ -650,8 +763,16 @@ export function createSidecar(
     },
     controller: AbortController,
   ) {
+    const runStore = createRunStore(database.client);
+    runStore.start({
+      profileId: input.profileId,
+      requestId: input.requestId,
+      sessionId: input.sessionId,
+      workspaceId: input.workspaceId,
+    });
     if (controller.signal.aborted) {
-      socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
+      if (runStore.finish(input.requestId, "cancelled", { content: "" }))
+        socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
       return;
     }
     const toolBudget = resolveToolCallBudget(input.toolBudget);
@@ -663,6 +784,35 @@ export function createSidecar(
       : input.profileId
         ? database.db.select().from(profiles).where(eq(profiles.id, input.profileId)).get()
         : null;
+    const currentUserMessage = [...input.messages]
+      .reverse()
+      .find((message) => message.role === "user")?.content;
+    const previousUserMessage = [...input.messages]
+      .slice(0, -1)
+      .reverse()
+      .find((message) => message.role === "user")?.content;
+    const captureIntent = currentUserMessage
+      ? detectExplicitCaptureIntent(currentUserMessage, previousUserMessage)
+      : { kind: "none" as const, reason: "not_detected" as const };
+    if (captureIntent.content && profile?.id) {
+      const queued = enqueueExplicitCapture(database.client, {
+        content: captureIntent.content,
+        profileId: profile.id,
+        requestId: input.requestId,
+        sessionId: input.sessionId,
+        sourceRevisionHash: createHash("sha256").update(captureIntent.content).digest("hex"),
+        turnMessageId: input.requestId,
+        workspaceId: input.workspaceId,
+      });
+      socket.send(
+        JSON.stringify({
+          id: queued.id,
+          inserted: queued.inserted,
+          requestId: input.requestId,
+          type: "memory.capture.queued",
+        }),
+      );
+    }
     const entries = input.workspaceId
       ? database.db
           .select({
@@ -701,13 +851,13 @@ export function createSidecar(
       : input.messages;
     const toolInstruction: ChatMessage | null = input.workspaceId
       ? {
-          content: `Blackwall tem ferramentas locais seguras no workspace selecionado; use-as para ver ou alterar arquivos e nunca diga que não tem acesso ao filesystem.
+          content: `Blackwall tem ferramentas locais no workspace selecionado; use-as para ver, alterar arquivos ou executar Bash e nunca diga que não tem acesso ao filesystem.
 
 Antes de ler ou buscar, chame list_directory com path "." e use só caminhos vindos de uma listagem bem-sucedida; se aparecer um diretório de projeto aninhado, inclua-o nos caminhos seguintes. Nunca presuma que PRODUCT.md, ARCHITECTURE.md, UX_SPEC.md, README.md ou outro arquivo está na raiz — continue listando subpastas e leia manifests, código-fonte, pontos de entrada, configs e testes; use search_text para localizar símbolos. Não se limite a Markdown; ignore .git, node_modules, builds, gerados, binários e arquivos muito grandes. Se uma ferramenta disser que o caminho não existe, não repita a chamada nem tente variações — use a última listagem e siga com arquivos existentes, ou informe que o documento não está disponível.
 
 Agrupe chamadas sempre que possível: se as próximas chamadas não dependem do resultado uma da outra, emita todas juntas na mesma resposta. Uma listagem que revelou seis arquivos vira uma resposta com seis read_file, não seis respostas. Chamar uma por vez quando dava para agrupar desperdiça o contexto inteiro a cada ida e volta. Só emita uma sozinha quando precisar do resultado dela para decidir a próxima.
 
-Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados. Em execute_command, command é só o executável e args é sempre uma lista JSON de textos (ex.: {"command":"git","args":["status","--short"]}); nunca envie args como texto ou objeto. Não há shell: nunca use &&, |, ;, crases ou variáveis inline em command/args — para rodar vários comandos, chame execute_command de novo para cada um.`,
+Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados. Para Bash, envie {"command":"...","workdir":".","timeout":120000}; o comando usa o shell normal da plataforma e pode conter pipes, &&, redireções, variáveis, quoting e múltiplas linhas.`,
           role: "system",
         }
       : null;
@@ -728,6 +878,13 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       });
     };
     try {
+      // Sessão sem modelo escolhido e sem rota alternativa com modelo: rejeita
+      // com erro acionável em vez de iniciar streaming com modelo vazio.
+      if (!candidates.some((candidate) => candidate.model)) {
+        throw new Error(
+          "Nenhum modelo foi escolhido. Selecione um provedor e um modelo antes de enviar a mensagem.",
+        );
+      }
       let toolCount = 0;
       let toolResultBytes = 0;
       let alreadyCompactedThisTurn = false;
@@ -744,6 +901,16 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
             providerId: candidate.providerId,
             requestId: input.requestId,
             type: "chat.started",
+          }),
+        );
+        // Isolamento de tentativas (#210): o cliente zera o buffer parcial
+        // anterior somente quando um SUBSTITUTO realmente começa.
+        socket.send(
+          JSON.stringify({
+            attemptIndex: candidates.indexOf(candidate),
+            requestId: input.requestId,
+            sessionId: input.sessionId,
+            type: "chat.attempt.started",
           }),
         );
         let content = "";
@@ -939,29 +1106,64 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
             const attemptId = randomUUID();
             let result: Awaited<ReturnType<typeof streamChatMessage>>;
             try {
-              result = await streamChatMessage(
-                candidate.providerId,
-                transcript,
-                candidate.model,
-                (delta) => {
-                  content += delta;
-                  socket.send(
-                    JSON.stringify({
-                      delta,
-                      requestId: input.requestId,
-                      sessionId: input.sessionId,
-                      type: "chat.delta",
-                    }),
-                  );
-                },
-                controller.signal,
-                fetch,
-                storageDirectory,
+              result = await withRetry(
+                () =>
+                  streamChatMessage(
+                    candidate.providerId,
+                    transcript,
+                    candidate.model,
+                    (delta) => {
+                      content += delta;
+                      socket.send(
+                        JSON.stringify({
+                          delta,
+                          requestId: input.requestId,
+                          sessionId: input.sessionId,
+                          type: "chat.delta",
+                        }),
+                      );
+                    },
+                    controller.signal,
+                    fetch,
+                    storageDirectory,
+                    {
+                      protocol,
+                      toolMode,
+                      tools: toolsEnabled ? workspaceToolDefinitions : [],
+                      parallelToolCalls,
+                    },
+                  ),
                 {
-                  protocol,
-                  toolMode,
-                  tools: toolsEnabled ? workspaceToolDefinitions : [],
-                  parallelToolCalls,
+                  isRetryable: isRetryableProviderError,
+                  retryAfterMs: (error) =>
+                    error instanceof ProviderRequestError
+                      ? error.windows.find(
+                          (window) =>
+                            window.label === "retry-after" && window.resetAt !== undefined,
+                        )?.resetAt
+                        ? Math.max(
+                            0,
+                            (error.windows.find((window) => window.label === "retry-after")
+                              ?.resetAt ?? 0) - Date.now(),
+                          )
+                        : undefined
+                      : undefined,
+                  onRetry: ({ attempt, delayMs, error }) =>
+                    (() => {
+                      content = "";
+                      socket.send(
+                        JSON.stringify({
+                          attempt,
+                          attemptIndex: candidates.indexOf(candidate),
+                          delayMs,
+                          message: error instanceof Error ? error.message : "erro transitório",
+                          providerId: candidate.providerId,
+                          requestId: input.requestId,
+                          type: "chat.retrying",
+                        }),
+                      );
+                    })(),
+                  signal: controller.signal,
                 },
               );
             } catch (error) {
@@ -1025,6 +1227,20 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               throw new Error("Selecione um workspace antes de usar ferramentas locais.");
             if (result.toolCalls.length && toolMode === "disabled")
               throw new Error("As ferramentas estão desativadas para este modelo.");
+            if (!result.toolCalls.length && result.finishReason === "length")
+              throw Object.assign(
+                new Error("O modelo atingiu o limite de saída antes de concluir a resposta."),
+                { code: "MODEL_LENGTH" },
+              );
+            if (
+              !result.toolCalls.length &&
+              !result.content.trim() &&
+              result.finishReason === "unknown"
+            )
+              throw Object.assign(
+                new Error("O streaming terminou sem uma resposta ou motivo de finalização válido."),
+                { code: "STREAM_INCOMPLETE" },
+              );
             if (!result.toolCalls.length) {
               if (result.content && !content) {
                 content = result.content;
@@ -1038,18 +1254,27 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 );
               }
               persistStream(content, result.provider.id, candidate.model, "complete");
-              socket.send(
-                JSON.stringify({
+              if (
+                runStore.finish(input.requestId, "completed", {
                   content,
-                  persisted: Boolean(input.sessionId),
-                  provider: result.provider,
-                  requestId: input.requestId,
+                  provider: result.provider.id,
                   sessionId: input.sessionId,
                   tokens: result.tokens,
-                  type: "chat.completed",
                   windows: result.windows,
-                }),
-              );
+                })
+              )
+                socket.send(
+                  JSON.stringify({
+                    content,
+                    persisted: Boolean(input.sessionId),
+                    provider: result.provider,
+                    requestId: input.requestId,
+                    sessionId: input.sessionId,
+                    tokens: result.tokens,
+                    type: "chat.completed",
+                    windows: result.windows,
+                  }),
+                );
               return;
             }
             for (const call of result.toolCalls) {
@@ -1066,11 +1291,17 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               const callId = seenToolCallIds.has(call.id)
                 ? `${input.requestId}:${toolCount}:${call.id}`
                 : call.id;
-              const normalizedCall = { ...call, id: callId };
+              const canonicalName = canonicalToolName(call.name);
+              if (!canonicalName) throw new Error(`A ferramenta ${call.name} não é permitida.`);
+              const normalizedCall = { ...call, id: callId, name: canonicalName };
               seenToolCallIds.add(callId);
               let args: Record<string, unknown>;
               try {
-                args = parseToolArguments(normalizedCall.name, normalizedCall.arguments);
+                const parseName =
+                  (call.name as string) === "execute_command"
+                    ? "execute_command"
+                    : normalizedCall.name;
+                args = parseToolArguments(parseName, normalizedCall.arguments);
               } catch (error) {
                 toolCount += 1;
                 if (toolCount > toolBudget)
@@ -1088,8 +1319,8 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                       : {
                           code: "invalid_tool_arguments",
                           expectedExample:
-                            normalizedCall.name === "execute_command"
-                              ? { args: ["status", "--short"], command: "git", cwd: "." }
+                            normalizedCall.name === "bash"
+                              ? { command: "git status --short", timeout: 120000, workdir: "." }
                               : undefined,
                           message: errorMessage,
                           retryable: true,
@@ -1198,15 +1429,79 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                               type: "approval.requested",
                             }),
                           ),
+                        onApprovalResolved: (event) => {
+                          // Card pode ser resolvido sem o botão (troca de
+                          // modo/stop): cliente precisa remover o card.
+                          socket.send(
+                            JSON.stringify({
+                              ...event,
+                              callId: normalizedCall.id,
+                              requestId: event.requestId,
+                              sessionId: input.sessionId,
+                              tool: normalizedCall.name,
+                              type: "approval.resolved",
+                            }),
+                          );
+                        },
+                        signal: controller.signal,
                       },
                     );
               } catch (error) {
                 toolError = true;
                 toolResult = {
-                  error: error instanceof Error ? error.message : "A ferramenta falhou.",
+                  error: {
+                    code:
+                      error instanceof ToolPolicyDenied
+                        ? error.code
+                        : typeof (error as { code?: unknown })?.code === "string"
+                          ? (error as { code: string }).code
+                          : "tool_execution_failed",
+                    message: error instanceof Error ? error.message : "A ferramenta falhou.",
+                  },
                 };
               }
-              if (!toolError) successfulToolResults.set(executionSignature, toolResult);
+              if (!toolError) {
+                const commandResult = toolResult as {
+                  code?: number | null;
+                  ok?: boolean;
+                  stderr?: string;
+                  timedOut?: boolean;
+                };
+                // Comentário 9/item 1: exit code ≠ 0 é FALHA estruturada,
+                // nunca sucesso com stdout enigmático.
+                if (
+                  normalizedCall.name === "bash" &&
+                  (commandResult?.timedOut === true ||
+                    commandResult?.ok === false ||
+                    (typeof commandResult?.code === "number" && commandResult.code !== 0))
+                ) {
+                  toolError = true;
+                  toolResult = {
+                    error: {
+                      code: commandResult.timedOut ? "COMMAND_TIMEOUT" : "COMMAND_EXIT_CODE",
+                      message: commandResult.timedOut
+                        ? "O comando excedeu o timeout configurado."
+                        : `O comando saiu com o código ${commandResult.code ?? "desconhecido"}.`,
+                      output: String((toolResult as { output?: unknown })?.output ?? "").slice(
+                        0,
+                        64_000,
+                      ),
+                      stderr: String(commandResult.stderr ?? "").slice(0, 64_000),
+                    },
+                  };
+                }
+              }
+              // Política de cache (#210): somente leitura pura bem-sucedida
+              // é cacheável. Qualquer TENTATIVA de mutação/comando — mesmo
+              // falha com side effect possível (exit ≠ 0, timeout) —
+              // invalida as leituras anteriores do turno.
+              const attemptedNonRead =
+                !hasCachedResult && classifyTool(normalizedCall.name) !== "read";
+              if (attemptedNonRead) {
+                successfulToolResults.clear();
+              } else if (!toolError) {
+                successfulToolResults.set(executionSignature, toolResult);
+              }
               const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));
               toolResultBytes += hasCachedResult ? 0 : resultBytes;
               if (toolResultBytes > MAX_TOOL_RESULT_BYTES_PER_TURN) {
@@ -1245,16 +1540,19 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 }),
               );
               if (toolError) {
-                const errorMessage =
-                  typeof toolResult === "object" && toolResult && "error" in toolResult
-                    ? String((toolResult as { error?: unknown }).error)
-                    : "A ferramenta falhou.";
-                const signature = `${normalizedCall.name}:${errorMessage}`;
+                // Fingerprint canônico (#210): args + código — nunca
+                // String(objeto) que colapsava tudo em "[object Object]".
+                const signature = errorFingerprint(
+                  normalizedCall.name,
+                  args,
+                  extractErrorCode(toolResult),
+                );
                 const failures = (toolErrorCounts.get(signature) ?? 0) + 1;
                 toolErrorCounts.set(signature, failures);
                 if (shouldStopAfterRepeatedToolError(failures)) {
+                  const detail = extractErrorCode(toolResult);
                   throw new Error(
-                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha: ${errorMessage}. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
+                    `A ferramenta ${normalizedCall.name} repetiu a mesma falha (${detail}) com os mesmos argumentos. O ciclo foi interrompido para evitar spam. Verifique os caminhos canônicos retornados pela listagem.`,
                   );
                 }
               } else {
@@ -1271,28 +1569,30 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         } catch (error) {
           if (controller.signal.aborted) {
             persistStream(content, candidate.providerId, candidate.model, "stopped");
-            socket.send(
-              JSON.stringify({
-                content,
-                persisted: Boolean(input.sessionId),
-                requestId: input.requestId,
-                type: "chat.stopped",
-              }),
-            );
+            if (runStore.finish(input.requestId, "cancelled", { content }))
+              socket.send(
+                JSON.stringify({
+                  content,
+                  persisted: Boolean(input.sessionId),
+                  requestId: input.requestId,
+                  type: "chat.stopped",
+                }),
+              );
             return;
           }
           if (!isRetryableProviderError(error) || candidate === candidates.at(-1)) {
             const message = error instanceof Error ? error.message : "Falha no provedor.";
             persistStream(content, candidate.providerId, candidate.model, "failed");
-            socket.send(
-              JSON.stringify({
-                content,
-                message,
-                persisted: Boolean(input.sessionId),
-                requestId: input.requestId,
-                type: "chat.failed",
-              }),
-            );
+            if (runStore.finish(input.requestId, "failed", { content, message }))
+              socket.send(
+                JSON.stringify({
+                  content,
+                  message,
+                  persisted: Boolean(input.sessionId),
+                  requestId: input.requestId,
+                  type: "chat.failed",
+                }),
+              );
             return;
           }
           socket.send(
@@ -1340,7 +1640,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
     // O controller nasce no enfileiramento para que chat.stop e o cleanup de
     // socket alcancem também requests que ainda não começaram a executar.
     const controller = new AbortController();
-    activeRequests.set(input.requestId, { controller, socket });
+    activeRequests.set(input.requestId, {
+      controller,
+      socket,
+      sessionId: input.sessionId ?? null,
+      workspaceId: input.workspaceId ?? null,
+    });
     const current = previous
       .catch(() => undefined)
       .then(() => executeChat(socket, input, controller))
@@ -1348,9 +1653,29 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         // Última linha de defesa: uma rejeição que escapa de executeChat nunca
         // pode virar unhandled rejection (derruba o processo) nem ficar muda.
         const message = error instanceof Error ? error.message : "Falha no processamento do turno.";
-        socket.send(
-          JSON.stringify({ content: "", message, requestId: input.requestId, type: "chat.failed" }),
-        );
+        const errorCode =
+          typeof error === "object" && error && "code" in error
+            ? String((error as { code?: unknown }).code ?? "")
+            : "";
+        const runStore = createRunStore(database.client);
+        if (errorCode === "RUN_ACTIVE" || errorCode === "RUN_TERMINAL") {
+          socket.send(
+            JSON.stringify({
+              content: "",
+              message,
+              requestId: input.requestId,
+              type: "chat.failed",
+            }),
+          );
+        } else if (runStore.finish(input.requestId, "failed", { content: "", message }))
+          socket.send(
+            JSON.stringify({
+              content: "",
+              message,
+              requestId: input.requestId,
+              type: "chat.failed",
+            }),
+          );
       });
     queues.set(workspaceId, current);
     void current.finally(() => {
@@ -1360,6 +1685,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
   }
 
   socketServer.on("connection", (socket) => {
+    connectedSockets.add(socket);
     socket.send(JSON.stringify({ topic: "system:ready", ...healthPayload() }));
     // Sem este listener, erro de transporte (reset abrupto, frame inválido ou
     // send após close) vira exceção não tratada e derruba o processo inteiro.
@@ -1379,6 +1705,8 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         if (active) {
           active.controller.abort();
           cancelPendingApprovals(input.requestId, storageDirectory);
+          // Stop encerra grants da sessão do turno (#209).
+          if (active.sessionId) revokeGrants({ sessionId: active.sessionId });
         } else socket.send(JSON.stringify({ requestId: input.requestId, type: "chat.stopped" }));
         return;
       }
@@ -1409,10 +1737,12 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       }
     });
     socket.on("close", () => {
+      connectedSockets.delete(socket);
       for (const [requestId, active] of activeRequests) {
         if (active.socket !== socket) continue;
         active.controller.abort();
         cancelPendingApprovals(requestId, storageDirectory);
+        if (active.sessionId) revokeGrants({ sessionId: active.sessionId });
       }
     });
   });
@@ -1435,14 +1765,16 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       listening = true;
       settled = true;
       const address = server.address() as AddressInfo;
-      resolve({ port: address.port, server });
+      resolve({ port: address.port, server, token: sidecarToken });
     });
   });
 }
 
 export function startFromEnvironment() {
   const requestedPort = Number(process.env.BLACKWALL_SIDECAR_PORT ?? 0);
-  return createSidecar(requestedPort).then(({ port, server }) => {
+  return createSidecar(requestedPort, dataDirectory(), {
+    token: process.env.BLACKWALL_SIDECAR_TOKEN ?? undefined,
+  }).then(({ port, server }) => {
     console.info(`Blackwall sidecar disponível em ws://${SIDECAR_HOST}:${port}`);
     return { port, server };
   });

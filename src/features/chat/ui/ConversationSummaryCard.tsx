@@ -6,6 +6,7 @@ import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 
 type ConversationSummaryCardProps = {
   content: string;
+  cursorAvoidanceEnabled?: boolean;
 };
 
 function reducedMotionPreferred() {
@@ -14,7 +15,10 @@ function reducedMotionPreferred() {
   );
 }
 
-export function ConversationSummaryCard({ content }: ConversationSummaryCardProps) {
+export function ConversationSummaryCard({
+  content,
+  cursorAvoidanceEnabled = false,
+}: ConversationSummaryCardProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [bodyVisible, setBodyVisible] = useState(false);
@@ -59,7 +63,7 @@ export function ConversationSummaryCard({ content }: ConversationSummaryCardProp
         <div
           className={`conversation-summary-body ${expanded ? "is-open" : ""} ${leaving ? "is-leaving" : ""}`}
         >
-          <SafeMarkdown content={content} />
+          <SafeMarkdown content={content} cursorAvoidanceEnabled={cursorAvoidanceEnabled} />
         </div>
       ) : null}
     </li>

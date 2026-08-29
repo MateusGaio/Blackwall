@@ -2,6 +2,7 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/shared/components/ui/button";
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -81,49 +82,100 @@ export function RenameSessionDialog({
   );
 }
 
-type CommandPaletteProps = {
+type CommandSurfaceProps = {
   onClose: () => void;
+  onNewSession: () => void;
+  onOpenNote?: () => void;
+  onOpenProfileChooser?: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSettings: () => void;
-  paletteQuery: string;
+  onOpenSoulSection?: () => void;
+  onFocusModelSelector?: () => void;
+  onOpenProviders: () => void;
+  query: string;
   recentSessions: SessionSummary[];
-  setPaletteQuery: (query: string) => void;
+  setQuery: (query: string) => void;
 };
 
-export function CommandPalette({
+/**
+ * Corpo da paleta (input + lista + grupos). Extraído do diálogo para ser
+ * testável isoladamente; a raiz <Command> vive no CommandDialog e envolve
+ * exatamente esta superfície.
+ */
+export function CommandSurface({
   onClose,
+  onNewSession,
+  onOpenNote,
+  onOpenProfileChooser,
   onOpenSession,
   onOpenSettings,
-  paletteQuery,
+  onOpenSoulSection,
+  onFocusModelSelector,
+  onOpenProviders,
+  query,
   recentSessions,
-  setPaletteQuery,
-}: CommandPaletteProps) {
+  setQuery,
+}: CommandSurfaceProps) {
   const { t } = useTranslation();
+  function run(action: () => void) {
+    onClose();
+    action();
+  }
   return (
-    <CommandDialog
-      description={t("sessions.searchCommands")}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-      open
-      title={t("sessions.commandPalette")}
-    >
+    // Raiz cmdk OBRIGATÓRIA aqui: Input/List fora deste contexto leem um
+    // store inexistente e quebram com "subscribe" undefined ao interagir.
+    <Command>
       <CommandInput
         aria-label={t("sessions.searchCommands")}
-        onValueChange={setPaletteQuery}
+        onValueChange={setQuery}
         placeholder={t("sessions.searchSessionsAndActions")}
-        value={paletteQuery}
+        value={query}
       />
       <CommandList>
         <CommandEmpty>{t("sessions.nothingFoundInPalette")}</CommandEmpty>
         <CommandGroup heading={t("sessions.actions")}>
+          <CommandItem onSelect={() => run(onNewSession)}>{t("sessions.new")}</CommandItem>
           <CommandItem
-            onSelect={() => {
-              onClose();
-              onOpenSettings();
-            }}
+            onSelect={onOpenProfileChooser ? () => run(onOpenProfileChooser) : undefined}
+            {...(onOpenProfileChooser ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("palette.switchProfile")}
+          </CommandItem>
+          <CommandItem onSelect={() => run(onOpenProviders)}>{t("composer.providers")}</CommandItem>
+          <CommandItem
+            onSelect={onOpenSoulSection ? () => run(onOpenSoulSection) : undefined}
+            {...(onOpenSoulSection ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("palette.editSoul")}
+          </CommandItem>
+          <CommandItem
+            onSelect={onFocusModelSelector ? () => run(onFocusModelSelector) : undefined}
+            {...(onFocusModelSelector ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("chat.selectModel")}
+          </CommandItem>
+          <CommandItem
+            onSelect={onOpenNote ? () => run(onOpenNote) : undefined}
+            {...(onOpenNote ? {} : { disabled: true, "data-disabled": true })}
+          >
+            {t("palette.openVaultNote")}
+            {!onOpenNote && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {t("palette.requiresWorkspace")}
+              </span>
+            )}
+          </CommandItem>
+          <CommandItem
+            onSelect={() => run(onOpenSettings)}
+            value={`${t("sessions.openSettings")} ${t("sessions.settings")}`}
           >
             {t("sessions.openSettings")}
+          </CommandItem>
+          {/* Destino ainda não existe (UX_SPEC §2 lista Agentes como página
+          futura): item visível, desabilitado e com motivo acessível. */}
+          <CommandItem disabled data-disabled>
+            {t("palette.goToAgents")}
+            <span className="ml-auto text-xs text-muted-foreground">{t("palette.comingSoon")}</span>
           </CommandItem>
         </CommandGroup>
         {recentSessions.length > 0 && (
@@ -131,10 +183,11 @@ export function CommandPalette({
             {recentSessions.map((session) => (
               <CommandItem
                 key={session.id}
-                onSelect={() => {
-                  onClose();
-                  onOpenSession(session.id);
-                }}
+                onSelect={() =>
+                  run(() => {
+                    onOpenSession(session.id);
+                  })
+                }
                 value={`${session.title}`}
               >
                 {t("sessions.openSession")}
@@ -144,6 +197,75 @@ export function CommandPalette({
           </CommandGroup>
         )}
       </CommandList>
+    </Command>
+  );
+}
+
+type CommandPaletteProps = {
+  onClose: () => void;
+  onNewSession?: () => void;
+  onOpenNote?: () => void;
+  onOpenProfileChooser?: () => void;
+  onOpenSession: (sessionId: string) => void;
+  onOpenSettings: () => void;
+  onOpenSoulSection?: () => void;
+  onFocusModelSelector?: () => void;
+  onOpenProviders?: () => void;
+  open: boolean;
+  paletteQuery: string;
+  recentSessions: SessionSummary[];
+  setPaletteQuery: (query: string) => void;
+};
+
+/**
+ * Montada persistentemente e controlada por `open`: o desmonte imediato
+ * mataria a animação de saída e o retorno de foco do Radix.
+ */
+export function CommandPalette({
+  onClose,
+  onNewSession = () => undefined,
+  onOpenNote,
+  onOpenProfileChooser,
+  onOpenSession,
+  onOpenSettings,
+  onOpenSoulSection,
+  onFocusModelSelector,
+  onOpenProviders = () => undefined,
+  open,
+  paletteQuery,
+  recentSessions,
+  setPaletteQuery,
+}: CommandPaletteProps) {
+  const { t } = useTranslation();
+  return (
+    <CommandDialog
+      description={t("sessions.searchCommands")}
+      onOpenChange={(next) => {
+        if (!next) {
+          setPaletteQuery("");
+          onClose();
+        }
+      }}
+      open={open}
+      title={t("sessions.commandPalette")}
+    >
+      <CommandSurface
+        onClose={() => {
+          setPaletteQuery("");
+          onClose();
+        }}
+        onFocusModelSelector={onFocusModelSelector}
+        onNewSession={onNewSession}
+        onOpenNote={onOpenNote}
+        onOpenProfileChooser={onOpenProfileChooser}
+        onOpenSession={onOpenSession}
+        onOpenProviders={onOpenProviders}
+        onOpenSettings={onOpenSettings}
+        onOpenSoulSection={onOpenSoulSection}
+        query={paletteQuery}
+        recentSessions={recentSessions}
+        setQuery={setPaletteQuery}
+      />
     </CommandDialog>
   );
 }

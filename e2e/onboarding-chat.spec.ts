@@ -57,13 +57,21 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
       page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }),
     ).toBeVisible({ timeout: 5_000 });
     await page.getByRole("button", { name: /Entrar no Blackwall|Enter Blackwall/ }).click();
-    const vaultToggle = page.getByRole("button", { name: "Vault", exact: true });
+    // Toggle do Vault virou ícone de painel direito (com. 14 do lote de UI).
+    const vaultToggle = page
+      .locator("header")
+      .getByRole("button", { name: /painel do Vault|Vault panel/ })
+      .first();
     await expect(vaultToggle).toBeVisible();
-    await expect(page.getByText(/Workspace atual|Current workspace/, { exact: true })).toBeVisible();
+    // Sidebar v2: o workspace ativo aparece como grupo expandido na árvore.
+    await expect(
+      page
+        .getByRole("navigation", { name: /Lista de conversas|Thread list/ })
+        .getByText("Workspace E2E"),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Abrir configurações da Soul do workspace/i }),
     ).toHaveCount(0);
-    await expect(page.getByRole("img", { name: "Blackwall" })).toBeVisible();
     // Com um workspace ativo, o Vault já inicia aberto. Só alternamos o
     // botão quando o painel não estiver presente (por exemplo, após uma
     // preferência de recolhimento persistida).
@@ -83,6 +91,9 @@ test("onboarding cria workspace e restaura a sessão após recarregar", async ({
       .evaluate((element) => element.getBoundingClientRect().height);
     expect(graphHeight).toBeGreaterThan(slotHeight * 0.55);
     expect(graphBackground).toBe("rgb(10, 10, 11)");
+    await graphCanvas.hover();
+    for (let index = 0; index < 60; index += 1) await page.mouse.wheel(0, 240);
+    await expect(graphCanvas).toHaveAttribute("data-zoom", "0.15");
     await page.getByRole("button", { name: /Esconder sidebar|Hide sidebar/ }).click();
     await expect(page.getByRole("button", { name: /Mostrar sidebar|Show sidebar/ })).toBeVisible();
     await expect(page.getByRole("img", { name: "Blackwall" })).toBeHidden();

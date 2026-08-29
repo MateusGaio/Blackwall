@@ -9,6 +9,7 @@ use tauri::Manager;
 #[derive(Clone, serde::Serialize)]
 struct RuntimeConfig {
     sidecar_url: String,
+    sidecar_token: String,
 }
 
 struct SidecarProcess(Mutex<Option<Child>>);
@@ -37,6 +38,14 @@ fn available_port() -> u16 {
 }
 
 #[cfg(not(debug_assertions))]
+fn random_token() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("não foi possível gerar o token do sidecar: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(not(debug_assertions))]
 fn sidecar_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .resolve("desktop-runtime/launch.js", BaseDirectory::Resource)
@@ -62,24 +71,37 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             #[cfg(debug_assertions)]
-            let (sidecar_url, child) = ("http://127.0.0.1:1422".to_owned(), None);
+            let (sidecar_url, sidecar_token, child) = (
+                "http://127.0.0.1:1422".to_owned(),
+                std::env::var("BLACKWALL_SIDECAR_TOKEN").unwrap_or_default(),
+                None,
+            );
 
             #[cfg(not(debug_assertions))]
-            let (sidecar_url, child) = {
+            let (sidecar_url, sidecar_token, child) = {
                 let script = sidecar_script(app.handle()).map_err(std::io::Error::other)?;
                 let node = sidecar_node(app.handle()).map_err(std::io::Error::other)?;
+                let sidecar_token = random_token().map_err(std::io::Error::other)?;
                 let child = Command::new(node)
                     .arg(script)
                     .env("BLACKWALL_SIDECAR_PORT", port.to_string())
+                    .env("BLACKWALL_SIDECAR_TOKEN", &sidecar_token)
                     .spawn()
                     .map_err(|error| {
                         std::io::Error::other(format!(
                             "não foi possível iniciar o sidecar do Blackwall: {error}"
                         ))
                     })?;
-                (format!("http://127.0.0.1:{port}"), Some(child))
+                (
+                    format!("http://127.0.0.1:{port}"),
+                    sidecar_token,
+                    Some(child),
+                )
             };
-            app.manage(RuntimeConfig { sidecar_url });
+            app.manage(RuntimeConfig {
+                sidecar_token,
+                sidecar_url,
+            });
             app.manage(SidecarProcess(Mutex::new(child)));
             Ok(())
         })

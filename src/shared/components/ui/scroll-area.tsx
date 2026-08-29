@@ -16,7 +16,11 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        // Absoluto dentro do Root (relative): garante que o viewport herde a
+        // altura limitada pelo pai mesmo quando o Root é um item flex
+        // (flex-1/min-h-0), em vez de crescer junto com o conteúdo — era a
+        // causa da roda não rolar nos diálogos.
+        className="absolute inset-0 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

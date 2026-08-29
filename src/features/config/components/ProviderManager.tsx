@@ -1,14 +1,8 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/shared/components/ui/dialog";
+import { Button } from "@/shared/components/ui/button";
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import { currentRuntime } from "../../../platform/runtime";
 import {
@@ -21,6 +15,7 @@ import {
   type Workspace,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
+import { type SettingsSection, settingsSections } from "../settings-sections";
 import { ProfileSettings } from "./provider-manager/ProfileSettings";
 import { ProviderFormSection } from "./provider-manager/ProviderFormSection";
 import { ProviderList } from "./provider-manager/ProviderList";
@@ -35,7 +30,9 @@ type ProviderManagerProps = {
   activeSessionId?: string | null;
   activeWorkspaceId: string | null;
   activeProviderId?: string | null;
+  section: SettingsSection;
   onClose: () => void;
+  onSectionChange: (section: SettingsSection) => void;
   onDeleteProfile: (profileId: string) => Promise<void>;
   onProvidersChange: (providers: ConnectedProvider[]) => void;
   onProfileChange: (profile: Profile) => void;
@@ -53,7 +50,9 @@ export function ProviderManager({
   activeSessionId,
   activeWorkspaceId,
   activeProviderId,
+  section,
   onClose,
+  onSectionChange,
   onDeleteProfile,
   onProvidersChange,
   onProfileChange,
@@ -67,6 +66,7 @@ export function ProviderManager({
   workspaces,
 }: ProviderManagerProps) {
   const { t } = useTranslation();
+  const scrollRootRef = useRef<HTMLDivElement | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProviderForm>(emptyForm);
   const [status, setStatus] = useState("");
@@ -77,6 +77,17 @@ export function ProviderManager({
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
+
+  // A troca de aba deve reancorar a única superfície rolável no início.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: section é o sinal explícito de troca de aba.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      scrollRootRef.current
+        ?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
+        ?.scrollTo({ behavior: "auto", top: 0 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [section]);
 
   function updateForm(field: keyof ProviderForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -179,92 +190,142 @@ export function ProviderManager({
     }
   }
 
+  const sectionTitle =
+    section === "usage"
+      ? t("settings.tabUsage")
+      : section === "profile"
+        ? t("settings.tabProfile")
+        : section === "workspaces"
+          ? t("settings.tabWorkspaces")
+          : t("settings.tabProviders");
+
   return (
     <>
-      <Dialog
-        open
-        onOpenChange={(next) => {
-          if (!next) onClose();
-        }}
+      <section
+        aria-busy={isSaving || profileSettings.isSavingProfile}
+        aria-labelledby="blackwall-settings-title"
+        className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background"
+        data-testid="settings-surface"
       >
-        <DialogContent
-          aria-busy={isSaving || profileSettings.isSavingProfile}
-          className="flex max-h-[85vh] w-full flex-col overflow-hidden sm:max-w-2xl"
-        >
-          <DialogHeader>
-            <p className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-muted-foreground">
-              {t("settings.settings")}
-            </p>
-            <DialogTitle>{t("settings.profileWorkspacesAndProviders")}</DialogTitle>
-            <DialogDescription className="sr-only">
-              {t("settings.providerSettings")}
-            </DialogDescription>
-          </DialogHeader>
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="grid gap-6 pb-2 pr-3">
-              <UsageDashboard
-                activeProviderId={activeProviderId}
-                activeSessionId={activeSessionId}
-                profileId={profileId}
-                providers={providers}
-              />
-              <ProfileSettings
-                isSavingProfile={profileSettings.isSavingProfile}
-                onAvatarChange={profileSettings.chooseProfileAvatar}
-                onSave={profileSettings.saveProfile}
-                profileAvatar={profileSettings.profileAvatar}
-                profileError={profileSettings.profileError}
-                profileName={profileSettings.profileName}
-                profileSoul={profileSettings.profileSoul}
-                profileStatus={profileSettings.profileStatus}
-                setProfileAvatar={profileSettings.setProfileAvatar}
-                setProfileName={profileSettings.setProfileName}
-                setProfileSoul={profileSettings.setProfileSoul}
-              />
-              <WorkspacesSection
-                activeWorkspace={activeWorkspace}
-                activeWorkspaceId={activeWorkspaceId}
-                chooseBrowserFolder={workspaceSettings.chooseBrowserWorkspaceFolder}
-                chooseFolder={workspaceSettings.chooseWorkspaceFolder}
-                isSaving={isSaving}
-                onWorkspaceSelected={onWorkspaceSelected}
-                runtime={runtime}
-                saveSoulDraft={workspaceSettings.saveWorkspaceSoulDraft}
-                setWorkspaceName={workspaceSettings.setWorkspaceName}
-                setWorkspaceSoulDraft={workspaceSettings.setWorkspaceSoulDraft}
-                submitWorkspace={workspaceSettings.submitWorkspace}
-                workspaces={workspaces}
-                workspaceFolder={workspaceSettings.workspaceFolder}
-                workspaceName={workspaceSettings.workspaceName}
-                workspaceSoul={workspaceSettings.workspaceSoul}
-                workspaceStatus={workspaceSettings.workspaceStatus}
-              />
-              <ProviderList
-                onEdit={edit}
-                onRemoveRequest={setProviderToRemove}
-                onSelect={onSelect}
-                providers={providers}
-              />
-              <ProviderFormSection
-                editingId={editingId}
-                error={error}
-                form={form}
-                isDeletingProfile={profileSettings.isDeletingProfile}
-                isSaving={isSaving}
-                modelOptions={modelOptions}
-                onSignOut={onSignOut}
-                onSubmit={submit}
-                onTest={testCurrent}
-                profile={profile}
-                requestDeleteProfile={() => profileSettings.setProfileToDelete(profile)}
-                reset={reset}
-                setFormField={updateForm}
-                status={status}
-              />
+        <header className="shrink-0 border-b border-border px-5 pt-4 md:px-8">
+          <div className="flex items-start justify-between gap-4 pb-4">
+            <div>
+              <p className="font-mono text-[0.68rem] uppercase tracking-[0.08em] text-muted-foreground">
+                {t("settings.settings")}
+              </p>
+              <h2 className="mt-1 text-base font-medium" id="blackwall-settings-title">
+                {sectionTitle}
+              </h2>
+              <p className="sr-only">{t("settings.profileWorkspacesAndProviders")}</p>
+            </div>
+            <Button
+              aria-label={t("settings.close")}
+              onClick={onClose}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <span aria-hidden="true">×</span>
+            </Button>
+          </div>
+          <nav
+            aria-label={t("settings.settingsSections")}
+            className="flex gap-1 overflow-x-auto pb-3"
+            data-testid="settings-tabs"
+          >
+            {settingsSections.map((value) => (
+              <button
+                aria-current={section === value ? "page" : undefined}
+                className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs transition-colors duration-[120ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  section === value
+                    ? "bg-neutral-800/70 text-foreground"
+                    : "text-muted-foreground hover:bg-neutral-800/40 hover:text-foreground"
+                }`}
+                data-testid={`settings-tab-${value}`}
+                key={value}
+                onClick={() => onSectionChange(value)}
+                type="button"
+              >
+                {t(`settings.tab${value[0].toUpperCase()}${value.slice(1)}`)}
+              </button>
+            ))}
+          </nav>
+        </header>
+        <div className="min-h-0 flex-1" ref={scrollRootRef}>
+          <ScrollArea className="h-full">
+            <div className="mx-auto grid w-full max-w-3xl gap-6 px-5 py-6 pb-10 md:px-8">
+              {section === "usage" && (
+                <UsageDashboard
+                  activeProviderId={activeProviderId}
+                  activeSessionId={activeSessionId}
+                  profileId={profileId}
+                  providers={providers}
+                />
+              )}
+              {section === "profile" && (
+                <ProfileSettings
+                  isDeletingProfile={profileSettings.isDeletingProfile}
+                  isSavingProfile={profileSettings.isSavingProfile}
+                  onAvatarChange={profileSettings.chooseProfileAvatar}
+                  onDeleteProfileRequest={() => profileSettings.setProfileToDelete(profile)}
+                  onSave={profileSettings.saveProfile}
+                  onSignOut={onSignOut}
+                  profileAvatar={profileSettings.profileAvatar}
+                  profileError={profileSettings.profileError}
+                  profileName={profileSettings.profileName}
+                  profileSoul={profileSettings.profileSoul}
+                  profileStatus={profileSettings.profileStatus}
+                  setProfileAvatar={profileSettings.setProfileAvatar}
+                  setProfileName={profileSettings.setProfileName}
+                  setProfileSoul={profileSettings.setProfileSoul}
+                />
+              )}
+              {section === "workspaces" && (
+                <WorkspacesSection
+                  activeWorkspace={activeWorkspace}
+                  activeWorkspaceId={activeWorkspaceId}
+                  chooseBrowserFolder={workspaceSettings.chooseBrowserWorkspaceFolder}
+                  chooseFolder={workspaceSettings.chooseWorkspaceFolder}
+                  isSaving={isSaving}
+                  onWorkspaceSelected={onWorkspaceSelected}
+                  runtime={runtime}
+                  saveSoulDraft={workspaceSettings.saveWorkspaceSoulDraft}
+                  setWorkspaceName={workspaceSettings.setWorkspaceName}
+                  setWorkspaceSoulDraft={workspaceSettings.setWorkspaceSoulDraft}
+                  submitWorkspace={workspaceSettings.submitWorkspace}
+                  workspaces={workspaces}
+                  workspaceFolder={workspaceSettings.workspaceFolder}
+                  workspaceName={workspaceSettings.workspaceName}
+                  workspaceSoul={workspaceSettings.workspaceSoul}
+                  workspaceStatus={workspaceSettings.workspaceStatus}
+                />
+              )}
+              {section === "providers" && (
+                <div className="grid gap-6">
+                  <ProviderList
+                    onEdit={edit}
+                    onRemoveRequest={setProviderToRemove}
+                    onSelect={onSelect}
+                    providers={providers}
+                  />
+                  <ProviderFormSection
+                    editingId={editingId}
+                    error={error}
+                    form={form}
+                    isSaving={isSaving}
+                    modelOptions={modelOptions}
+                    onSubmit={submit}
+                    onTest={testCurrent}
+                    reset={reset}
+                    setFormField={updateForm}
+                    status={status}
+                  />
+                </div>
+              )}
             </div>
           </ScrollArea>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </section>
       {providerToRemove && (
         <ConfirmDialog
           confirmLabel={t("settings.removeProvider")}

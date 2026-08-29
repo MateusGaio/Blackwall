@@ -211,9 +211,7 @@ export function ProviderSetup({ onConnected }: ProviderSetupProps) {
       )}
       <Button
         className="w-fit justify-self-end"
-        disabled={
-          isConnecting || !model.trim() || (providerType === "openai-compatible" && !apiKey.trim())
-        }
+        disabled={isConnecting || (providerType === "openai-compatible" && !apiKey.trim())}
         type="submit"
       >
         {isConnecting ? t("onboarding.checkingConnection") : t("onboarding.connectAndContinue")}
