@@ -143,7 +143,7 @@ export function ProfileChooser({
               >
                 <span
                   aria-hidden="true"
-                  className="size-2 animate-pulse rounded-full bg-muted-foreground motion-reduce:animate-none"
+                  className="size-2 rounded-full bg-muted-foreground opacity-70"
                 />
                 {t("settings.deletingProfile")}
               </p>

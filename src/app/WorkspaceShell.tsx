@@ -34,6 +34,7 @@ import {
   selectWorkspace,
   setSessionModel,
   setWorkspacePermissionMode,
+  undoVaultRevision,
   uploadAttachment,
 } from "../shared/api/sidecar";
 import { ConfirmDialog } from "../shared/components/ConfirmDialog";
@@ -152,6 +153,12 @@ export default function WorkspaceShell({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [resourceNotice, setResourceNotice] = useState("");
+  const [vaultNoteConfirmation, setVaultNoteConfirmation] = useState<{
+    path: string;
+    revisionId: string;
+    title: string;
+    undoing: boolean;
+  } | null>(null);
   const [permissionError, setPermissionError] = useState("");
   const [usageSummary, setUsageSummary] = useState<
     import("../shared/api/sidecar").UsageSummary | null
@@ -242,6 +249,7 @@ export default function WorkspaceShell({
         .catch(() => undefined);
     },
     onVaultFileChanged: () => setVaultRefreshKey((key) => key + 1),
+    onVaultNoteCreated: (note) => setVaultNoteConfirmation({ ...note, undoing: false }),
     profileId: state?.activeProfileId,
     providerId: activeProvider?.id ?? null,
     sessionId: newChatDraft ? null : (state?.activeSessionId ?? null),
@@ -863,6 +871,19 @@ export default function WorkspaceShell({
     }
   }
 
+  async function undoSavedVaultNote() {
+    if (!workspace || !vaultNoteConfirmation || vaultNoteConfirmation.undoing) return;
+    setVaultNoteConfirmation((current) => (current ? { ...current, undoing: true } : current));
+    try {
+      await undoVaultRevision(workspace.id, vaultNoteConfirmation.revisionId);
+      setVaultNoteConfirmation(null);
+      setVaultRefreshKey((key) => key + 1);
+    } catch (reason) {
+      setVaultNoteConfirmation((current) => (current ? { ...current, undoing: false } : current));
+      setError(reason instanceof Error ? reason.message : t("chat.couldNotUndoVaultNote"));
+    }
+  }
+
   const visibleMessages = (newChatDraft ? [] : messages).filter(
     (message) =>
       !(message.role === "assistant" && !message.content.trim() && message.toolCalls?.length),
@@ -959,6 +980,47 @@ export default function WorkspaceShell({
             </ul>
           )}
           {toolApproval && <ApprovalCard onResolve={resolveToolDecision} request={toolApproval} />}
+          {vaultNoteConfirmation && (
+            <EnterExit className="mb-2" offsetPx={4} show>
+              <div
+                aria-busy={vaultNoteConfirmation.undoing}
+                className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-[#121215] px-3 py-2 font-mono text-xs"
+                role="status"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {t("chat.noteSavedInVault", { path: vaultNoteConfirmation.path })}
+                </span>
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setSelectedNotePath(vaultNoteConfirmation.path);
+                    dispatchVaultView({ type: "shortcut-activated", tab: "files" });
+                  }}
+                  type="button"
+                >
+                  {t("chat.openVaultNote")}
+                </button>
+                <button
+                  className="text-button"
+                  disabled={vaultNoteConfirmation.undoing}
+                  onClick={() => void undoSavedVaultNote()}
+                  type="button"
+                >
+                  {vaultNoteConfirmation.undoing
+                    ? t("chat.undoingVaultNote")
+                    : t("chat.undoVaultNote")}
+                </button>
+                <button
+                  aria-label={t("chat.dismiss")}
+                  className="text-muted-foreground transition-colors duration-[120ms] hover:text-foreground focus-visible:outline-none"
+                  onClick={() => setVaultNoteConfirmation(null)}
+                  type="button"
+                >
+                  ✕
+                </button>
+              </div>
+            </EnterExit>
+          )}
           <Composer
             activeProvider={activeProvider}
             activeSessionId={newChatDraft ? "draft" : activeSession?.id}

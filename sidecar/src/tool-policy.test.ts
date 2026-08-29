@@ -40,6 +40,7 @@ describe("matriz de política de ferramentas (#209)", () => {
     expect(classifyTool("read_file")).toBe("read");
     expect(classifyTool("search_text")).toBe("read");
     expect(classifyTool("create_or_update_file")).toBe("mutate");
+    expect(classifyTool("create_vault_note")).toBe("mutate");
     expect(classifyTool("apply_patch")).toBe("mutate");
     expect(classifyTool("execute_command")).toBe("command");
     expect(classifyTool("ferramenta_inventada")).toBe("command");

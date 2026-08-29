@@ -57,7 +57,7 @@ describe("persistência local", () => {
     first.close();
     const second = openDatabase(directory);
     expect(second.client.prepare("SELECT COUNT(*) AS count FROM _migrations").get()).toEqual({
-      count: 13,
+      count: 14,
     });
     second.close();
   });
