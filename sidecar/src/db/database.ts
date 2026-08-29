@@ -42,6 +42,11 @@ export function openDatabase(directory = dataDirectory()): DatabaseHandle {
 const sharedHandles = new Map<string, DatabaseHandle>();
 
 export function openSharedDatabase(directory = dataDirectory()): DatabaseHandle {
+  // Test workers must close each fixture's connection before removing its
+  // temporary directory; Windows keeps SQLite files locked while open.
+  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+    return openDatabase(directory);
+  }
   const key = resolve(directory);
   let handle = sharedHandles.get(key);
   if (!handle) {

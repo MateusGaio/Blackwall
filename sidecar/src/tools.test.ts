@@ -299,9 +299,11 @@ describe("modo automático e transições de política (#209)", () => {
     await expect(execution).rejects.toThrow("somente leitura");
     await expect(readFile(join(workspaceRoot, "transition.txt"))).rejects.toThrow();
 
-    const row = openDatabase(directory)
-      .client.prepare("SELECT status FROM approvals WHERE request_id = 'req-transition'")
+    const persisted = openDatabase(directory);
+    const row = persisted.client
+      .prepare("SELECT status FROM approvals WHERE request_id = 'req-transition'")
       .get() as { status: string };
+    persisted.close();
     expect(row.status).toBe("denied");
   });
 
@@ -329,9 +331,11 @@ describe("modo automático e transições de política (#209)", () => {
     await expect(execution).resolves.toMatchObject({ path: "once.txt" });
     await expect(readFile(join(workspaceRoot, "once.txt"), "utf8")).resolves.toBe("once");
 
-    const rows = openDatabase(directory)
-      .client.prepare("SELECT status FROM approvals WHERE request_id = 'req-once'")
+    const persisted = openDatabase(directory);
+    const rows = persisted.client
+      .prepare("SELECT status FROM approvals WHERE request_id = 'req-once'")
       .all() as Array<{ status: string }>;
+    persisted.close();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe("allowed");
   });
@@ -531,9 +535,11 @@ describe("policyEpoch/gate e revogação de grants (P0/P1 auditoria)", () => {
     db.close();
 
     terminateStaleApprovals(directory);
-    const row = openDatabase(directory)
-      .client.prepare("SELECT status, resolved_at FROM approvals WHERE id='ghost'")
+    const persisted = openDatabase(directory);
+    const row = persisted.client
+      .prepare("SELECT status, resolved_at FROM approvals WHERE id='ghost'")
       .get() as { status: string; resolved_at: number | null };
+    persisted.close();
     expect(row.status).toBe("cancelled");
     expect(row.resolved_at).not.toBeNull();
   });

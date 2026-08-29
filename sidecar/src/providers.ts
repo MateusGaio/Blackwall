@@ -1055,28 +1055,32 @@ export async function listStoredProviderModels(
     request,
   );
   const database = openSharedDatabase(dataDirectory);
-  const storedRows = database.db.select().from(models).where(eq(models.providerId, id)).all();
-  const storedById = new Map(storedRows.map((row) => [row.modelId, row]));
-  return listed.map((model) => {
-    const row = storedById.get(model.id);
-    return {
-      ...model,
-      ...(row
-        ? {
-            protocolPreference: row.protocolPreference as ProtocolPreference,
-            contextLimit: row.contextLimit ?? model.contextLimit,
-            outputReserve: row.outputReserve ?? model.outputReserve,
-            resolvedProtocol: row.resolvedProtocol as ResolvedProtocol | undefined,
-            toolCheckedAt: row.toolCheckedAt ?? undefined,
-            toolMode: row.toolMode as ToolMode | undefined,
-            parallelToolCalls: row.parallelToolCalls as ParallelToolCallsMode | undefined,
-            toolProbeErrorCode: row.toolProbeErrorCode ?? undefined,
-            toolSupport: row.toolSupport as ToolSupport,
-            toolSupportSource: row.toolSupportSource as ToolSupportSource | undefined,
-          }
-        : {}),
-    };
-  });
+  try {
+    const storedRows = database.db.select().from(models).where(eq(models.providerId, id)).all();
+    const storedById = new Map(storedRows.map((row) => [row.modelId, row]));
+    return listed.map((model) => {
+      const row = storedById.get(model.id);
+      return {
+        ...model,
+        ...(row
+          ? {
+              protocolPreference: row.protocolPreference as ProtocolPreference,
+              contextLimit: row.contextLimit ?? model.contextLimit,
+              outputReserve: row.outputReserve ?? model.outputReserve,
+              resolvedProtocol: row.resolvedProtocol as ResolvedProtocol | undefined,
+              toolCheckedAt: row.toolCheckedAt ?? undefined,
+              toolMode: row.toolMode as ToolMode | undefined,
+              parallelToolCalls: row.parallelToolCalls as ParallelToolCallsMode | undefined,
+              toolProbeErrorCode: row.toolProbeErrorCode ?? undefined,
+              toolSupport: row.toolSupport as ToolSupport,
+              toolSupportSource: row.toolSupportSource as ToolSupportSource | undefined,
+            }
+          : {}),
+      };
+    });
+  } finally {
+    database.close();
+  }
 }
 
 export function setModelToolMode(

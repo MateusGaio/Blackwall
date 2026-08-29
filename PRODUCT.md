@@ -20,10 +20,11 @@ Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que t
 
 ## Estado de distribuição e privacidade
 
-- O código remoto, Issues, Pull Requests, artefatos e workspaces de teste são privados enquanto a Fase 1 é estabilizada.
+- A meta de distribuição é a `v0.1.0` marcada como pre-release beta, com release manual no GitHub; o repositório permanece privado até os gates e a autorização final do owner.
 - Nenhuma publicação pública, Release, mudança de visibilidade ou inclusão de dados reais deve ocorrer sem autorização do owner e sem a revisão de segurança/governança prevista em `AGENTS.md`.
 - Chaves ficam exclusivamente em `secrets.enc`/`secrets.key`; prompts, respostas, arquivos e resultados de ferramentas não entram em telemetria nem em material de contribuição.
 - O painel de uso registra somente o que o provedor informa e o que o Blackwall observa localmente. Ele não representa automaticamente o saldo atual de uma chave; rate limits e quotas devem ser tratados como respostas do provedor.
+- A beta gera AppImage/`.deb` no Linux e NSIS no Windows, com checksums SHA-256. Não há updater automático nem code signing nesta fase.
 
 ## MVP (Fase 1)
 

@@ -51,6 +51,9 @@ export type ToolResult = {
   name: ToolName;
 };
 
+export const legacyCommandSpec = Symbol("blackwall.legacyCommandSpec");
+export type LegacyCommandSpec = { args: string[]; command: string };
+
 export type ToolValidationFailureShape = {
   code: string;
   expectedExample: unknown;
@@ -413,6 +416,11 @@ export function normalizeToolArguments(
   if (name === "execute_command") {
     const args = normalizeCommandArgs(result.args);
     const command = typeof result.command === "string" ? result.command.trim() : result.command;
+    if (typeof command === "string")
+      Object.defineProperty(result, legacyCommandSpec, {
+        enumerable: false,
+        value: { args, command } satisfies LegacyCommandSpec,
+      });
     if (typeof command === "string" && args.length > 0) {
       result.command = [shellQuote(command), ...args.map(shellQuote)].join(" ");
     }
@@ -432,6 +440,7 @@ export function normalizeToolArguments(
 }
 
 function shellQuote(value: string): string {
+  if (process.platform === "win32") return `"${value.replaceAll('"', '\\"')}"`;
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 

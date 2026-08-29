@@ -286,7 +286,7 @@ export async function undoVaultRevision(
     );
   if (row.state === "undone") return { revisionId, undone: false };
   const root = await realpath(workspaceRoot).catch(() => null);
-  const target = resolve(workspaceRoot, row.path);
+  const target = root ? resolve(root, row.path) : resolve(workspaceRoot, row.path);
   if (!root || !inside(root, target))
     throw new VaultCaptureError(
       "vault_path_outside_workspace",

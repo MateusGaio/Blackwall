@@ -153,7 +153,11 @@ Isso resolve três pontos ao mesmo tempo:
 
 ### ADR-17: Atualização do app
 
-**Decisão:** plugin de updater nativo do Tauri, apontando para um manifesto JSON hospedado como asset de **GitHub Releases** — não precisa de servidor de update pago. O app verifica esse manifesto, baixa e verifica a assinatura do release novo, e aplica. Isso dá update automático (o usuário só confirma) sem infraestrutura extra.
+**Decisão:** a `v0.1.0-beta` não inclui updater automático nem assinatura de
+código. A distribuição é manual por GitHub Releases, com checksums SHA-256 e
+instruções para validar o artefato. Um updater nativo do Tauri, apontando para
+um manifesto JSON assinado hospedado como asset de GitHub Releases, fica para
+uma fase posterior e só entra com ADR/revisão próprios.
 
 ### ADR-18: Internacionalização
 
