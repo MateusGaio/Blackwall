@@ -14,7 +14,7 @@
     "verify:release-version": "node scripts/verify-release-version.mjs",
     "db:generate": "drizzle-kit generate",
     "e2e": "playwright test",
-    "e2e:ci": "BLACKWALL_E2E_CI=1 playwright test --forbid-only",
+    "e2e:ci": "node scripts/run-e2e-ci.mjs",
     "e2e:install": "playwright install chromium",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
