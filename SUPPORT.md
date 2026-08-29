@@ -17,7 +17,7 @@ Issue pública: siga [`SECURITY.md`](SECURITY.md).
 
 ## Distribuição da beta
 
-A `v0.1.0-beta` é distribuída manualmente a partir de GitHub Releases. O
+A `v0.1.0` é distribuída manualmente como pre-release beta a partir de GitHub Releases. O
 instalador Windows não é assinado nesta fase e pode exigir confirmação do
 SmartScreen. A beta não possui updater automático; verifique o checksum
 `SHA256SUMS` antes de instalar.

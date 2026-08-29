@@ -20,7 +20,7 @@ Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que t
 
 ## Estado de distribuição e privacidade
 
-- A meta de distribuição é a `v0.1.0-beta`, com release manual e pré-release no GitHub; o repositório permanece privado até os gates e a autorização final do owner.
+- A meta de distribuição é a `v0.1.0` marcada como pre-release beta, com release manual no GitHub; o repositório permanece privado até os gates e a autorização final do owner.
 - Nenhuma publicação pública, Release, mudança de visibilidade ou inclusão de dados reais deve ocorrer sem autorização do owner e sem a revisão de segurança/governança prevista em `AGENTS.md`.
 - Chaves ficam exclusivamente em `secrets.enc`/`secrets.key`; prompts, respostas, arquivos e resultados de ferramentas não entram em telemetria nem em material de contribuição.
 - O painel de uso registra somente o que o provedor informa e o que o Blackwall observa localmente. Ele não representa automaticamente o saldo atual de uma chave; rate limits e quotas devem ser tratados como respostas do provedor.

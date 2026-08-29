@@ -2,7 +2,7 @@
 
 Todas as mudanças relevantes do Blackwall são registradas aqui.
 
-## [0.1.0-beta] — 2026-08-29
+## [0.1.0] — 2026-08-29 (beta)
 
 Primeira beta de preparação para distribuição manual, ainda sujeita aos gates
 de CI e à revisão do owner.
