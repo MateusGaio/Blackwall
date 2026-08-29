@@ -1203,6 +1203,7 @@ export default function WorkspaceShell({
                             >
                               <div className="h-full w-full min-w-0" id="bw-vault-panel">
                                 <VaultSlot
+                                  cursorAvoidanceEnabled={cursorAvoidanceEnabled}
                                   memory={vaultMemory}
                                   onMemoryChange={setVaultMemory}
                                   onSelectPath={setSelectedNotePath}

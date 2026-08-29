@@ -284,7 +284,11 @@ export const TOOL_TASKS: ToolTaskSpec[] = [
     mode: "ask",
     files: {},
     tool: "execute_command",
-    args: { args: ["-e", "setTimeout(()=>process.exit(0),5)"], command: process.execPath, cwd: "." },
+    args: {
+      args: ["-e", "setTimeout(()=>process.exit(0),5)"],
+      command: process.execPath,
+      cwd: ".",
+    },
     approve: true,
     expect: { kind: "ok", field: "code", value: 0 },
   },

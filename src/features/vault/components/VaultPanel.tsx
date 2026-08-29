@@ -49,6 +49,7 @@ import {
 import { clampGraphZoom } from "../graph-zoom";
 
 type VaultPanelProps = {
+  cursorAvoidanceEnabled: boolean;
   memory: VaultMemory;
   /** Posição de leitura (lista + nota) preservada entre recolher/reabrir. */
   onMemoryChange: (memory: VaultMemory) => void;
@@ -726,6 +727,7 @@ function GraphView({
 }
 
 export function VaultPanel({
+  cursorAvoidanceEnabled,
   memory,
   onMemoryChange,
   onSelectPath,
@@ -916,6 +918,7 @@ export function VaultPanel({
                 <article className="px-4 pb-6">
                   <SafeMarkdown
                     content={selectedNote.content}
+                    cursorAvoidanceEnabled={cursorAvoidanceEnabled}
                     currentPath={selectedNote.path}
                     files={graph.files}
                     onLocalLink={openNote}

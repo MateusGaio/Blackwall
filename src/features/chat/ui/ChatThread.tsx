@@ -185,7 +185,11 @@ export function ChatThread({
               }
               if (item.message.isSummary) {
                 return (
-                  <ConversationSummaryCard content={item.message.content} key={item.message.id} />
+                  <ConversationSummaryCard
+                    content={item.message.content}
+                    cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+                    key={item.message.id}
+                  />
                 );
               }
               const message = item.message;

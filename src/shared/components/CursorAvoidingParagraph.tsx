@@ -244,8 +244,8 @@ function inlineLeavesFromChildren(children: ReactNode): InlineLeaf[] | null {
   }
   if (!isValidElement<{ children?: ReactNode }>(children)) return null;
   if (children.type === Fragment) return inlineLeavesFromChildren(children.props.children);
-  if (typeof children.type !== "string") return null;
   if (
+    typeof children.type === "string" &&
     [
       "blockquote",
       "div",
@@ -534,13 +534,6 @@ export function CursorAvoidingParagraph({
     clearPointer();
   }
 
-  function onPointerOut(event: PointerEvent<HTMLElement>) {
-    const nextTarget = event.relatedTarget;
-    if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
-      clearPointer();
-    }
-  }
-
   // Alguns WebViews não emitem pointerleave quando o conteúdo absoluto muda
   // sob o cursor. A verificação no documento encerra o estado assim que o
   // ponteiro realmente sai da caixa do bloco, sem esperar outro hover.
@@ -571,7 +564,6 @@ export function CursorAvoidingParagraph({
     className,
     onPointerLeave: active ? onPointerLeave : undefined,
     onPointerMove: active ? onPointerMove : undefined,
-    onPointerOut: active ? onPointerOut : undefined,
     ref: elementRef,
   };
 
