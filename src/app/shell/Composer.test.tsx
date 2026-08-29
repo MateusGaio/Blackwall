@@ -63,3 +63,14 @@ describe("trigger do seletor de modelo", () => {
     expect(openTag).not.toContain("Mock provider");
   });
 });
+
+describe("comandos de barra", () => {
+  it("sugere nomes públicos em inglês e permite comandos sem modelo", () => {
+    const html = renderToStaticMarkup(
+      <Composer {...baseProps({ draft: "/mo", selectedModel: "" })} />,
+    );
+    expect(html).toContain("/model");
+    expect(html).toContain("/mode");
+    expect(html).not.toContain("/nota");
+  });
+});

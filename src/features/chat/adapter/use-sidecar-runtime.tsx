@@ -14,6 +14,7 @@ import type { AppState, ChatMessage, StoredMessage } from "../../../shared/api/s
 import { SidecarChatStore } from "./sidecar-chat-store";
 
 type UseSidecarChatOptions = {
+  executionMode?: "default" | "plan";
   model: string;
   onAppStateRefreshed?: (state: AppState) => void;
   onProviderUsage?: (
@@ -82,13 +83,22 @@ export function useSidecarChat(options: UseSidecarChatOptions) {
     store.configure(
       {
         model: options.model,
+        executionMode: options.executionMode ?? "default",
         profileId: options.profileId ?? null,
         providerId: options.providerId ?? null,
         workspaceId: options.workspaceId ?? null,
       },
       labels,
     );
-  }, [store, labels, options.model, options.profileId, options.providerId, options.workspaceId]);
+  }, [
+    store,
+    labels,
+    options.executionMode,
+    options.model,
+    options.profileId,
+    options.providerId,
+    options.workspaceId,
+  ]);
 
   useEffect(() => {
     store.setActiveSession(options.sessionId, options.storedMessages);

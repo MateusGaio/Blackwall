@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { EnterExit } from "@/shared/components/motion/EnterExit";
 import { Skeleton } from "@/shared/components/motion/Skeleton";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -17,6 +18,12 @@ import { cn } from "@/shared/lib/utils";
 import type { ConnectedProvider, ProviderModel, Workspace } from "../../shared/api/sidecar";
 import { isSubmitShortcut } from "../composer";
 import { CompactIcon } from "./CompactIcon";
+import {
+  isUnknownSlashCommand,
+  parseSlashCommand,
+  type SlashCommandDefinition,
+  slashCommandSuggestions,
+} from "./slash-commands";
 
 type ComposerProps = {
   activeProvider: ConnectedProvider | null;
@@ -25,6 +32,7 @@ type ComposerProps = {
   changePermissionMode: (mode: Workspace["permissionMode"]) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
+  executionMode?: "default" | "plan";
   isSending: boolean;
   isModelsLoading?: boolean;
   modelName: string;
@@ -64,6 +72,7 @@ export function Composer({
   changePermissionMode,
   composerRef,
   draft,
+  executionMode = "default",
   isModelsLoading = false,
   isSending,
   modelName,
@@ -89,6 +98,7 @@ export function Composer({
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [modelError, setModelError] = useState("");
   const [modelQuery, setModelQuery] = useState("");
+  const [slashCommandIndex, setSlashCommandIndex] = useState(0);
   const modelListRef = useRef<HTMLDivElement | null>(null);
   const modelSearchRef = useRef<HTMLInputElement | null>(null);
   const chipRef = useRef<HTMLButtonElement | null>(null);
@@ -109,6 +119,15 @@ export function Composer({
         .includes(normalizedModelQuery),
     );
   });
+  const slashSuggestions = slashCommandSuggestions(draft);
+  const slashMenuOpen = !isSending && slashSuggestions.length > 0;
+  const parsedSlashCommand = parseSlashCommand(draft);
+  const localSlashCommand = parsedSlashCommand && parsedSlashCommand.command !== "note";
+  const canSubmit =
+    Boolean(draft.trim()) &&
+    (Boolean(localSlashCommand) ||
+      isUnknownSlashCommand(draft) ||
+      Boolean(activeProvider && activeSessionId && selectedModel.trim()));
 
   useEffect(() => {
     if (!modelOpen) return;
@@ -173,6 +192,37 @@ export function Composer({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashMenuOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setSlashCommandIndex((current) => {
+          const delta = event.key === "ArrowDown" ? 1 : -1;
+          return (current + delta + slashSuggestions.length) % slashSuggestions.length;
+        });
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSlashCommandIndex(-1);
+        return;
+      }
+      const highlightedCommand = slashSuggestions[slashCommandIndex];
+      const isExactCommand =
+        event.key === "Enter" &&
+        parsedSlashCommand !== null &&
+        highlightedCommand?.name === parsedSlashCommand.command &&
+        parsedSlashCommand.args === "" &&
+        draft.trim() === `/${highlightedCommand.name}`;
+      if (
+        (event.key === "Enter" || event.key === "Tab") &&
+        slashCommandIndex >= 0 &&
+        !isExactCommand
+      ) {
+        event.preventDefault();
+        if (highlightedCommand) selectSlashCommand(highlightedCommand);
+        return;
+      }
+    }
     if (
       !isSubmitShortcut({
         isComposing: event.nativeEvent.isComposing,
@@ -187,11 +237,50 @@ export function Composer({
     event.currentTarget.form?.requestSubmit();
   }
 
+  function selectSlashCommand(command: SlashCommandDefinition) {
+    setDraft(`/${command.name} `);
+    requestAnimationFrame(() => {
+      if (composerRef.current) resizeComposer(composerRef.current);
+    });
+  }
+
   return (
     <form
       className="relative z-10 rounded-2xl border border-neutral-800 bg-[#121215] transition-colors duration-150 focus-within:border-neutral-700"
       onSubmit={onSubmit}
     >
+      <EnterExit
+        as="div"
+        className="absolute bottom-full left-0 right-0 z-20 mb-2"
+        offsetPx={4}
+        show={slashMenuOpen && slashCommandIndex >= 0}
+      >
+        <div
+          aria-label="Slash commands"
+          className="overflow-hidden rounded-xl border border-neutral-800 bg-[#161619] p-1 shadow-lg"
+          data-testid="slash-command-menu"
+          role="listbox"
+        >
+          {slashSuggestions.map((command, index) => (
+            <button
+              aria-selected={index === slashCommandIndex}
+              className={cn(menuItem, index === slashCommandIndex && "bg-accent")}
+              data-testid={`slash-command-${command.name}`}
+              key={command.name}
+              onMouseEnter={() => setSlashCommandIndex(index)}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                selectSlashCommand(command);
+              }}
+              role="option"
+              type="button"
+            >
+              <span className="font-mono text-xs">/{command.name}</span>
+              <span className="ml-auto text-xs text-muted-foreground">{command.description}</span>
+            </button>
+          ))}
+        </div>
+      </EnterExit>
       <input
         accept=".c,.cpp,.css,.csv,.go,.h,.html,.java,.js,.json,.jsx,.md,.pdf,.py,.rs,.sh,.sql,.toml,.ts,.tsx,.txt,.yaml,.yml"
         className="sr-only"
@@ -204,11 +293,13 @@ export function Composer({
         type="file"
       />
       <textarea
+        aria-controls="slash-command-menu"
         aria-label={t("composer.message")}
         className="max-h-[180px] min-h-[44px] w-full resize-none border-0 bg-transparent px-4 pt-3.5 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         data-testid="chat-composer"
         disabled={!activeSessionId || isSending}
         onChange={(event) => {
+          setSlashCommandIndex(0);
           setDraft(event.target.value);
           resizeComposer(event.target);
         }}
@@ -488,9 +579,7 @@ export function Composer({
           ) : (
             <Button
               aria-label={t("composer.sendMessage")}
-              disabled={
-                !draft.trim() || !activeProvider || !activeSessionId || !selectedModel.trim()
-              }
+              disabled={!canSubmit}
               size="icon-sm"
               title={t("composer.sendMessage")}
               type="submit"
@@ -501,6 +590,16 @@ export function Composer({
           )}
         </div>
       </div>
+      {executionMode === "plan" && (
+        <div
+          aria-label="Plan mode active"
+          className="border-t border-neutral-800 px-3 py-1.5 font-mono text-[0.65rem] tracking-[0.08em] text-muted-foreground uppercase"
+          data-testid="plan-mode-indicator"
+          role="status"
+        >
+          Plan mode active · use /plan off to return to normal mode
+        </div>
+      )}
     </form>
   );
 }

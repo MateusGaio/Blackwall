@@ -618,4 +618,22 @@ describe("contrato estrito de execute_command.args (#210)", () => {
     const result = (await run) as { code?: number | null };
     expect(result.code).toBe(0);
   });
+
+  it("plan mode bloqueia mutação antes de tocar no workspace", async () => {
+    const { directory, state, workspaceRoot } = await fixture("automatic");
+    await expect(
+      executeTool(
+        {
+          args: { path: "plan-mode.txt", content: "não deve existir" },
+          executionMode: "plan",
+          requestId: "plan-mode-mutation",
+          sessionId: state.activeSessionId,
+          tool: "create_or_update_file",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      ),
+    ).rejects.toMatchObject({ code: "PLAN_MODE_MUTATION" });
+    await expect(readFile(join(workspaceRoot, "plan-mode.txt"), "utf8")).rejects.toThrow();
+  });
 });

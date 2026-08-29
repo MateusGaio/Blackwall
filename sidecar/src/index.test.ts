@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,36 @@ function responseWithLines(lines: string[]) {
     }),
     { status: 200 },
   );
+}
+
+function captureToolResponse(id: string, belongsTo: string | null, title = "Captured note") {
+  return responseWithLines([
+    `data: ${JSON.stringify({
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                function: {
+                  arguments: JSON.stringify({
+                    belongsTo,
+                    body: "Captured body.",
+                    relatedTo: [],
+                    title,
+                    type: "Note",
+                  }),
+                  name: "create_vault_note",
+                },
+                id,
+                index: 0,
+              },
+            ],
+          },
+        },
+      ],
+    })}`,
+    "data: [DONE]",
+  ]);
 }
 
 afterEach(async () => {
@@ -558,10 +588,15 @@ describe("sidecar health", () => {
 });
 
 describe("sidecar robustez", () => {
-  it("executa /nota com uma única chamada, sem expor resposta intermediária", async () => {
+  it("deduplica chamadas paralelas de /note e confirma sem nova rodada", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-nota-protocol-"));
     const workspaceRoot = join(directory, "project");
     await mkdir(workspaceRoot);
+    await writeFile(
+      join(workspaceRoot, "project-x.md"),
+      "---\nid: project-x\ntitle: Project X\ntype: Project\nstatus: organized\ncreated_at: 2026-08-29T00:00:00.000Z\nupdated_at: 2026-08-29T00:00:00.000Z\nsource: blackwall\n---\n",
+      "utf8",
+    );
     directories.push(directory);
     const { port, server } = await createSidecar(0, directory);
     servers.push(server);
@@ -587,15 +622,18 @@ describe("sidecar robustez", () => {
     const provider = await saveProvider(
       {
         apiKey: "nota-key",
-        baseUrl: "https://nota.example/v1",
+        baseUrl: "https://openrouter.ai/api/v1",
         model: "nota-model",
         name: "Nota provider",
       },
       directory,
     );
     let calls = 0;
-    const fetchMock = vi.fn(() => {
+    const requestBodies: Record<string, unknown>[] = [];
+    const localFetch = fetch;
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) => {
       calls += 1;
+      if (init?.body) requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
       if (calls === 1)
         return Promise.resolve(
           responseWithLines([
@@ -607,7 +645,21 @@ describe("sidecar robustez", () => {
                       {
                         function: {
                           arguments: JSON.stringify({
-                            belongsTo: null,
+                            title: "Fonte local",
+                            type: "Note",
+                            relatedTo: [],
+                            body: "Usar SQLite como fonte local.",
+                            belongsTo: "null",
+                          }),
+                          name: "create_vault_note",
+                        },
+                        id: "nota-call-1",
+                        index: 0,
+                      },
+                      {
+                        function: {
+                          arguments: JSON.stringify({
+                            belongsTo: " NULL ",
                             body: "Usar SQLite como fonte local.",
                             relatedTo: [],
                             title: "Fonte local",
@@ -615,8 +667,8 @@ describe("sidecar robustez", () => {
                           }),
                           name: "create_vault_note",
                         },
-                        id: "nota-call-1",
-                        index: 0,
+                        id: "nota-call-2",
+                        index: 1,
                       },
                     ],
                   },
@@ -663,7 +715,7 @@ describe("sidecar robustez", () => {
           messages: [
             { content: "A decisão é usar SQLite como fonte local.", role: "user" },
             { content: "Entendido.", role: "assistant" },
-            { content: "/nota", role: "user" },
+            { content: "/note", role: "user" },
           ],
           model: provider.model,
           profileId: state.activeProfileId,
@@ -679,18 +731,375 @@ describe("sidecar robustez", () => {
       expect(completed.content).toMatch(
         /^Salvo no Vault: Fonte local \(Blackwall Vault\/Notes\/fonte-local--[a-f0-9]{8}\.md\)\.$/,
       );
-      expect(calls).toBe(2);
+      expect(calls).toBe(1);
+      expect(requestBodies[0]).toMatchObject({ parallel_tool_calls: false });
+      expect(JSON.stringify(requestBodies[0])).toContain("[[caminho/sem-extensão|Título]]");
+      expect(JSON.stringify(requestBodies[0])).toContain(
+        '\\"id\\":\\"project-x\\",\\"path\\":\\"project-x.md\\",\\"title\\":\\"Project X\\"',
+      );
       expect(messages.some((message) => message.type === "chat.delta")).toBe(false);
       expect(
-        (await fetch(`${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/vault`)).status,
+        (await localFetch(`${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/vault`)).status,
       ).toBe(200);
+      const created = messages.find((message) => message.type === "vault.note.created");
+      expect(created).toMatchObject({
+        type: "vault.note.created",
+        workspaceId: state.activeWorkspaceId,
+      });
+      const revisionId = String(created?.revisionId ?? "");
+      expect(revisionId).toMatch(/^rev_[a-f0-9]{24}$/);
+      const undone = await localFetch(
+        `${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/vault/revisions/${revisionId}/undo`,
+        { method: "POST" },
+      );
+      expect(undone.status).toBe(200);
+      await expect(undone.json()).resolves.toEqual({ revisionId, undone: true });
+      expect(
+        (await readdir(workspaceRoot, { recursive: true })).filter((path) => path.endsWith(".md")),
+      ).toEqual(["project-x.md"]);
     } finally {
       vi.unstubAllGlobals();
       client?.close();
     }
   });
 
-  it("bloqueia /nota antes do provedor em workspace somente leitura", async () => {
+  it("repara uma relação inexistente antes de concluir /note", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-note-repair-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Note repair",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "repair-key",
+        baseUrl: "https://repair.example/v1",
+        model: "repair-model",
+        name: "Repair provider",
+      },
+      directory,
+    );
+    let calls = 0;
+    const fetchMock = vi.fn(() => {
+      calls += 1;
+      return Promise.resolve(
+        calls === 1
+          ? captureToolResponse("repair-call-1", "missing-project")
+          : captureToolResponse("repair-call-2", null),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const messages: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const waiter = waiters.get(type);
+        if (waiter) {
+          waiters.delete(type);
+          waiter(message);
+        } else messages.push(message);
+      });
+      const waitFor = (type: string) => {
+        const queued = messages.findIndex(
+          (message) => String(message.type ?? message.topic) === type,
+        );
+        if (queued >= 0)
+          return Promise.resolve(messages.splice(queued, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "/note save the decision", role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "note-repair",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      await expect(waitFor("chat.completed")).resolves.toMatchObject({
+        requestId: "note-repair",
+      });
+      expect(calls).toBe(2);
+      expect(messages.some((message) => message.type === "chat.failed")).toBe(false);
+      await expect(readdir(join(workspaceRoot, "Blackwall Vault", "Notes"))).resolves.toHaveLength(
+        1,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+
+  it("preserva o erro original quando o reparo de /note também falha", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-note-repair-failure-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Note repair failure",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "repair-failure-key",
+        baseUrl: "https://repair-failure.example/v1",
+        model: "repair-failure-model",
+        name: "Repair failure provider",
+      },
+      directory,
+    );
+    let calls = 0;
+    const fetchMock = vi.fn(() => {
+      calls += 1;
+      return Promise.resolve(
+        captureToolResponse(`repair-failure-call-${calls}`, `missing-project-${calls}`),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const messages: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const waiter = waiters.get(type);
+        if (waiter) {
+          waiters.delete(type);
+          waiter(message);
+        } else messages.push(message);
+      });
+      const waitFor = (type: string) => {
+        const queued = messages.findIndex(
+          (message) => String(message.type ?? message.topic) === type,
+        );
+        if (queued >= 0)
+          return Promise.resolve(messages.splice(queued, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "/note save the decision", role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "note-repair-failure",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      const failed = await waitFor("chat.failed");
+      expect(failed).toMatchObject({
+        code: "vault_relation_not_found",
+        content: "",
+        message:
+          "Não foi possível salvar a nota (vault_relation_not_found): A referência missing-project-2 não foi encontrada.",
+        requestId: "note-repair-failure",
+      });
+      expect(String(failed.message)).not.toContain("permite exatamente uma chamada válida");
+      expect(calls).toBe(2);
+      const database = openDatabase(directory);
+      try {
+        const event = database.client
+          .prepare(
+            "SELECT payload_json AS payload FROM chat_run_events WHERE request_id = ? AND type = 'chat.failed'",
+          )
+          .get("note-repair-failure") as { payload: string };
+        expect(JSON.parse(event.payload)).toMatchObject({
+          code: "vault_relation_not_found",
+          errorCode: "vault_relation_not_found",
+        });
+      } finally {
+        database.close();
+      }
+      await expect(readdir(join(workspaceRoot, "Blackwall Vault", "Notes"))).rejects.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+
+  it("não grava parcialmente quando /note recebe chamadas diferentes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-nota-multiple-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Nota multiple",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "multiple-key",
+        baseUrl: "https://api.example.com/v1",
+        model: "multiple-model",
+        name: "Multiple provider",
+      },
+      directory,
+    );
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      function: {
+                        arguments: JSON.stringify({
+                          belongsTo: null,
+                          body: "Primeira decisão.",
+                          relatedTo: [],
+                          title: "Primeira nota",
+                          type: "Note",
+                        }),
+                        name: "create_vault_note",
+                      },
+                      id: "multiple-call-1",
+                      index: 0,
+                    },
+                    {
+                      function: {
+                        arguments: JSON.stringify({
+                          belongsTo: null,
+                          body: "Segunda decisão.",
+                          relatedTo: [],
+                          title: "Segunda nota",
+                          type: "Note",
+                        }),
+                        name: "create_vault_note",
+                      },
+                      id: "multiple-call-2",
+                      index: 1,
+                    },
+                  ],
+                },
+              },
+            ],
+          })}`,
+          "data: [DONE]",
+        ]),
+      ),
+    ) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const messages: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const waiter = waiters.get(type);
+        if (waiter) {
+          waiters.delete(type);
+          waiter(message);
+        } else messages.push(message);
+      });
+      const waitFor = (type: string) => {
+        const queued = messages.findIndex(
+          (message) => String(message.type ?? message.topic) === type,
+        );
+        if (queued >= 0)
+          return Promise.resolve(messages.splice(queued, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "/note save two different notes", role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "nota-multiple",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      await expect(waitFor("chat.failed")).resolves.toMatchObject({
+        content: "",
+        message:
+          "O modelo tentou criar mais de uma nota no mesmo turno; nenhuma nota nova foi salva.",
+        requestId: "nota-multiple",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      await expect(readdir(join(workspaceRoot, "Blackwall Vault", "Notes"))).rejects.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+
+  it("bloqueia /note antes do provedor em workspace somente leitura", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-nota-readonly-"));
     const workspaceRoot = join(directory, "project");
     await mkdir(workspaceRoot);
@@ -755,7 +1164,7 @@ describe("sidecar robustez", () => {
       await waitFor("system:ready");
       client.send(
         JSON.stringify({
-          messages: [{ content: "/nota salvar a decisão", role: "user" }],
+          messages: [{ content: "/note save the decision", role: "user" }],
           model: provider.model,
           profileId: state.activeProfileId,
           providerId: provider.id,

@@ -57,7 +57,7 @@ describe("persistência local", () => {
     first.close();
     const second = openDatabase(directory);
     expect(second.client.prepare("SELECT COUNT(*) AS count FROM _migrations").get()).toEqual({
-      count: 14,
+      count: 15,
     });
     second.close();
   });
@@ -95,6 +95,28 @@ describe("persistência local", () => {
     const messages = createStore(restored).listMessages(state.activeSessionId as string);
     expect(messages.map((message) => message.isSummary)).toEqual([false, true]);
     restored.close();
+  });
+
+  it("persiste plan mode por sessão e mantém default nas sessões antigas", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-session-mode-"));
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const database = openDatabase(directory);
+    const store = createStore(database);
+    const state = await store.bootstrap({
+      locale: "pt-BR",
+      profileName: "Ada",
+      profileSoul: "Profile",
+      workspaceName: "Project",
+      workspaceRootPath: workspaceRoot,
+      workspaceSoul: "Workspace",
+    });
+    const sessionId = state.activeSessionId as string;
+    expect(store.getState().sessions[0]?.executionMode).toBe("default");
+    expect(store.setSessionExecutionMode(sessionId, "plan")?.executionMode).toBe("plan");
+    expect(store.getState().sessions[0]?.executionMode).toBe("plan");
+    database.close();
   });
 
   it("atualiza a Soul Dev legada sem alterar Souls personalizadas", async () => {

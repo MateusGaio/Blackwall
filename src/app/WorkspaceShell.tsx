@@ -32,6 +32,7 @@ import {
   type SessionSummary,
   selectSession,
   selectWorkspace,
+  setSessionExecutionMode,
   setSessionModel,
   setWorkspacePermissionMode,
   undoVaultRevision,
@@ -56,6 +57,11 @@ import { ChatHeader } from "./shell/ChatHeader";
 import { Composer } from "./shell/Composer";
 import { CommandPalette, RenameSessionDialog } from "./shell/Dialogs";
 import { SessionsSidebar } from "./shell/SessionsSidebar";
+import {
+  isUnknownSlashCommand,
+  parseSlashCommand,
+  type SlashCommandInvocation,
+} from "./shell/slash-commands";
 import {
   emptyVaultMemory,
   maximumVaultWidth,
@@ -143,6 +149,7 @@ export default function WorkspaceShell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [draft, setDraft] = useState("");
+  const [commandFeedback, setCommandFeedback] = useState("");
   const [newChatDraft, setNewChatDraft] = useState(false);
   const [newChatModel, setNewChatModel] = useState("");
   const [error, setError] = useState("");
@@ -237,6 +244,7 @@ export default function WorkspaceShell({
     streamingStatus,
     toolApproval,
   } = useSidecarChat({
+    executionMode: activeSession?.executionMode ?? "default",
     model: selectedModel,
     onAppStateRefreshed: (refreshed) => setState(refreshed),
     onProviderUsage: (providerId, filters) => {
@@ -257,12 +265,125 @@ export default function WorkspaceShell({
     workspaceId: workspace?.id,
   });
 
+  async function executeSlashCommand(invocation: SlashCommandInvocation) {
+    if (invocation.command === "help") {
+      setCommandFeedback(
+        "Available commands: /note, /model, /plan, /mode and /help. Use // to send a literal slash.",
+      );
+      return;
+    }
+    if (invocation.command === "model") {
+      if (!activeProvider) {
+        setCommandFeedback("No provider is connected. Connect a provider before choosing a model.");
+        return;
+      }
+      const query = invocation.args.trim().toLocaleLowerCase();
+      if (!query) {
+        document.querySelector<HTMLButtonElement>('[data-testid="model-trigger"]')?.click();
+        return;
+      }
+      const matches = models.filter((model) =>
+        [model.id, model.name].some((value) => value.toLocaleLowerCase() === query),
+      );
+      if (matches.length !== 1) {
+        setCommandFeedback(
+          matches.length === 0
+            ? `Model not found: ${invocation.args}`
+            : "More than one model matches. Use the model selector to choose one.",
+        );
+        return;
+      }
+      try {
+        await changeModel(matches[0].id);
+        setCommandFeedback(`Model selected: ${matches[0].name}`);
+      } catch (reason) {
+        setCommandFeedback(
+          reason instanceof Error ? reason.message : "Could not change the model.",
+        );
+      }
+      return;
+    }
+    if (invocation.command === "mode") {
+      if (newChatDraft) {
+        setCommandFeedback("Create or open a session before changing permission mode.");
+        return;
+      }
+      const mode = invocation.args.trim().toLocaleLowerCase();
+      if (mode !== "ask" && mode !== "automatic" && mode !== "read-only") {
+        setCommandFeedback("Usage: /mode <ask|automatic|read-only>");
+        return;
+      }
+      const changed = await changePermissionMode(mode);
+      if (changed) setCommandFeedback(`Permission mode set to ${mode}.`);
+      return;
+    }
+    if (invocation.command === "plan") {
+      if (!activeSession || newChatDraft) {
+        setCommandFeedback("Open a session before changing plan mode.");
+        return;
+      }
+      const argument = invocation.args.trim().toLocaleLowerCase();
+      const current = activeSession.executionMode === "plan";
+      if (argument === "status") {
+        setCommandFeedback(`Plan mode is ${current ? "active" : "off"}.`);
+        return;
+      }
+      const next =
+        argument === "on" || argument === "enable"
+          ? true
+          : argument === "off" || argument === "disable"
+            ? false
+            : argument
+              ? null
+              : !current;
+      if (next === null) {
+        setCommandFeedback("Usage: /plan [on|off|status]");
+        return;
+      }
+      try {
+        const updated = await setSessionExecutionMode(activeSession.id, next ? "plan" : "default");
+        setState((currentState) =>
+          currentState
+            ? {
+                ...currentState,
+                recentSessions: currentState.recentSessions.map((item) =>
+                  item.id === updated.id ? { ...item, ...updated } : item,
+                ),
+                sessions: currentState.sessions.map((item) =>
+                  item.id === updated.id ? updated : item,
+                ),
+              }
+            : currentState,
+        );
+        setCommandFeedback(`Plan mode ${next ? "enabled" : "disabled"}.`);
+      } catch (reason) {
+        setCommandFeedback(
+          reason instanceof Error ? reason.message : "Could not change plan mode.",
+        );
+      }
+    }
+  }
+
   function submitDraft() {
     const content = draft.trim();
     if (!content) return;
+    const slashCommand = parseSlashCommand(content);
+    if (isUnknownSlashCommand(content)) {
+      setCommandFeedback("Unknown command. Use /help to see available commands.");
+      return;
+    }
+    if (slashCommand?.command === "note" && (!activeProvider || !selectedModel.trim())) {
+      setCommandFeedback("Select a provider and model before using /note.");
+      return;
+    }
     setDraft("");
     composerRef.current?.style.removeProperty("height");
     setResourceNotice("");
+    setCommandFeedback("");
+    if (slashCommand && slashCommand.command !== "note") {
+      void executeSlashCommand(slashCommand);
+      return;
+    }
     if (newChatDraft) {
       pendingDraftRef.current = content;
       void createSessionForPendingDraft();
@@ -814,7 +935,7 @@ export default function WorkspaceShell({
   }
 
   async function changePermissionMode(mode: NonNullable<typeof workspace>["permissionMode"]) {
-    if (!workspace) return;
+    if (!workspace) return false;
     setPermissionError("");
     try {
       const updated = await setWorkspacePermissionMode(workspace.id, mode);
@@ -828,10 +949,12 @@ export default function WorkspaceShell({
             }
           : current,
       );
+      return true;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : t("errors.savePermissions");
       setPermissionError(message);
       setError(message);
+      return false;
     }
   }
 
@@ -1028,6 +1151,7 @@ export default function WorkspaceShell({
             changePermissionMode={(mode) => void changePermissionMode(mode)}
             composerRef={composerRef}
             draft={draft}
+            executionMode={activeSession?.executionMode ?? "default"}
             isModelsLoading={!modelsReady}
             isSending={isSending}
             modelName={modelName}
@@ -1051,6 +1175,11 @@ export default function WorkspaceShell({
             stopGeneration={stopGeneration}
             workspace={workspace}
           />
+          {commandFeedback && (
+            <p aria-live="polite" className="mt-2 font-mono text-xs text-muted-foreground">
+              {commandFeedback}
+            </p>
+          )}
           {attachmentStatus && (
             <p className="mt-2 font-mono text-xs text-muted-foreground">{attachmentStatus}</p>
           )}

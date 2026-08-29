@@ -207,21 +207,23 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
   },
 ];
 
-/** Ferramenta isolada do protocolo explícito `/nota`. */
+/** Ferramenta isolada do protocolo explícito `/note`. */
 export const vaultNoteToolDefinition: ToolDefinition = {
   function: {
     description:
-      "Cria exatamente uma nota Markdown no Vault. Use somente durante um comando /nota explícito.",
+      "Cria exatamente uma nota Markdown no Vault. Use somente durante um comando /note explícito.",
     name: "create_vault_note",
     parameters: objectSchema(
       {
         belongsTo: {
-          description: "Referência existente de projeto/evento/nota/tópico, ou null.",
+          description:
+            "ID ou caminho exato de uma nota existente que seja a relação hierárquica principal, ou null.",
           type: ["string", "null"],
         },
         body: stringProperty("Conteúdo da nota, sem frontmatter."),
         relatedTo: {
-          description: "Lista de referências existentes relacionadas, possivelmente vazia.",
+          description:
+            "IDs ou caminhos exatos de notas existentes claramente relacionadas, sem referências inventadas.",
           items: { type: "string" },
           type: "array",
         },
@@ -358,6 +360,31 @@ export function parseToolArguments(
       );
     if (!String(args.title).trim() || !String(args.body).trim())
       throw new Error(`Os argumentos title e body da ferramenta ${name} não podem ser vazios.`);
+
+    const normalizeReference = (value: string) => {
+      const normalized = value.trim();
+      return !normalized || normalized.toLowerCase() === "null" ? null : normalized;
+    };
+    const belongsTo =
+      typeof args.belongsTo === "string" ? normalizeReference(args.belongsTo) : null;
+    const relatedTo: string[] = [];
+    const seenReferences = new Set<string>();
+    for (const value of args.relatedTo) {
+      const normalized = normalizeReference(value);
+      if (normalized === null || seenReferences.has(normalized)) continue;
+      seenReferences.add(normalized);
+      relatedTo.push(normalized);
+    }
+
+    // Ordem explícita para deduplicação estável entre provedores que
+    // serializam as mesmas propriedades em ordens diferentes.
+    return {
+      belongsTo,
+      body: args.body,
+      relatedTo,
+      title: args.title,
+      type: args.type,
+    };
   }
   if (canonicalName === "bash" && args.timeout !== undefined) {
     if (typeof args.timeout !== "number" || !Number.isFinite(args.timeout))

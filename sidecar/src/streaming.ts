@@ -128,6 +128,24 @@ export function scriptedHarnessTurn(messages: StreamMessage[]): {
   toolCalls: ToolCall[];
 } | null {
   const request = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  if (/^\/(?:note|nota)(?:\s|$)/i.test(request)) {
+    return {
+      content: "",
+      toolCalls: [
+        {
+          arguments: JSON.stringify({
+            belongsTo: "null",
+            body: "Captured by the /note end-to-end scenario.",
+            relatedTo: [],
+            title: "E2E capture",
+            type: "Note",
+          }),
+          id: "harness-note-call",
+          name: "create_vault_note",
+        },
+      ],
+    };
+  }
   if (!request.includes("Explore o workspace selecionado")) return null;
   const results = messages.filter((message) => message.role === "tool");
   const step = results.length;
