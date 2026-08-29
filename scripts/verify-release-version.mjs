@@ -9,11 +9,16 @@ const tauriConfig = JSON.parse(
   await readFile(new URL("src-tauri/tauri.conf.json", projectRoot), "utf8"),
 );
 const cargoToml = await readFile(new URL("src-tauri/Cargo.toml", projectRoot), "utf8");
+const cargoLock = await readFile(new URL("src-tauri/Cargo.lock", projectRoot), "utf8");
 const cargoPackage = cargoToml.match(
   /\[package\][\s\S]*?^name\s*=\s*"blackwall"[\s\S]*?^version\s*=\s*"([^"]+)"/m,
 );
+const cargoLockPackage = cargoLock.match(
+  /\[\[package\]\][\s\S]*?^name\s*=\s*"blackwall"[\s\S]*?^version\s*=\s*"([^"]+)"/m,
+);
 
 const versions = {
+  cargoLock: cargoLockPackage?.[1],
   cargo: cargoPackage?.[1],
   lock: packageLock.packages?.[""]?.version,
   package: packageJson.version,
