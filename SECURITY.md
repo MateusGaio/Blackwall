@@ -6,10 +6,23 @@ O repositório do Blackwall permanece privado durante o desenvolvimento. Issues,
 Pull Requests, artefatos de CI, fixtures e workspaces de teste podem conter
 contexto operacional e não devem ser tratados como material público.
 
-Uma publicação pública será planejada em um PR separado, depois de revisar o
-histórico, os artefatos, as dependências, os workflows, a licença e a proteção
-da `main`. Nenhum agente ou script deve alterar a visibilidade do repositório
-por conta própria.
+Uma publicação pública será feita somente depois de revisar o histórico, os
+artefatos, as dependências, os workflows, a licença e a proteção da `main`.
+Nenhum agente ou script deve alterar a visibilidade do repositório por conta
+própria.
+
+## Canal privado para vulnerabilidades
+
+Não use Issue, Pull Request, log ou artefato público para reportar uma
+vulnerabilidade. Enquanto o repositório estiver privado, envie a reprodução
+mínima e sintética diretamente ao owner por um canal privado. Depois da
+publicação, o canal canônico será o formulário de [Security Advisory do
+GitHub](https://github.com/MateusGaio/Blackwall./security/advisories/new).
+
+Inclua impacto, versão/commit afetado, passos mínimos sem dados reais e uma
+correção sugerida quando possível. Não envie chaves ou conteúdo de usuário.
+O projeto buscará confirmar o recebimento em até sete dias e combinará a
+divulgação após existir uma correção ou mitigação disponível.
 
 ## Regras para contribuidores e agentes
 
