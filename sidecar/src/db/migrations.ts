@@ -565,4 +565,31 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const vaultRevisions = client.prepare("SELECT id FROM _migrations WHERE id = 14").get();
+  if (!vaultRevisions) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS vault_revisions (
+          revision_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          note_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          title TEXT NOT NULL,
+          type TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'prepared',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          undone_at INTEGER,
+          UNIQUE(workspace_id, note_id),
+          CHECK (state IN ('prepared', 'committed', 'undone'))
+        );
+        CREATE INDEX IF NOT EXISTS vault_revisions_workspace_created
+          ON vault_revisions(workspace_id, created_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(14, Date.now());
+    });
+    transaction();
+  }
 }

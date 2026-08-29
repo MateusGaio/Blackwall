@@ -63,6 +63,7 @@ type StoreCallbacks = {
   ) => void;
   /** Ferramenta que altera arquivos concluiu (ex.: gatilho de refresh do Vault). */
   onVaultFileChanged?: () => void;
+  onVaultNoteCreated?: (note: { path: string; revisionId: string; title: string }) => void;
 };
 
 const FALLBACK_LABELS: SidecarChatLabels = {
@@ -453,9 +454,26 @@ export class SidecarChatStore {
             if (!this.matchesRun(sessionId, runEpoch)) return;
             setStatus(message);
           },
-          onToolCompleted: () => {
+          onToolCompleted: (result) => {
             if (!this.matchesRun(sessionId, runEpoch)) return;
-            if (this.runningTool === "create_or_update_file") this.callbacks.onVaultFileChanged?.();
+            if (
+              this.runningTool === "create_or_update_file" ||
+              this.runningTool === "create_vault_note"
+            )
+              this.callbacks.onVaultFileChanged?.();
+            if (this.runningTool === "create_vault_note") {
+              const note = result as {
+                path?: unknown;
+                revisionId?: unknown;
+                title?: unknown;
+              };
+              if (typeof note.path === "string" && typeof note.revisionId === "string")
+                this.callbacks.onVaultNoteCreated?.({
+                  path: note.path,
+                  revisionId: note.revisionId,
+                  title: typeof note.title === "string" ? note.title : "Nota",
+                });
+            }
             this.runningTool = null;
             setStatus(labels.continuing);
           },

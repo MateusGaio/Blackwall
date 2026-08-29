@@ -4,21 +4,22 @@ import { describe, expect, it } from "vitest";
 import { detectExplicitCaptureIntent, redactMemoryInput } from "./memory-intent.js";
 
 describe("intenção explícita de memória", () => {
-  it("reconhece /nota e referente ativo", () => {
+  it("reconhece somente o comando /nota", () => {
     expect(detectExplicitCaptureIntent("/nota usar SQLite como fonte de verdade")).toMatchObject({
       kind: "command",
       reason: "explicit_request",
     });
-    expect(detectExplicitCaptureIntent("salve isso", "A decisão é local-first")).toMatchObject({
-      content: "A decisão é local-first",
-      kind: "request",
+    expect(detectExplicitCaptureIntent("/nota")).toMatchObject({
+      kind: "ambiguous",
+      reason: "missing_referent",
     });
   });
 
-  it("falha fechada para negação, pergunta meta e referente ausente", () => {
-    expect(detectExplicitCaptureIntent("não salve isso").reason).toBe("negated");
-    expect(detectExplicitCaptureIntent("como eu salvo uma nota?").reason).toBe("meta_question");
-    expect(detectExplicitCaptureIntent("lembre isso").kind).toBe("ambiguous");
+  it("não cria intenção para linguagem natural, prefixos ou blocos", () => {
+    expect(detectExplicitCaptureIntent("salve isso").kind).toBe("none");
+    expect(detectExplicitCaptureIntent("/notas salvar").kind).toBe("none");
+    expect(detectExplicitCaptureIntent("texto /nota salvar").kind).toBe("none");
+    expect(detectExplicitCaptureIntent("```\n/nota salvar\n```").kind).toBe("none");
   });
 
   it("redige segredos antes de qualquer uso externo", () => {

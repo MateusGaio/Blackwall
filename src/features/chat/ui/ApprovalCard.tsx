@@ -15,6 +15,7 @@ const SESSION_BLOCKLIST = new Set([
   "apply_patch",
   "bash",
   "create_or_update_file",
+  "create_vault_note",
   "execute_command",
 ]);
 

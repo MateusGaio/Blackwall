@@ -22,6 +22,7 @@ type UseSidecarChatOptions = {
   ) => void;
   /** Ferramenta que altera arquivos concluiu (ex.: gatilho de refresh do Vault). */
   onVaultFileChanged?: () => void;
+  onVaultNoteCreated?: (note: { path: string; revisionId: string; title: string }) => void;
   profileId?: string | null;
   providerId?: string | null;
   sessionId: string | null;
@@ -56,6 +57,7 @@ export function useSidecarChat(options: UseSidecarChatOptions) {
           onProviderUsage: (providerId, filters) =>
             optionsRef.current.onProviderUsage?.(providerId, filters),
           onVaultFileChanged: () => optionsRef.current.onVaultFileChanged?.(),
+          onVaultNoteCreated: (note) => optionsRef.current.onVaultNoteCreated?.(note),
         },
       ),
     [],

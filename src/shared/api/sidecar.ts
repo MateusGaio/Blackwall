@@ -162,7 +162,7 @@ export type WorkspaceToolName =
   | "apply_patch"
   | "bash"
   | "create_or_update_file"
-  | "execute_command"
+  | "create_vault_note"
   | "execute_command"
   | "list_directory"
   | "read_file"
@@ -472,6 +472,13 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
   return request(`/v1/workspaces/${workspaceId}/vault`, { method: "GET" });
+}
+
+export async function undoVaultRevision(workspaceId: string, revisionId: string) {
+  return request<{ revisionId: string; undone: boolean }>(
+    `/v1/workspaces/${workspaceId}/vault/revisions/${encodeURIComponent(revisionId)}/undo`,
+    { method: "POST" },
+  );
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<Session> {

@@ -38,6 +38,7 @@ export function classifyTool(tool: string): PolicyToolClass {
   switch (tool) {
     case "apply_patch":
     case "create_or_update_file":
+    case "create_vault_note":
       return "mutate";
     case "bash":
     case "execute_command": // alias de histórico; chamadas novas usam bash

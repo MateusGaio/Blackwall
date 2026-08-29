@@ -558,6 +558,224 @@ describe("sidecar health", () => {
 });
 
 describe("sidecar robustez", () => {
+  it("executa /nota com uma única chamada, sem expor resposta intermediária", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-nota-protocol-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "Nota protocol",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "nota-key",
+        baseUrl: "https://nota.example/v1",
+        model: "nota-model",
+        name: "Nota provider",
+      },
+      directory,
+    );
+    let calls = 0;
+    const fetchMock = vi.fn(() => {
+      calls += 1;
+      if (calls === 1)
+        return Promise.resolve(
+          responseWithLines([
+            `data: ${JSON.stringify({
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        function: {
+                          arguments: JSON.stringify({
+                            belongsTo: null,
+                            body: "Usar SQLite como fonte local.",
+                            relatedTo: [],
+                            title: "Fonte local",
+                            type: "Note",
+                          }),
+                          name: "create_vault_note",
+                        },
+                        id: "nota-call-1",
+                        index: 0,
+                      },
+                    ],
+                  },
+                },
+              ],
+            })}`,
+            "data: [DONE]",
+          ]),
+        );
+      return Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "texto intermediário" } }] })}`,
+          "data: [DONE]",
+        ]),
+      );
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const messages: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const waiter = waiters.get(type);
+        if (waiter) {
+          waiters.delete(type);
+          waiter(message);
+        } else messages.push(message);
+      });
+      const waitFor = (type: string) => {
+        const queued = messages.findIndex(
+          (message) => String(message.type ?? message.topic) === type,
+        );
+        if (queued >= 0)
+          return Promise.resolve(messages.splice(queued, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [
+            { content: "A decisão é usar SQLite como fonte local.", role: "user" },
+            { content: "Entendido.", role: "assistant" },
+            { content: "/nota", role: "user" },
+          ],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "nota-protocol",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      const completed = await waitFor("chat.completed");
+      expect(completed).toMatchObject({ requestId: "nota-protocol" });
+      expect(completed.content).toMatch(
+        /^Salvo no Vault: Fonte local \(Blackwall Vault\/Notes\/fonte-local--[a-f0-9]{8}\.md\)\.$/,
+      );
+      expect(calls).toBe(2);
+      expect(messages.some((message) => message.type === "chat.delta")).toBe(false);
+      expect(
+        (await fetch(`${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/vault`)).status,
+      ).toBe(200);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+
+  it("bloqueia /nota antes do provedor em workspace somente leitura", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-nota-readonly-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "read-only",
+        profileName: "Nota read-only",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "readonly-key",
+        baseUrl: "https://readonly.example/v1",
+        model: "readonly-model",
+        name: "Read-only provider",
+      },
+      directory,
+    );
+    const fetchMock = vi.fn(() =>
+      Promise.reject(new Error("não deveria chamar o provedor")),
+    ) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const messages: Record<string, unknown>[] = [];
+      const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const waiter = waiters.get(type);
+        if (waiter) {
+          waiters.delete(type);
+          waiter(message);
+        } else messages.push(message);
+      });
+      const waitFor = (type: string) => {
+        const queued = messages.findIndex(
+          (message) => String(message.type ?? message.topic) === type,
+        );
+        if (queued >= 0)
+          return Promise.resolve(messages.splice(queued, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "/nota salvar a decisão", role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "nota-readonly",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      await expect(waitFor("chat.completed")).resolves.toMatchObject({
+        content: "O workspace está em modo somente leitura; a nota não foi salva.",
+        requestId: "nota-readonly",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  });
+
   it("protege HTTP e WebSocket quando o processo recebe um token", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-auth-"));
     directories.push(directory);

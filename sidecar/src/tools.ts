@@ -12,6 +12,7 @@ import {
   type PermissionMode,
   type PolicyDecision,
 } from "./tool-policy.js";
+import { createVaultNote } from "./vault-capture.js";
 
 const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
@@ -75,6 +76,7 @@ export type ToolName =
   | "apply_patch"
   | "bash"
   | "create_or_update_file"
+  | "create_vault_note"
   | "execute_command"
   | "list_directory"
   | "read_file"
@@ -651,6 +653,23 @@ export async function executeTool(
           path: relative(root, written),
           bytes: Buffer.byteLength(String(input.args.content ?? "")),
         };
+      }
+      case "create_vault_note": {
+        const database = openSharedDatabase(storageDirectory);
+        try {
+          return await createVaultNote({
+            belongsTo: input.args.belongsTo === null ? null : String(input.args.belongsTo ?? ""),
+            body: String(input.args.body ?? ""),
+            client: database.client,
+            relatedTo: Array.isArray(input.args.relatedTo) ? input.args.relatedTo.map(String) : [],
+            title: String(input.args.title ?? ""),
+            type: input.args.type as "Project" | "Event" | "Note" | "Topic",
+            workspaceId: input.workspaceId,
+            workspaceRoot: root,
+          });
+        } finally {
+          database.close();
+        }
       }
       case "apply_patch": {
         const path = await safePath(root, String(input.args.path ?? ""));

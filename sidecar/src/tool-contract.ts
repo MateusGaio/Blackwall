@@ -30,6 +30,7 @@ export type ToolName =
   | "bash"
   | "blackwall_capability_probe"
   | "create_or_update_file"
+  | "create_vault_note"
   | "list_directory"
   | "read_file"
   | "search_text";
@@ -203,6 +204,38 @@ export const workspaceToolDefinitions: ToolDefinition[] = [
   },
 ];
 
+/** Ferramenta isolada do protocolo explícito `/nota`. */
+export const vaultNoteToolDefinition: ToolDefinition = {
+  function: {
+    description:
+      "Cria exatamente uma nota Markdown no Vault. Use somente durante um comando /nota explícito.",
+    name: "create_vault_note",
+    parameters: objectSchema(
+      {
+        belongsTo: {
+          description: "Referência existente de projeto/evento/nota/tópico, ou null.",
+          type: ["string", "null"],
+        },
+        body: stringProperty("Conteúdo da nota, sem frontmatter."),
+        relatedTo: {
+          description: "Lista de referências existentes relacionadas, possivelmente vazia.",
+          items: { type: "string" },
+          type: "array",
+        },
+        title: stringProperty("Título curto da nota."),
+        type: {
+          description: "Tipo Portent da nota.",
+          enum: ["Project", "Event", "Note", "Topic"],
+          type: "string",
+        },
+      },
+      ["title", "body", "type", "belongsTo", "relatedTo"],
+    ),
+    strict: true,
+  },
+  type: "function",
+};
+
 export const capabilityProbeTool: ToolDefinition = {
   function: {
     description: "Internal Blackwall capability probe. Do not use for workspace actions.",
@@ -213,7 +246,10 @@ export const capabilityProbeTool: ToolDefinition = {
   type: "function",
 };
 
-const toolNames = new Set<ToolName>(workspaceToolDefinitions.map((item) => item.function.name));
+const toolNames = new Set<ToolName>([
+  ...workspaceToolDefinitions.map((item) => item.function.name),
+  vaultNoteToolDefinition.function.name,
+]);
 
 export function canonicalToolName(value: string): ToolName | null {
   if (value === "execute_command") return "bash";
@@ -272,6 +308,10 @@ export function parseToolArguments(
     bash: { optional: ["workdir", "timeout"], required: ["command"] },
     blackwall_capability_probe: { optional: [], required: ["nonce"] },
     create_or_update_file: { optional: [], required: ["path", "content"] },
+    create_vault_note: {
+      optional: [],
+      required: ["title", "body", "type", "belongsTo", "relatedTo"],
+    },
     list_directory: { optional: [], required: ["path"] },
     read_file: { optional: [], required: ["path"] },
     search_text: { optional: [], required: ["path", "query"] },
@@ -291,10 +331,30 @@ export function parseToolArguments(
   if (canonicalName === "apply_patch") stringFields.push("path", "oldText", "newText");
   if (canonicalName === "blackwall_capability_probe") stringFields.push("nonce");
   if (canonicalName === "bash") stringFields.push("command", "workdir");
+  if (canonicalName === "create_vault_note") stringFields.push("title", "body", "type");
   for (const field of stringFields) {
     if (args[field] !== undefined && typeof args[field] !== "string") {
       throw new Error(`O argumento ${field} da ferramenta ${name} deve ser texto.`);
     }
+  }
+  if (canonicalName === "create_vault_note") {
+    if (args.belongsTo !== null && typeof args.belongsTo !== "string")
+      throw new Error(`O argumento belongsTo da ferramenta ${name} deve ser texto ou null.`);
+    if (!Array.isArray(args.relatedTo) || args.relatedTo.some((item) => typeof item !== "string"))
+      throw new Error(`O argumento relatedTo da ferramenta ${name} deve ser uma lista de textos.`);
+    if (
+      !(
+        args.type === "Project" ||
+        args.type === "Event" ||
+        args.type === "Note" ||
+        args.type === "Topic"
+      )
+    )
+      throw new Error(
+        `O argumento type da ferramenta ${name} deve ser Project, Event, Note ou Topic.`,
+      );
+    if (!String(args.title).trim() || !String(args.body).trim())
+      throw new Error(`Os argumentos title e body da ferramenta ${name} não podem ser vazios.`);
   }
   if (canonicalName === "bash" && args.timeout !== undefined) {
     if (typeof args.timeout !== "number" || !Number.isFinite(args.timeout))

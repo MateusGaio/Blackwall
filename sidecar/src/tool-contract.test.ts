@@ -15,6 +15,7 @@ import {
   toOllamaTools,
   toOpenAIChatTools,
   toOpenAIResponsesTools,
+  vaultNoteToolDefinition,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
 
@@ -79,6 +80,35 @@ describe("contrato de ferramentas", () => {
     expect(workspaceToolDefinitions.map((tool) => tool.function.name)).not.toContain(
       "execute_command",
     );
+  });
+
+  it("valida os cinco campos estritos de create_vault_note", () => {
+    expect(
+      parseToolArguments(
+        "create_vault_note",
+        JSON.stringify({
+          belongsTo: null,
+          body: "Conteúdo",
+          relatedTo: [],
+          title: "Título",
+          type: "Note",
+        }),
+      ),
+    ).toMatchObject({ belongsTo: null, relatedTo: [], type: "Note" });
+    expect(vaultNoteToolDefinition.function.parameters.additionalProperties).toBe(false);
+    expect(() =>
+      parseToolArguments(
+        "create_vault_note",
+        JSON.stringify({
+          belongsTo: null,
+          body: "Conteúdo",
+          extra: true,
+          relatedTo: [],
+          title: "Título",
+          type: "Note",
+        }),
+      ),
+    ).toThrow("não é aceito");
   });
 
   it("serializa o mesmo contrato para Chat, Responses e Ollama", () => {

@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
@@ -34,7 +34,6 @@ import {
 import { dataDirectory, openDatabase } from "./db/database.js";
 import { models, profiles, routerEntries, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
-import { enqueueExplicitCapture } from "./memory-capture.js";
 import { detectExplicitCaptureIntent } from "./memory-intent.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
@@ -76,6 +75,7 @@ import {
   type ToolMode,
   ToolValidationFailure,
   toCompatibilityPrompt,
+  vaultNoteToolDefinition,
   workspaceToolDefinitions,
 } from "./tool-contract.js";
 import { errorFingerprint, extractErrorCode } from "./tool-outcome.js";
@@ -100,6 +100,7 @@ import {
   type UsageWindow,
 } from "./usage.js";
 import { scanVault } from "./vault.js";
+import { undoVaultRevision } from "./vault-capture.js";
 
 export const SIDECAR_HOST = "127.0.0.1";
 const allowedOrigins = new Set([
@@ -239,6 +240,19 @@ function appendToolExchange(
   ];
 }
 
+function lastConversationExchange(messages: ChatMessage[]) {
+  const assistant = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.content.trim());
+  if (!assistant) return "";
+  const assistantIndex = messages.lastIndexOf(assistant);
+  const user = [...messages.slice(0, assistantIndex)]
+    .reverse()
+    .find((message) => message.role === "user" && message.content.trim());
+  if (!user) return "";
+  return `Usuário:\n${user.content.trim()}\n\nAssistente:\n${assistant.content.trim()}`;
+}
+
 export async function createSidecar(
   port = 0,
   storageDirectory = dataDirectory(),
@@ -282,7 +296,7 @@ export async function createSidecar(
     }
     if (request.method === "OPTIONS") return response.writeHead(204).end();
     const pathname = new URL(request.url ?? "/", "http://blackwall.local").pathname;
-    if (request.url === "/health") {
+    if (pathname === "/health") {
       writeJson(response, 200, withInstrumentation("sidecar.health", healthPayload));
       return;
     }
@@ -368,6 +382,28 @@ export async function createSidecar(
           .get();
         if (!workspace) throw new Error("O workspace selecionado não existe.");
         writeJson(response, 200, await scanVault(workspace.rootPath));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/revisions\/[^/]+\/undo$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const revisionId = parts[5];
+        const workspace = database.db
+          .select()
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .get();
+        if (!workspace) throw new Error("O workspace selecionado não existe.");
+        writeJson(
+          response,
+          200,
+          await undoVaultRevision(database.client, workspaceId, workspace.rootPath, revisionId),
+        );
+        broadcast(JSON.stringify({ revisionId, type: "vault.note.undone", workspaceId }));
+        broadcast(JSON.stringify({ type: "vault.graph.updated", workspaceId }));
         return;
       }
       if (request.method === "POST" && pathname === "/v1/attachments") {
@@ -708,7 +744,16 @@ export async function createSidecar(
       writeJson(response, 404, { error: "Rota local não encontrada." });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha local inesperada.";
-      writeJson(response, error instanceof HttpError ? error.status : 400, { error: message });
+      const status =
+        error instanceof HttpError
+          ? error.status
+          : typeof error === "object" &&
+              error &&
+              "status" in error &&
+              typeof error.status === "number"
+            ? error.status
+            : 400;
+      writeJson(response, status, { error: message });
     }
   });
   server.once("close", () => database.close());
@@ -787,31 +832,37 @@ export async function createSidecar(
     const currentUserMessage = [...input.messages]
       .reverse()
       .find((message) => message.role === "user")?.content;
-    const previousUserMessage = [...input.messages]
-      .slice(0, -1)
-      .reverse()
-      .find((message) => message.role === "user")?.content;
     const captureIntent = currentUserMessage
-      ? detectExplicitCaptureIntent(currentUserMessage, previousUserMessage)
+      ? detectExplicitCaptureIntent(currentUserMessage)
       : { kind: "none" as const, reason: "not_detected" as const };
-    if (captureIntent.content && profile?.id) {
-      const queued = enqueueExplicitCapture(database.client, {
-        content: captureIntent.content,
-        profileId: profile.id,
-        requestId: input.requestId,
-        sessionId: input.sessionId,
-        sourceRevisionHash: createHash("sha256").update(captureIntent.content).digest("hex"),
-        turnMessageId: input.requestId,
-        workspaceId: input.workspaceId,
-      });
-      socket.send(
-        JSON.stringify({
-          id: queued.id,
-          inserted: queued.inserted,
-          requestId: input.requestId,
-          type: "memory.capture.queued",
-        }),
+    const captureMode = captureIntent.kind === "command" || captureIntent.kind === "ambiguous";
+    const captureBody = captureIntent.content ?? lastConversationExchange(input.messages);
+    const finishWithoutProvider = (content: string) => {
+      if (runStore.finish(input.requestId, "completed", { content, provider: null }))
+        socket.send(
+          JSON.stringify({
+            content,
+            persisted: false,
+            provider: null,
+            requestId: input.requestId,
+            sessionId: input.sessionId,
+            type: "chat.completed",
+          }),
+        );
+    };
+    if (captureMode && !input.workspaceId) {
+      finishWithoutProvider("Selecione um workspace para salvar a nota no Vault.");
+      return;
+    }
+    if (captureMode && workspace?.permissionMode === "read-only") {
+      finishWithoutProvider("O workspace está em modo somente leitura; a nota não foi salva.");
+      return;
+    }
+    if (captureMode && !captureBody) {
+      finishWithoutProvider(
+        "Use /nota <pedido> ou envie /nota após uma troca completa entre usuário e assistente.",
       );
+      return;
     }
     const entries = input.workspaceId
       ? database.db
@@ -850,16 +901,24 @@ export async function createSidecar(
         }))
       : input.messages;
     const toolInstruction: ChatMessage | null = input.workspaceId
-      ? {
-          content: `Blackwall tem ferramentas locais no workspace selecionado; use-as para ver, alterar arquivos ou executar Bash e nunca diga que não tem acesso ao filesystem.
+      ? captureMode
+        ? {
+            content: `Este é um turno explícito /nota. O pedido a salvar é:
+${captureBody}
+
+Use exatamente UMA chamada válida de create_vault_note, com title, body, type, belongsTo e relatedTo. Não use nenhuma outra ferramenta, não escreva Markdown diretamente e não responda com texto antes da chamada. belongsTo deve ser null e relatedTo deve ser [] quando não houver relações conhecidas. As referências devem apontar para arquivos existentes no Vault. O conteúdo pode ser redigido com segurança, mas não invente fatos fora do pedido ou da última troca fornecida.`,
+            role: "system",
+          }
+        : {
+            content: `Blackwall tem ferramentas locais no workspace selecionado; use-as para ver, alterar arquivos ou executar Bash e nunca diga que não tem acesso ao filesystem.
 
 Antes de ler ou buscar, chame list_directory com path "." e use só caminhos vindos de uma listagem bem-sucedida; se aparecer um diretório de projeto aninhado, inclua-o nos caminhos seguintes. Nunca presuma que PRODUCT.md, ARCHITECTURE.md, UX_SPEC.md, README.md ou outro arquivo está na raiz — continue listando subpastas e leia manifests, código-fonte, pontos de entrada, configs e testes; use search_text para localizar símbolos. Não se limite a Markdown; ignore .git, node_modules, builds, gerados, binários e arquivos muito grandes. Se uma ferramenta disser que o caminho não existe, não repita a chamada nem tente variações — use a última listagem e siga com arquivos existentes, ou informe que o documento não está disponível.
 
 Agrupe chamadas sempre que possível: se as próximas chamadas não dependem do resultado uma da outra, emita todas juntas na mesma resposta. Uma listagem que revelou seis arquivos vira uma resposta com seis read_file, não seis respostas. Chamar uma por vez quando dava para agrupar desperdiça o contexto inteiro a cada ida e volta. Só emita uma sozinha quando precisar do resultado dela para decidir a próxima.
 
 Respeite as autorizações do usuário, confirme o resultado de cada ferramenta e nunca invente arquivos, caminhos ou resultados. Para Bash, envie {"command":"...","workdir":".","timeout":120000}; o comando usa o shell normal da plataforma e pode conter pipes, &&, redireções, variáveis, quoting e múltiplas linhas.`,
-          role: "system",
-        }
+            role: "system",
+          }
       : null;
     const persistStream = (
       content: string,
@@ -877,6 +936,15 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
         status,
       });
     };
+    const captureTools = [vaultNoteToolDefinition];
+    let captureProtocolCorrectionUsed = false;
+    let captureValidCallCount = 0;
+    let captureResult: {
+      path: string;
+      revisionId: string;
+      title: string;
+      created: boolean;
+    } | null = null;
     try {
       // Sessão sem modelo escolhido e sem rota alternativa com modelo: rejeita
       // com erro acionável em vez de iniciar streaming com modelo vazio.
@@ -978,14 +1046,17 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   | import("./tool-contract.js").ResolvedProtocol
                   | null) ??
                 (provider.baseUrl.includes("api.openai.com") ? "openai-responses" : "openai-chat"));
-          const toolsEnabled =
-            Boolean(input.workspaceId) &&
-            toolMode !== "disabled" &&
-            (toolMode === "compatibility" || modelRecord?.toolSupport !== "unsupported");
+          const toolsEnabled = captureMode
+            ? Boolean(input.workspaceId)
+            : Boolean(input.workspaceId) &&
+              toolMode !== "disabled" &&
+              (toolMode === "compatibility" || modelRecord?.toolSupport !== "unsupported");
           if (toolMode === "compatibility") {
             transcript = [
               {
-                content: toCompatibilityPrompt(workspaceToolDefinitions),
+                content: toCompatibilityPrompt(
+                  captureMode ? captureTools : workspaceToolDefinitions,
+                ),
                 role: "system",
               },
               ...transcript,
@@ -1114,14 +1185,15 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                     candidate.model,
                     (delta) => {
                       content += delta;
-                      socket.send(
-                        JSON.stringify({
-                          delta,
-                          requestId: input.requestId,
-                          sessionId: input.sessionId,
-                          type: "chat.delta",
-                        }),
-                      );
+                      if (!captureMode)
+                        socket.send(
+                          JSON.stringify({
+                            delta,
+                            requestId: input.requestId,
+                            sessionId: input.sessionId,
+                            type: "chat.delta",
+                          }),
+                        );
                     },
                     controller.signal,
                     fetch,
@@ -1129,7 +1201,11 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                     {
                       protocol,
                       toolMode,
-                      tools: toolsEnabled ? workspaceToolDefinitions : [],
+                      tools: toolsEnabled
+                        ? captureMode
+                          ? captureTools
+                          : workspaceToolDefinitions
+                        : [],
                       parallelToolCalls,
                     },
                   ),
@@ -1225,8 +1301,50 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
             );
             if (result.toolCalls.length && !input.workspaceId)
               throw new Error("Selecione um workspace antes de usar ferramentas locais.");
-            if (result.toolCalls.length && toolMode === "disabled")
+            if (result.toolCalls.length && toolMode === "disabled" && !captureMode)
               throw new Error("As ferramentas estão desativadas para este modelo.");
+            if (captureMode && !result.toolCalls.length) {
+              if (captureResult) {
+                const confirmation = captureResult.created
+                  ? `Salvo no Vault: ${captureResult.title} (${captureResult.path}).`
+                  : `A nota já estava salva no Vault: ${captureResult.title} (${captureResult.path}).`;
+                content = confirmation;
+                persistStream(content, result.provider.id, candidate.model, "complete");
+                if (
+                  runStore.finish(input.requestId, "completed", {
+                    content,
+                    provider: result.provider.id,
+                    sessionId: input.sessionId,
+                    tokens: result.tokens,
+                    windows: result.windows,
+                  })
+                )
+                  socket.send(
+                    JSON.stringify({
+                      content,
+                      persisted: Boolean(input.sessionId),
+                      provider: result.provider,
+                      requestId: input.requestId,
+                      sessionId: input.sessionId,
+                      tokens: result.tokens,
+                      type: "chat.completed",
+                      windows: result.windows,
+                    }),
+                  );
+                return;
+              }
+              if (!captureProtocolCorrectionUsed) {
+                captureProtocolCorrectionUsed = true;
+                content = "";
+                transcript.push({
+                  content:
+                    "Correção de protocolo: esta solicitação exige exatamente uma chamada válida de create_vault_note agora. Não responda com texto; emita a chamada com todos os cinco argumentos obrigatórios.",
+                  role: "system",
+                });
+                continue;
+              }
+              throw new Error("O modelo não emitiu uma chamada válida de create_vault_note.");
+            }
             if (!result.toolCalls.length && result.finishReason === "length")
               throw Object.assign(
                 new Error("O modelo atingiu o limite de saída antes de concluir a resposta."),
@@ -1293,6 +1411,30 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 : call.id;
               const canonicalName = canonicalToolName(call.name);
               if (!canonicalName) throw new Error(`A ferramenta ${call.name} não é permitida.`);
+              if (captureMode && canonicalName !== "create_vault_note") {
+                if (captureProtocolCorrectionUsed)
+                  throw new Error("O turno /nota aceita somente create_vault_note.");
+                captureProtocolCorrectionUsed = true;
+                const protocolResult = {
+                  error: {
+                    code: "capture_protocol_violation",
+                    message: "O turno /nota aceita somente uma chamada de create_vault_note.",
+                    retryable: true,
+                  },
+                };
+                socket.send(
+                  JSON.stringify({
+                    callId: call.id,
+                    requestId: input.requestId,
+                    result: protocolResult,
+                    sessionId: input.sessionId,
+                    tool: call.name,
+                    type: "tool.failed",
+                  }),
+                );
+                transcript = appendToolExchange(transcript, call, protocolResult, toolMode);
+                continue;
+              }
               const normalizedCall = { ...call, id: callId, name: canonicalName };
               seenToolCallIds.add(callId);
               let args: Record<string, unknown>;
@@ -1312,6 +1454,13 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   error instanceof Error
                     ? error.message
                     : "Os argumentos da ferramenta são inválidos.";
+                if (captureMode) {
+                  if (captureProtocolCorrectionUsed)
+                    throw new Error(
+                      "O modelo repetiu argumentos inválidos para create_vault_note.",
+                    );
+                  captureProtocolCorrectionUsed = true;
+                }
                 const toolResult = {
                   error:
                     error instanceof ToolValidationFailure
@@ -1367,6 +1516,11 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 }
                 transcript = appendToolExchange(transcript, normalizedCall, toolResult, toolMode);
                 continue;
+              }
+              if (captureMode) {
+                if (captureValidCallCount > 0)
+                  throw new Error("O turno /nota permite exatamente uma chamada válida.");
+                captureValidCallCount += 1;
               }
               socket.send(
                 JSON.stringify({
@@ -1539,6 +1693,38 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   type: toolError ? "tool.failed" : "tool.completed",
                 }),
               );
+              if (captureMode) {
+                if (toolError) {
+                  if (captureProtocolCorrectionUsed)
+                    throw new Error("A criação da nota falhou após a correção de protocolo.");
+                  captureProtocolCorrectionUsed = true;
+                } else {
+                  const note = toolResult as {
+                    created?: boolean;
+                    path?: string;
+                    revisionId?: string;
+                    title?: string;
+                  };
+                  captureResult = {
+                    created: note.created !== false,
+                    path: String(note.path ?? "Vault"),
+                    revisionId: String(note.revisionId ?? ""),
+                    title: String(note.title ?? "Nota"),
+                  };
+                  broadcast(
+                    JSON.stringify({
+                      noteId: String((note as { noteId?: string }).noteId ?? ""),
+                      path: captureResult.path,
+                      revisionId: captureResult.revisionId,
+                      type: "vault.note.created",
+                      workspaceId: activeWorkspaceId,
+                    }),
+                  );
+                  broadcast(
+                    JSON.stringify({ type: "vault.graph.updated", workspaceId: activeWorkspaceId }),
+                  );
+                }
+              }
               if (toolError) {
                 // Fingerprint canônico (#210): args + código — nunca
                 // String(objeto) que colapsava tudo em "[object Object]".
