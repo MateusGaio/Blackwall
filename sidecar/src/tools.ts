@@ -5,7 +5,12 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { dataDirectory, openSharedDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
-import { normalizeToolArguments } from "./tool-contract.js";
+import {
+  type LegacyCommandSpec,
+  legacyCommandSpec,
+  normalizeCommandArgs,
+  normalizeToolArguments,
+} from "./tool-contract.js";
 import {
   classifyTool,
   evaluateToolPolicy,
@@ -498,6 +503,15 @@ export async function executeTool(
   storageDirectory = dataDirectory(),
   options: ToolExecutionOptions = {},
 ) {
+  const legacySpec: LegacyCommandSpec | undefined =
+    input.tool === "execute_command"
+      ? {
+          args: normalizeCommandArgs(input.args.args),
+          command: String(input.args.command ?? "").trim(),
+        }
+      : ((input.args as Record<PropertyKey, unknown>)[legacyCommandSpec] as
+          | LegacyCommandSpec
+          | undefined);
   const canonicalTool = input.tool === "execute_command" ? "bash" : input.tool;
   const executionArgs =
     input.tool === "execute_command"
@@ -722,13 +736,25 @@ export async function executeTool(
           outputBytes: number;
         }>((resolveCommand, reject) => {
           const startedAt = Date.now();
-          const child = spawn(command, {
-            cwd,
-            env,
-            shell,
-            detached: process.platform !== "win32",
-            stdio: ["ignore", "pipe", "pipe"],
-          });
+          // Comandos legados com argumentos usam spawn estruturado, evitando
+          // que quoting dependente do shell quebre no Windows. Sem argumentos,
+          // mantemos o shell para que comandos inexistentes retornem um
+          // resultado com código de saída, em vez de rejeitar com ENOENT.
+          const child =
+            legacySpec && legacySpec.args.length > 0
+              ? spawn(legacySpec.command, legacySpec.args, {
+                  cwd,
+                  env,
+                  detached: process.platform !== "win32",
+                  stdio: ["ignore", "pipe", "pipe"],
+                })
+              : spawn(command, {
+                  cwd,
+                  env,
+                  shell,
+                  detached: process.platform !== "win32",
+                  stdio: ["ignore", "pipe", "pipe"],
+                });
           let stdout = "";
           let stderr = "";
           let output = "";

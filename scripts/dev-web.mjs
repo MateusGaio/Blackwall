@@ -73,6 +73,7 @@ const vite = spawn(npmCommand, ["exec", "vite", "--", ...viteArguments], {
     VITE_SIDECAR_TOKEN: sidecarToken,
     VITE_SIDECAR_URL: sidecarUrl,
   },
+  shell: process.platform === "win32",
   stdio: "inherit",
 });
 
