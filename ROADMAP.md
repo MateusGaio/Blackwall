@@ -10,7 +10,7 @@
 | Frente | Estado |
 |---|---|
 | **Fase 1 — MVP (produto)** | ✅ Entregue e estável: perfis/workspaces/Souls, Vault Markdown + grafo d3-force, chat WebSocket com streaming e fallback de rota, anexos textuais/PDF com FTS5, modos `ask`/`automatic`/`read-only`, uso local com limites manuais, observabilidade opt-in, captura explícita `/nota` idempotente com desfazer |
-| **Fechamento beta `v0.1.0-beta`** | 🔄 Em fechamento: hardening do runtime, auditoria de segurança/motion, CI Linux/Windows, bundles AppImage/`.deb`/NSIS e release manual sem updater |
+| **Fechamento `v0.1.0` (pre-release beta)** | 🔄 Em fechamento: hardening do runtime, auditoria de segurança/motion, CI Linux/Windows, bundles AppImage/`.deb`/NSIS e release manual sem updater |
 | **Pipeline de IA** (alinhamento ao OpenCode) | ✅ Fases 0–3, 4.1 e 7 concluídas — rastreamento de uso, orçamento de contexto, poda de tool outputs, **compactação real com resumo persistido (`isSummary`)** e testes determinísticos. Detalhes em [`BLACKWALL_OPENCODE_ALIGNMENT_PLAN.md`](./BLACKWALL_OPENCODE_ALIGNMENT_PLAN.md) |
 | **UI** | ✅ Fundação shadcn + tokens OLED + U1–U3 mergeadas (chat, onboarding, vault, settings sobre primitivas). 🔄 **Em voo pelo owner:** U4 estética terminal (#173) e U5 cromo de sessão (#175) |
 | **Qualidade / robustez** (2026-08-22) | ✅ Robustez do ciclo de stream (#161), performance do sidecar (#162), remoção de código morto (#163), i18n completo (#168), performance da UI (#169) |

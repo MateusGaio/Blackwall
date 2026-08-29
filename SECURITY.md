@@ -17,7 +17,7 @@ Não use Issue, Pull Request, log ou artefato público para reportar uma
 vulnerabilidade. Enquanto o repositório estiver privado, envie a reprodução
 mínima e sintética diretamente ao owner por um canal privado. Depois da
 publicação, o canal canônico será o formulário de [Security Advisory do
-GitHub](https://github.com/MateusGaio/Blackwall./security/advisories/new).
+GitHub](https://github.com/MateusGaio/Blackwall/security/advisories/new).
 
 Inclua impacto, versão/commit afetado, passos mínimos sem dados reais e uma
 correção sugerida quando possível. Não envie chaves ou conteúdo de usuário.

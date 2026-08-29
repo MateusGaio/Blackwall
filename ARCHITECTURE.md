@@ -237,12 +237,13 @@ Histórico é a conversa bruta da sessão; memória de perfil é uma preferênci
 - Anexos locais com extração de texto, PDF pesquisável e índice SQLite FTS5.
 - Seletor de diretório nativo no desktop e no navegador web dev; Markdown da pasta é persistido localmente no web dev e exposto por um Vault textual com grafo de links. Sessões sem workspace usam `sessions.workspace_id = NULL` e não habilitam filesystem, anexos ou Vault.
 - Ferramentas locais com validação de caminhos reais e modos `ask`, `automatic` e `read-only`.
+- Captura explícita pelo único comando de barra da Fase 1, `/nota`: o comando autoriza uma única chamada confinada de `create_vault_note` em `ask`/`automatic`; `read-only` bloqueia antes do provedor.
 - Tema OLED, skeleton de carregamento, lazy loading, progresso, animações e `prefers-reduced-motion`.
 - OTel permanece sem exporter e desligado por padrão; não há conteúdo de conversas em telemetria.
 
 ### Fase 2 — RAG e MCP
 - Edição de notas, atualização em tempo real por watcher e recursos avançados do Vault.
-- Autodetecção de "crie uma nota sobre isso" no chat + comando `/nota`.
+- Captura automática opt-in de pedidos em linguagem natural; `/nota` permanece o comando explícito.
 - RAG com LanceDB, embeddings locais (Ollama) ou API, configurável.
 - MCP client (consumir servidores externos) e MCP server (expor o Blackwall).
 - Motion audit completo da interface do Vault.

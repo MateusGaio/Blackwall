@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { PDFParse } from "pdf-parse";
 import { dataDirectory, openSharedDatabase } from "./db/database.js";
-import { attachments } from "./db/schema.js";
+import { attachments, sessions } from "./db/schema.js";
 
 const maxAttachmentBytes = 10 * 1024 * 1024;
 const allowedExtensions = new Set([
@@ -86,6 +86,17 @@ export async function saveAttachment(input: AttachmentInput, storageDirectory = 
   if (!workspace) {
     database.close();
     throw new Error("O workspace do anexo não existe.");
+  }
+  if (input.sessionId) {
+    const session = database.db
+      .select({ workspaceId: sessions.workspaceId })
+      .from(sessions)
+      .where(eq(sessions.id, input.sessionId))
+      .get();
+    if (!session || session.workspaceId !== input.workspaceId) {
+      database.close();
+      throw new Error("A sessão do anexo não pertence ao workspace informado.");
+    }
   }
   const id = randomUUID();
   const storedDirectory = join(storageDirectory, "attachments", input.workspaceId, id);

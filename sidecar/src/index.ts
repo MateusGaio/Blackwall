@@ -18,6 +18,7 @@ import {
   generateSidecarToken,
   hasBearerToken,
   hasWebSocketToken,
+  MAX_ATTACHMENT_HTTP_BODY_BYTES,
   MAX_HTTP_BODY_BYTES,
   MAX_WS_PAYLOAD_BYTES,
   websocketProtocolSelector,
@@ -32,7 +33,7 @@ import {
   selectMessagesForContext,
 } from "./context-budget.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
-import { models, profiles, routerEntries, workspaces } from "./db/schema.js";
+import { models, profiles, routerEntries, sessions, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { detectExplicitCaptureIntent } from "./memory-intent.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
@@ -407,7 +408,10 @@ export async function createSidecar(
         return;
       }
       if (request.method === "POST" && pathname === "/v1/attachments") {
-        const input = (await requestBody(request)) as AttachmentInput;
+        const input = (await requestBody(
+          request,
+          MAX_ATTACHMENT_HTTP_BODY_BYTES,
+        )) as AttachmentInput;
         writeJson(response, 201, { attachment: await saveAttachment(input, storageDirectory) });
         return;
       }
@@ -824,6 +828,20 @@ export async function createSidecar(
     const workspace = input.workspaceId
       ? database.db.select().from(workspaces).where(eq(workspaces.id, input.workspaceId)).get()
       : null;
+    if (input.workspaceId && !workspace) throw new Error("O workspace selecionado não existe.");
+    const session = input.sessionId
+      ? database.db.select().from(sessions).where(eq(sessions.id, input.sessionId)).get()
+      : null;
+    if (input.sessionId && !session) throw new Error("A sessão selecionada não existe.");
+    if (session && (session.workspaceId ?? undefined) !== input.workspaceId) {
+      throw new Error("A sessão não pertence ao workspace informado.");
+    }
+    if (session && input.profileId && session.profileId !== input.profileId) {
+      throw new Error("A sessão não pertence ao perfil informado.");
+    }
+    if (workspace && input.profileId && workspace.profileId !== input.profileId) {
+      throw new Error("O workspace não pertence ao perfil informado.");
+    }
     const profile = workspace
       ? database.db.select().from(profiles).where(eq(profiles.id, workspace.profileId)).get()
       : input.profileId
@@ -1572,6 +1590,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                       },
                       storageDirectory,
                       {
+                        explicitVaultCapture: captureMode,
                         onApproval: (approval) =>
                           socket.send(
                             JSON.stringify({
