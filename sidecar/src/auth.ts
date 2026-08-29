@@ -28,7 +28,7 @@ export function hasBearerToken(request: IncomingMessage, expected: string | null
   return tokenEquals(match?.[1], expected);
 }
 
-export function offeredWebSocketProtocols(request: IncomingMessage) {
+function offeredWebSocketProtocols(request: IncomingMessage) {
   const header = request.headers["sec-websocket-protocol"];
   if (typeof header !== "string") return [];
   return header
