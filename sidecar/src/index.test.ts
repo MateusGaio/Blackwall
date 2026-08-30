@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,6 +65,66 @@ describe("sidecar health", () => {
       telemetry: "disabled",
     });
     client.close();
+  });
+
+  it("mapeia erros de descoberta de modelos para códigos HTTP honestos", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-provider-models-http-"));
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bodyOf = async (response: Response) => {
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(Object.keys(body)).toEqual(["error"]);
+      expect(typeof body.error).toBe("string");
+      return body;
+    };
+
+    const invalid = await fetch(`${baseUrl}/v1/providers/models`, {
+      body: JSON.stringify({}),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    expect(invalid.status).toBe(400);
+    await bodyOf(invalid);
+
+    const missing = await fetch(`${baseUrl}/v1/providers/missing/models`);
+    expect(missing.status).toBe(404);
+    await bodyOf(missing);
+
+    const unavailableProvider = await saveProvider(
+      {
+        apiKey: "test-key",
+        baseUrl: `http://${SIDECAR_HOST}:1/v1`,
+        model: "model",
+        name: "Unavailable",
+      },
+      directory,
+    );
+    const unavailable = await fetch(`${baseUrl}/v1/providers/${unavailableProvider.id}/models`);
+    expect(unavailable.status).toBe(503);
+    await bodyOf(unavailable);
+
+    const upstream = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{invalid-json");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, SIDECAR_HOST, resolve));
+    servers.push(upstream);
+    const address = upstream.address();
+    if (!address || typeof address === "string") throw new Error("porta indisponível");
+    const unexpectedProvider = await saveProvider(
+      {
+        apiKey: "test-key",
+        baseUrl: `http://${SIDECAR_HOST}:${address.port}/v1`,
+        model: "model",
+        name: "Unexpected",
+      },
+      directory,
+    );
+    const unexpected = await fetch(`${baseUrl}/v1/providers/${unexpectedProvider.id}/models`);
+    expect(unexpected.status).toBe(500);
+    await bodyOf(unexpected);
   });
 
   it("aceita na rota de anexos um payload válido maior que o limite HTTP geral", async () => {

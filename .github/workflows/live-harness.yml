@@ -1,0 +1,34 @@
+name: Blackwall live harness
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    if: ${{ vars.BLACKWALL_LIVE_HARNESS_ENABLED == 'true' }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:sidecar
+      - name: Run opted-in live providers
+        run: npm run test:harness:live
+        env:
+          BLACKWALL_RUN_LIVE_HARNESS: "1"
+          BLACKWALL_LIVE_OLLAMA_URL: ${{ vars.BLACKWALL_LIVE_OLLAMA_URL }}
+          BLACKWALL_LIVE_OLLAMA_MODEL: ${{ vars.BLACKWALL_LIVE_OLLAMA_MODEL }}
+          BLACKWALL_LIVE_OLLAMA_API_KEY: ${{ secrets.BLACKWALL_LIVE_OLLAMA_API_KEY }}
+          BLACKWALL_LIVE_OPENAI_URL: ${{ vars.BLACKWALL_LIVE_OPENAI_URL }}
+          BLACKWALL_LIVE_OPENAI_MODEL: ${{ vars.BLACKWALL_LIVE_OPENAI_MODEL }}
+          BLACKWALL_LIVE_OPENAI_API_KEY: ${{ secrets.BLACKWALL_LIVE_OPENAI_API_KEY }}

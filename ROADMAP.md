@@ -1,6 +1,6 @@
 # Blackwall — ROADMAP
 
-> Fonte viva do estado e dos próximos passos. Atualizado em **2026-08-29**.
+> Fonte viva do estado e dos próximos passos. Atualizado em **2026-08-30**.
 > Decisões de stack/ADRs: `ARCHITECTURE.md` · Escopo de produto: `PRODUCT.md` · Contrato de UI: `UX_SPEC.md`.
 
 ---
@@ -30,6 +30,19 @@
 
 ## Próxima fase de produto — Fase 2: RAG semântico + MCP
 
+### F2.0 — preparação e estabilização (#178)
+
+Em execução na branch `chore/178-f2-preparacao`: #149 e #179 foram
+implementadas com testes determinísticos, o limiar de doom-loop permanece 2,
+e os harnesses #92/#93 foram adicionados. O harness desktop depende de
+`WebKitWebDriver` nativo no host; o live harness é estritamente opt-in e não
+bloqueia CI. A matriz completa, a decomposição e os gates estão em
+[`docs/plans/2026-08-30-fase-2-f20-preparacao.md`](./docs/plans/2026-08-30-fase-2-f20-preparacao.md).
+
+PR #238 não está disponível neste clone autenticado; o contrato de slash
+commands permanece, portanto, no escopo confirmado de Fase 1 (`/nota`) até a
+ref da PR ser fornecida.
+
 Conforme `PRODUCT.md`, a Fase 2 abre duas frentes:
 
 1. **RAG semântico (LanceDB)** sobre Vault + anexos — hoje a busca é só lexical (FTS5).
@@ -39,8 +52,8 @@ Conforme `PRODUCT.md`, a Fase 2 abre duas frentes:
 
 - [ ] Fechar U4/U5 (base de UI estável para receber novas telas)
 - [ ] Zerar as pendências pontuais 4.3/4.4 (afetam o custo de tokens do agente que o RAG alimenta)
-- [ ] Corrigir **#149** (400 genérico em `GET /v1/providers/{id}/models`) — descoberta de modelos é pré-requisito prático para RAG com provedores variados; investigação arquivada em `docs/investigacoes/2026-08-22-models-400.md`
-- [ ] Harness desktop real (#92/#93) se a validação de MCP exigir Tauri nativo
+- [x] Corrigir **#149** (400 genérico em `GET /v1/providers/{id}/models`) — implementação local na F2.0; investigação arquivada em `docs/investigacoes/2026-08-22-models-400.md`
+- [x] Adicionar harness desktop/live (#92/#93); a execução desktop ainda requer `WebKitWebDriver` nativo no ambiente
 
 ## Mapa das issues abertas (triage 2026-08-22)
 

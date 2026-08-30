@@ -43,7 +43,11 @@ import {
   listProviders,
   listStoredProviderModels,
   type ParallelToolCallsMode,
-  type ProviderInput,
+  ProviderConnectionError,
+  ProviderHttpError,
+  ProviderInputError,
+  ProviderNotFoundError,
+  parseProviderInput,
   providerApiKey,
   reconcileProviderDuplicates,
   removeProvider,
@@ -590,7 +594,7 @@ export async function createSidecar(
       }
       if (request.method === "POST" && pathname === "/v1/providers/models") {
         const input = await resolveProviderModelInput(
-          (await requestBody(request)) as ProviderInput,
+          parseProviderInput(await requestBody(request)),
           storageDirectory,
         );
         const listed = input.id
@@ -710,19 +714,19 @@ export async function createSidecar(
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers") {
-        const input = (await requestBody(request)) as ProviderInput;
+        const input = parseProviderInput(await requestBody(request));
         await validateProvider(input);
         writeJson(response, 201, { provider: await saveProvider(input, storageDirectory) });
         return;
       }
       if (request.method === "POST" && pathname === "/v1/providers/test") {
-        const input = (await requestBody(request)) as ProviderInput;
+        const input = parseProviderInput(await requestBody(request));
         await validateProvider(input);
         writeJson(response, 200, { status: "connected" });
         return;
       }
       if (request.method === "PATCH" && /^\/v1\/providers\/[^/]+$/.test(pathname)) {
-        const input = (await requestBody(request)) as ProviderInput;
+        const input = parseProviderInput(await requestBody(request));
         const id = pathname.split("/")[3];
         const existing = await getProvider(id, storageDirectory);
         await validateProvider({
@@ -751,12 +755,20 @@ export async function createSidecar(
       const status =
         error instanceof HttpError
           ? error.status
-          : typeof error === "object" &&
-              error &&
-              "status" in error &&
-              typeof error.status === "number"
-            ? error.status
-            : 400;
+          : error instanceof ProviderInputError
+            ? 400
+            : error instanceof ProviderNotFoundError
+              ? 404
+              : error instanceof ProviderConnectionError
+                ? 503
+                : error instanceof ProviderHttpError
+                  ? error.status
+                  : typeof error === "object" &&
+                      error &&
+                      "status" in error &&
+                      typeof error.status === "number"
+                    ? error.status
+                    : 500;
       writeJson(response, status, { error: message });
     }
   });
