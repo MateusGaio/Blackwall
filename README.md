@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <sub>Fase 1 funcional · fechamento da v0.1.0-beta · Fases 2–3 planejadas</sub>
+  <sub>Fase 1 funcional · fechamento da v0.1.0 como pre-release beta · Fases 2–3 planejadas</sub>
 </p>
 
 > **Aviso de privacidade:** este repositório permanece privado durante a estabilização. Não inclua chaves, prompts, respostas, dados reais, dumps, caminhos pessoais ou conteúdo de workspaces em commits, Issues, Pull Requests, logs ou artefatos.
@@ -58,7 +58,7 @@ seu contexto + seus arquivos + seus provedores + suas regras
 
 ## Estado atual
 
-O projeto está em **preparação de beta privada**. A **Fase 1 (MVP) está entregue**; o fechamento da `v0.1.0-beta` inclui hardening do runtime, auditoria de segurança/motion, checks Linux/Windows e release manual em draft. O repositório só poderá ser aberto após revisão de segurança, histórico, dependências, Actions, artefatos e proteção de branch.
+O projeto está em **preparação de beta privada**. A **Fase 1 (MVP) está entregue**; o fechamento da `v0.1.0`, publicada como pre-release beta, inclui hardening do runtime, auditoria de segurança/motion, checks Linux/Windows e release manual em draft. O repositório só poderá ser aberto após revisão de segurança, histórico, dependências, Actions, artefatos e proteção de branch.
 
 > **Fonte viva do que vem depois:** [`ROADMAP.md`](./ROADMAP.md) — estado consolidado, trabalho em voo e próxima fase.
 

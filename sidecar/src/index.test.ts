@@ -66,6 +66,44 @@ describe("sidecar health", () => {
     client.close();
   });
 
+  it("aceita na rota de anexos um payload válido maior que o limite HTTP geral", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-attachment-http-limit-"));
+    const workspaceRoot = join(directory, "workspace");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        profileName: "Attachment limit",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as { activeWorkspaceId: string };
+    // 760 kB binários viram pouco mais de 1 MB em base64, reproduzindo a
+    // regressão sem fazer a suíte indexar um anexo próximo do teto de 10 MiB.
+    const contentBase64 = Buffer.alloc(760_000, 0x61).toString("base64");
+    const response = await fetch(`${baseUrl}/v1/attachments`, {
+      body: JSON.stringify({
+        contentBase64,
+        filename: "large.txt",
+        mimeType: "text/plain",
+        workspaceId: state.activeWorkspaceId,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(201);
+  });
+
   it("inicia usando a porta do ambiente", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-env-"));
     directories.push(directory);
@@ -569,7 +607,7 @@ describe("sidecar robustez", () => {
     const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
       body: JSON.stringify({
         locale: "pt-BR",
-        permissionMode: "automatic",
+        permissionMode: "ask",
         profileName: "Nota protocol",
         profileSoul: "Profile",
         workspaceName: "Workspace",
@@ -681,6 +719,7 @@ describe("sidecar robustez", () => {
       );
       expect(calls).toBe(2);
       expect(messages.some((message) => message.type === "chat.delta")).toBe(false);
+      expect(messages.some((message) => message.type === "approval.requested")).toBe(false);
       expect(
         (await fetch(`${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/vault`)).status,
       ).toBe(200);
@@ -773,6 +812,76 @@ describe("sidecar robustez", () => {
     } finally {
       vi.unstubAllGlobals();
       client?.close();
+    }
+  });
+
+  it("recusa chat com sessão e workspace de escopos diferentes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-chat-scope-"));
+    const firstRoot = join(directory, "first");
+    const secondRoot = join(directory, "second");
+    await mkdir(firstRoot);
+    await mkdir(secondRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        profileName: "Scope profile",
+        profileSoul: "Profile",
+        workspaceName: "First",
+        workspaceRootPath: firstRoot,
+        workspaceSoul: "First workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeWorkspaceId: string;
+    };
+    const workspaceResponse = await fetch(`${baseUrl}/v1/workspaces`, {
+      body: JSON.stringify({
+        name: "Second",
+        profileId: state.activeProfileId,
+        rootPath: secondRoot,
+        soul: "Second workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const secondWorkspace = (await workspaceResponse.json()) as { workspace: { id: string } };
+    const sessionResponse = await fetch(`${baseUrl}/v1/sessions`, {
+      body: JSON.stringify({ workspaceId: secondWorkspace.workspace.id }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const secondSession = (await sessionResponse.json()) as { session: { id: string } };
+    const client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+    try {
+      const ready = once(client, "message");
+      await once(client, "open");
+      await ready;
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "teste", role: "user" }],
+          profileId: state.activeProfileId,
+          providerId: "provider-not-needed",
+          requestId: "cross-scope-chat",
+          sessionId: secondSession.session.id,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+      const [raw] = await once(client, "message");
+      expect(JSON.parse(String(raw))).toMatchObject({
+        message: "A sessão não pertence ao workspace informado.",
+        requestId: "cross-scope-chat",
+        type: "chat.failed",
+      });
+    } finally {
+      client.close();
     }
   });
 

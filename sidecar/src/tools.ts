@@ -106,6 +106,8 @@ export type ApprovalRequest = {
 };
 
 type ToolExecutionOptions = {
+  /** `/nota` já é a autorização explícita para uma única escrita confinada. */
+  explicitVaultCapture?: boolean;
   onApproval?: (approval: ApprovalRequest) => void;
   /** Evento para o cliente remover o ApprovalCard mesmo sem ação do botão. */
   onApprovalResolved?: (event: { requestId: string; status: string }) => void;
@@ -530,7 +532,9 @@ export async function executeTool(
     throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
   }
 
-  if (decision.kind === "prompt") {
+  const explicitlyAuthorizedVaultCapture =
+    options.explicitVaultCapture === true && canonicalTool === "create_vault_note";
+  if (decision.kind === "prompt" && !explicitlyAuthorizedVaultCapture) {
     const key = `${workspace.id}:${input.sessionId ?? ""}:${canonicalTool}`;
     if (!sessionApprovals.has(key)) {
       const requestId = input.requestId ?? randomUUID();

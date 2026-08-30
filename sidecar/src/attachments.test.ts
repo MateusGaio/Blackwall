@@ -22,6 +22,13 @@ describe("indexador local de anexos", () => {
     );
   });
 
+  it("recusa anexos cujo binário ultrapassa 10 MiB", async () => {
+    const oversized = Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64");
+    await expect(
+      saveAttachment({ contentBase64: oversized, filename: "large.txt", workspaceId: "workspace" }),
+    ).rejects.toThrow("O anexo excede o limite local de 10 MB.");
+  });
+
   it("salva, pesquisa após reabrir o banco e remove um anexo", async () => {
     const directory = await mkdtemp(join(tmpdir(), "blackwall-attachments-"));
     const workspaceRoot = join(directory, "workspace");
@@ -29,7 +36,8 @@ describe("indexador local de anexos", () => {
     directories.push(directory);
 
     const database = openDatabase(directory);
-    const state = await createStore(database).bootstrap({
+    const store = createStore(database);
+    const state = await store.bootstrap({
       locale: "pt-BR",
       profileName: "Ada",
       profileSoul: "Profile",
@@ -37,11 +45,31 @@ describe("indexador local de anexos", () => {
       workspaceRootPath: workspaceRoot,
       workspaceSoul: "Workspace",
     });
+    const otherRoot = join(directory, "other-workspace");
+    await mkdir(otherRoot);
+    const otherWorkspace = await store.createWorkspace({
+      name: "Other project",
+      profileId: state.activeProfileId as string,
+      rootPath: otherRoot,
+      soul: "Other workspace",
+    });
+    const otherSession = store.createSession({ workspaceId: otherWorkspace.id });
     database.close();
 
     const input = Buffer.from("Blackwall indexa contexto local com SQLite FTS5.").toString(
       "base64",
     );
+    await expect(
+      saveAttachment(
+        {
+          contentBase64: input,
+          filename: "cross-scope.md",
+          sessionId: otherSession.id,
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      ),
+    ).rejects.toThrow("A sessão do anexo não pertence ao workspace informado.");
     const saved = await saveAttachment(
       {
         contentBase64: input,

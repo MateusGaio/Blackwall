@@ -132,6 +132,7 @@ jobs:
           mapfile -t assets < <(find release-assets -type f | sort)
           gh release create "${{ github.ref_name }}" "${assets[@]}" \
             --draft \
+            --prerelease \
             --verify-tag \
             --title "Blackwall ${{ github.ref_name }}" \
             --generate-notes

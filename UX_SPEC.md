@@ -24,6 +24,10 @@ Este documento existe porque decisão de stack não garante experiência boa —
 
 A sidebar cobre "onde eu estou", a command palette cobre "o que eu quero fazer agora" — são complementares, não redundantes.
 
+### 2.1 Comando de barra da Fase 1
+
+O composer reconhece somente `/nota`. O comando representa consentimento explícito para criar exatamente uma nota confinada ao Vault: não abre uma segunda aprovação em `ask`, funciona em `automatic` e é bloqueado antes de chamar o provedor em `read-only`. Nenhum outro comando de barra é anunciado ou executa ação local nesta fase.
+
 **Estrutura de páginas de topo:**
 - `Chat` (padrão, com painel de grafo do Vault podendo abrir ao lado — ver seção 5)
 - `Vault` (visualizador de markdown + notas em lista, quando não se quer só o grafo)

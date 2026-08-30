@@ -5,6 +5,9 @@ import type { IncomingMessage } from "node:http";
 
 export const SIDECAR_WS_PROTOCOL = "blackwall.v1";
 export const MAX_HTTP_BODY_BYTES = 1_000_000;
+// 10 MiB de binário crescem para cerca de 13,34 MiB em base64. A folga cobre
+// o envelope JSON sem afrouxar o limite das demais rotas locais.
+export const MAX_ATTACHMENT_HTTP_BODY_BYTES = 14 * 1024 * 1024;
 export const MAX_WS_PAYLOAD_BYTES = 256_000;
 
 export function generateSidecarToken() {
