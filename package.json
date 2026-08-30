@@ -10,6 +10,8 @@
     "build:sidecar": "tsc -p sidecar/tsconfig.json",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
     "smoke:desktop-runtime": "node scripts/smoke-desktop-runtime.mjs",
+    "test:harness:desktop": "node scripts/run-desktop-harness.mjs",
+    "test:harness:live": "node scripts/run-live-harness.mjs",
     "build:desktop": "tauri build",
     "verify:release-version": "node scripts/verify-release-version.mjs",
     "db:generate": "drizzle-kit generate",
@@ -81,6 +83,7 @@
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "webdriverio": "^9.31.5"
   }
 }
