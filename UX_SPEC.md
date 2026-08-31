@@ -154,3 +154,31 @@ Secundária: todo fluxo precisa funcionar de ponta a ponta com mouse sem nenhuma
 ## 13. Streaming interrompido
 
 Se a conexão cair no meio de uma resposta sendo exibida: o texto parcial permanece na tela, e aparece um aviso inline (não um modal bloqueante) tipo "Conexão perdida durante a resposta — [Tentar novamente]". Não tenta retomar sozinho, não descarta o que já foi exibido.
+
+---
+
+## 14. Exportação MCP local
+
+Na seção lazy `MCP` das configurações, “Conectar servidores ao Blackwall” e “Expor este
+workspace via MCP” são cards distintos. A exportação mostra que o endpoint é apenas local,
+avisa que qualquer processo com o token pode consultar excertos indexados e oferece somente
+`search_workspace`, desligada por padrão. O token é mostrado uma única vez após gerar ou
+rotacionar, pode ser copiado nessa resposta imediata e é limpo ao fechar/desmontar — nunca vai
+para localStorage. Rotação e exclusão pedem confirmação; carregamento usa skeleton, ações
+assíncronas mostram progresso e mudanças de estado usam transições funcionais de 120–180 ms
+(instantâneas para teclado e reduced motion).
+
+## 15. Vault avançado (F2.8)
+
+Na aba `Arquivos`, a barra compacta oferece `Todos`, `Inbox`, `Organizadas`,
+`Arquivadas` e `Problemas`, sem criar uma terceira navegação global. A Inbox é
+uma view virtual de notas `captured`; arquivar, restaurar e excluir só aparecem
+para notas gerenciadas. Markdown externo permanece visível no explorador, com
+badge de somente leitura e sem ação de edição.
+
+O editor lazy carrega o detalhe por ID, mantém preview Markdown sanitizado,
+mostra progresso e preserva rascunho em erro. Um rascunho sujo exige escolha
+antes de fechar; conflito 409 oferece recarregar a versão do disco ou copiar o
+rascunho, sem force-save ou merge automático. Exclusão é definitiva e exige
+confirmação explícita. Entradas e saídas usam motion funcional de 120–180 ms,
+com estado instantâneo para teclado e `prefers-reduced-motion`.

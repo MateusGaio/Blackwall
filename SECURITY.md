@@ -85,6 +85,20 @@ Allowlists de executáveis não seriam sandbox. Confinamento multiplataforma
 (filesystem/subprocessos/rede negada) continua fora desta fase e exige ADR
 próprio (#214) antes de ser prometido.
 
+## Servidor MCP local
+
+O servidor MCP do Blackwall é limitado a `127.0.0.1`, não habilita CORS amplo e autentica
+cada export por um token aleatório independente, guardado exclusivamente em `secrets.enc`.
+O token não autentica as APIs `/v1` nem WebSocket, e o token do sidecar não autentica MCP.
+Ele é devolvido somente ao gerar/rotacionar, é comparado em tempo constante e é invalidado
+imediatamente na rotação ou exclusão. SQLite guarda apenas configuração, allowlist e auditoria
+técnica sem queries, conteúdo, caminhos, resultados, IPs ou segredos.
+
+O endpoint expõe somente `search_workspace` para o workspace associado ao export. Não há
+stdio, bind remoto, OAuth, resources, prompts, escrita, Bash ou proxy de ferramentas MCP
+externas. Esse limite reduz a superfície, mas não cria isolamento entre processos do mesmo
+usuário do sistema: um processo local que obtiver o token pode consultar os excertos exportados.
+
 ## Relato responsável
 
 Não abra uma Issue pública contendo segredos ou uma reprodução com dados reais.
@@ -95,3 +109,19 @@ owner.
 
 Consulte [`AGENTS.md`](AGENTS.md) e [`CONTRIBUTING.md`](CONTRIBUTING.md) para o
 fluxo Issue → branch → PR e o gate de futura publicação pública.
+
+## Editor seguro do Vault (F2.8)
+
+As mutações do editor são autenticadas pelo bearer do sidecar e limitadas ao
+workspace resolvido no banco. O serviço rejeita traversal, NUL, separadores
+alternativos, symlinks, arquivos especiais e paths absolutos; revalida o root e
+o parent real imediatamente antes do efeito. PATCH e DELETE exigem SHA-256 do
+detalhe carregado, usam comparação em tempo constante e nunca sobrescrevem um
+terceiro hash.
+
+O arquivo é escrito em temporário exclusivo no mesmo diretório, sincronizado e
+renomeado atomicamente. A migração 21 registra apenas operação, IDs, path
+relativo, estado e hashes em `vault_write_operations`, permitindo recovery
+determinístico sem armazenar corpo, título, frontmatter, path absoluto ou
+rascunho. Respostas e eventos `vault.note.changed` carregam somente metadados
+seguros; conteúdo não entra em logs, traces ou métricas.

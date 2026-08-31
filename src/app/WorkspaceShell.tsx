@@ -233,6 +233,7 @@ export default function WorkspaceShell({
     resolveToolDecision,
     runtime,
     sendMessage,
+    runningTool,
     streamingId,
     streamingStatus,
     toolApproval,
@@ -365,6 +366,20 @@ export default function WorkspaceShell({
 
   function dispatchVaultView(event: Parameters<typeof reduceVaultView>[1]) {
     setVaultView((current) => reduceVaultView(current, event));
+  }
+
+  function captureVaultMemory() {
+    const panel = document.getElementById("bw-vault-panel");
+    const viewports = panel?.querySelectorAll<HTMLElement>('[data-slot="scroll-area-viewport"]');
+    const listViewport = viewports?.[0];
+    const noteViewport = viewports?.[viewports.length - 1];
+    setVaultMemory((current) => ({
+      fileListScrollTop: listViewport?.scrollTop ?? current.fileListScrollTop,
+      noteScrollTop: noteViewport?.scrollTop ?? current.noteScrollTop,
+      noteScrollTops: selectedNotePath
+        ? { ...current.noteScrollTops, [selectedNotePath]: noteViewport?.scrollTop ?? 0 }
+        : current.noteScrollTops,
+    }));
   }
 
   useEffect(() => {
@@ -947,6 +962,7 @@ export default function WorkspaceShell({
                 setEditingMessageId(message.id);
               }}
               regenerate={() => void regenerate()}
+              runningTool={runningTool}
               streamingId={streamingId}
               streamingStatus={streamingStatus}
               visibleMessages={visibleMessages}
@@ -1114,6 +1130,7 @@ export default function WorkspaceShell({
               return;
             }
             setResourceNotice("");
+            if (vaultView.mode === "expanded") captureVaultMemory();
             dispatchVaultView({ type: "toggle-requested", hasWorkspace: true });
           }}
           sessionTitle={newChatDraft ? t("chat.newConversation") : activeSession?.title}
@@ -1266,6 +1283,7 @@ export default function WorkspaceShell({
                               <div className="h-full w-full min-w-0" id="bw-vault-panel">
                                 <VaultSlot
                                   cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+                                  currentSessionId={activeSession?.id ?? null}
                                   memory={vaultMemory}
                                   onMemoryChange={setVaultMemory}
                                   onSelectPath={setSelectedNotePath}

@@ -25,18 +25,20 @@ type FakeStream = {
 type HarnessOverrides = {
   editedMessages?: unknown[];
   regenerateMessages?: unknown[];
+  workspaceId?: string | null;
 };
 
 function createHarness(overrides: HarnessOverrides = {}) {
   const streams: FakeStream[] = [];
   const persisted: Array<{ message: Record<string, unknown>; sessionId: string }> = [];
+  const streamInputs: unknown[][] = [];
   const stateRefreshes: number[] = [];
   let serverMessages: Record<string, unknown>[] = [];
 
   const appState: AppState = {
     activeProfileId: "p",
     activeSessionId: "s1",
-    activeWorkspaceId: null,
+    activeWorkspaceId: overrides.workspaceId ?? null,
     get messages() {
       return serverMessages as AppState["messages"];
     },
@@ -76,16 +78,16 @@ function createHarness(overrides: HarnessOverrides = {}) {
         serverMessages = (overrides.regenerateMessages ?? []) as never;
         return serverMessages as never;
       },
-      searchAttachments: async () => [],
       streamMessage: async (
         _providerId: string,
-        _messages: unknown[],
+        messages: unknown[],
         _model: string | undefined,
         _workspaceId: string,
         handlers: StreamHandlers,
         _profileId?: string,
         sessionId?: string,
       ) => {
+        streamInputs.push(messages);
         let resolveDone: (result: StreamResult) => void = () => undefined;
         let rejectDone: (reason: Error) => void = () => undefined;
         const done = new Promise<StreamResult>((resolve, reject) => {
@@ -131,7 +133,14 @@ function createHarness(overrides: HarnessOverrides = {}) {
     workspaceId: null,
   });
 
-  return { persisted, serverMessages: () => serverMessages, stateRefreshes, store, streams };
+  return {
+    persisted,
+    serverMessages: () => serverMessages,
+    stateRefreshes,
+    store,
+    streamInputs,
+    streams,
+  };
 }
 
 describe("SidecarChatStore", () => {
@@ -229,6 +238,24 @@ describe("SidecarChatStore", () => {
     // Antes deste handler o status ficava preso em "executando…" para sempre.
     harness.streams[0].handlers.onToolFailed?.("A ferramenta falhou: permissão negada.", "call-1");
     expect(harness.store.getSnapshot().status).toBe("A ferramenta falhou: permissão negada.");
+  });
+
+  it("não injeta busca automática de anexos e mostra o estado da busca explícita", async () => {
+    const harness = createHarness({ workspaceId: "workspace-1" });
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("fato do Vault");
+    await until(() => harness.streams.length === 1);
+
+    expect(harness.streamInputs[0]).toEqual([
+      expect.objectContaining({ content: "fato do Vault", role: "user" }),
+    ]);
+    harness.streams[0].handlers.onToolStarted?.("search_workspace", { query: "fato" }, "call-1");
+    expect(harness.store.getSnapshot()).toMatchObject({
+      runningTool: "search_workspace",
+      status: "Consultando o Vault…",
+    });
+    harness.streams[0].handlers.onToolCompleted?.({}, "call-1");
+    expect(harness.store.getSnapshot().runningTool).toBeNull();
   });
 
   it("fila FIFO (ADR-21): envio durante execução enfileira e dispara na sequência", async () => {

@@ -7,7 +7,6 @@ import {
   getAppState,
   persistMessage,
   regenerateSession,
-  searchAttachments,
   streamMessage,
   type WorkspaceToolApproval,
   type WorkspaceToolDecision,
@@ -17,6 +16,7 @@ type SidecarChatMessage = ChatMessage;
 
 type SidecarChatLabels = {
   consulting: string;
+  consultingVault: string;
   continuing: string;
   couldNotEdit: (fallback: string) => string;
   couldNotRegenerate: (fallback: string) => string;
@@ -40,6 +40,7 @@ type SidecarChatSnapshot = {
   messages: readonly SidecarChatMessage[];
   queuedCount: number;
   queuedPreview: string | null;
+  runningTool: string | null;
   status: string;
   streamingId: string | null;
   toolApproval: WorkspaceToolApproval | null;
@@ -51,7 +52,6 @@ type StoreOverrides = {
   getAppState?: () => Promise<AppState>;
   persistMessage?: typeof persistMessage;
   regenerateSession?: typeof regenerateSession;
-  searchAttachments?: typeof searchAttachments;
   streamMessage?: typeof streamMessage;
 };
 
@@ -68,6 +68,7 @@ type StoreCallbacks = {
 
 const FALLBACK_LABELS: SidecarChatLabels = {
   consulting: "Consultando…",
+  consultingVault: "Consultando o Vault…",
   continuing: "Continuando…",
   couldNotEdit: (fallback) => fallback,
   couldNotRegenerate: (fallback) => fallback,
@@ -94,7 +95,6 @@ export class SidecarChatStore {
     getAppState: () => Promise<AppState>;
     persistMessage: typeof persistMessage;
     regenerateSession: typeof regenerateSession;
-    searchAttachments: typeof searchAttachments;
     streamMessage: typeof streamMessage;
   };
   private readonly callbacks: StoreCallbacks;
@@ -118,6 +118,7 @@ export class SidecarChatStore {
     messages: [],
     queuedCount: 0,
     queuedPreview: null,
+    runningTool: null,
     status: "",
     streamingId: null,
     toolApproval: null,
@@ -135,7 +136,6 @@ export class SidecarChatStore {
       getAppState: overrides.getAppState ?? getAppState,
       persistMessage: overrides.persistMessage ?? persistMessage,
       regenerateSession: overrides.regenerateSession ?? regenerateSession,
-      searchAttachments: overrides.searchAttachments ?? searchAttachments,
       streamMessage: overrides.streamMessage ?? streamMessage,
     };
     this.callbacks = callbacks;
@@ -157,6 +157,7 @@ export class SidecarChatStore {
         messages: [...this.messages],
         queuedCount: this.queue.length,
         queuedPreview: this.queue[0] ?? null,
+        runningTool: this.runningTool,
         status: this.status,
         streamingId: this.streamingId,
         toolApproval: this.toolApproval,
@@ -194,6 +195,7 @@ export class SidecarChatStore {
       // ficar aguardando decisão que nunca chegará.
       pendingResolver?.("deny");
       this.streamingId = null;
+      this.runningTool = null;
       this.status = "";
     }
     this.notify();
@@ -338,25 +340,7 @@ export class SidecarChatStore {
       this.notify();
       await this.api.persistMessage(sessionId, { content, role: "user", status: "complete" });
       await this.refreshAppState(sessionId, runEpoch);
-      let contextMessage: ChatMessage | null = null;
-      const workspaceId = this.runConfig.workspaceId;
-      if (workspaceId) {
-        const attachments = await this.api
-          .searchAttachments(workspaceId, content.slice(0, 160))
-          .catch(() => []);
-        contextMessage =
-          attachments.length > 0
-            ? {
-                content: `Trechos relevantes dos anexos locais:\n${attachments
-                  .map((item) => `[${item.filename}]\n${item.content}`)
-                  .join("\n\n")}`,
-                id: this.api.generateId(),
-                role: "system",
-              }
-            : null;
-      }
-      const prompt = contextMessage ? [...this.messages, contextMessage] : [...this.messages];
-      await this.generate(prompt, sessionId, runEpoch);
+      await this.generate([...this.messages], sessionId, runEpoch);
     } catch (reason) {
       if (this.matchesRun(sessionId, runEpoch))
         this.setError(
@@ -458,7 +442,9 @@ export class SidecarChatStore {
             if (!this.matchesRun(sessionId, runEpoch)) return;
             if (
               this.runningTool === "create_or_update_file" ||
-              this.runningTool === "create_vault_note"
+              this.runningTool === "create_vault_note" ||
+              this.runningTool === "apply_patch" ||
+              this.runningTool === "bash"
             )
               this.callbacks.onVaultFileChanged?.();
             if (this.runningTool === "create_vault_note") {
@@ -479,13 +465,22 @@ export class SidecarChatStore {
           },
           onToolFailed: (message) => {
             if (!this.matchesRun(sessionId, runEpoch)) return;
+            if (
+              this.runningTool === "create_or_update_file" ||
+              this.runningTool === "create_vault_note" ||
+              this.runningTool === "apply_patch" ||
+              this.runningTool === "bash"
+            )
+              this.callbacks.onVaultFileChanged?.();
             this.runningTool = null;
             setStatus(message);
           },
           onToolStarted: (tool) => {
             if (!this.matchesRun(sessionId, runEpoch)) return;
             this.runningTool = tool;
-            setStatus(labels.runningTool(tool));
+            setStatus(
+              tool === "search_workspace" ? labels.consultingVault : labels.runningTool(tool),
+            );
           },
           onUsage: () => {
             if (!this.matchesRun(sessionId, runEpoch)) return;
@@ -544,6 +539,7 @@ export class SidecarChatStore {
     } finally {
       this.streamingBuffer = "";
       this.status = "";
+      this.runningTool = null;
       this.isRunning = false;
       this.streamingId = null;
       this.notify();

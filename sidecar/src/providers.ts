@@ -38,6 +38,24 @@ export type Provider = Omit<ProviderInput, "apiKey" | "type"> & {
 
 export type ParallelToolCallsMode = "auto" | "enabled" | "disabled";
 
+export class ProviderInputError extends Error {
+  readonly status = 400;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderInputError";
+  }
+}
+
+export class ProviderNotFoundError extends Error {
+  readonly status = 404;
+
+  constructor(id: string) {
+    super(`O provedor selecionado não existe mais neste dispositivo (${id}).`);
+    this.name = "ProviderNotFoundError";
+  }
+}
+
 export type ProviderModel = {
   capabilities: string[];
   contextLimit?: number;
@@ -564,10 +582,34 @@ export function createProviderAdapter(provider: ProviderInput): ProviderAdapter 
     : new OpenAICompatibleProvider(provider);
 }
 
+export function parseProviderInput(value: unknown): ProviderInput {
+  if (!value || typeof value !== "object")
+    throw new ProviderInputError("Os dados do provedor estão inválidos.");
+  const input = value as Record<string, unknown>;
+  if (
+    typeof input.baseUrl !== "string" ||
+    typeof input.model !== "string" ||
+    typeof input.name !== "string"
+  )
+    throw new ProviderInputError("Informe nome, endpoint e modelo do provedor.");
+  if (input.id !== undefined && typeof input.id !== "string")
+    throw new ProviderInputError("O identificador do provedor está inválido.");
+  if (input.apiKey !== undefined && typeof input.apiKey !== "string")
+    throw new ProviderInputError("A chave de API do provedor está inválida.");
+  if (input.type !== undefined && input.type !== "openai-compatible" && input.type !== "ollama")
+    throw new ProviderInputError("O tipo do provedor está inválido.");
+  return input as ProviderInput;
+}
+
 export function normalizeBaseUrl(value: string): string {
-  const url = new URL(value.trim());
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new ProviderInputError("Informe um endpoint válido para o provedor.");
+  }
   if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
-    throw new Error("Use um endpoint HTTPS ou um endereço local confiável.");
+    throw new ProviderInputError("Use um endpoint HTTPS ou um endereço local confiável.");
   }
   return url.toString().replace(/\/$/, "");
 }
@@ -609,6 +651,26 @@ export async function validateProvider(
   await withAsyncInstrumentation("provider.validate", () =>
     createProviderAdapter(input).validate(request),
   );
+}
+
+function isLoopbackEndpoint(baseUrl: string): boolean {
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Browser E2E runs must never probe a real provider or the public catalog.
+ * Local synthetic HTTP servers remain allowed for tests that explicitly need
+ * to exercise the adapter transport.
+ */
+function deterministicE2EModels(provider: ProviderInput): ProviderModel[] | null {
+  if (process.env.BLACKWALL_E2E_MOCK !== "1" || isLoopbackEndpoint(provider.baseUrl)) return null;
+  const id = provider.model.trim() || "mock-model";
+  return [{ capabilities: [], contextLimit: 32_000, id, name: id }];
 }
 
 async function readDocument(dataDirectory: string): Promise<ProviderDocument> {
@@ -744,7 +806,7 @@ export async function getProvider(
 ): Promise<Provider> {
   const document = await readDocument(dataDirectory);
   const provider = document.providers.find((candidate) => candidate.id === id);
-  if (!provider) throw new Error("O provedor selecionado não existe mais neste dispositivo.");
+  if (!provider) throw new ProviderNotFoundError(id);
   return provider;
 }
 
@@ -922,9 +984,10 @@ export async function listProviderModels(
   provider: ProviderInput,
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
-  return withAsyncInstrumentation("provider.models", () =>
-    createProviderAdapter(provider).listModels(request),
-  );
+  return withAsyncInstrumentation("provider.models", async () => {
+    const deterministic = deterministicE2EModels(provider);
+    return deterministic ?? (await createProviderAdapter(provider).listModels(request));
+  });
 }
 
 /**
@@ -978,12 +1041,11 @@ export async function syncProviderModels(
   dataDirectory = providerDataDirectory(),
   request: FetchLike = fetch,
 ): Promise<ProviderModel[]> {
-  const listed = await enrichWithCatalogLimits(
-    await listProviderModels(provider, request),
-    provider,
-    dataDirectory,
-    request,
-  );
+  const discovered = await listProviderModels(provider, request);
+  const listed =
+    process.env.BLACKWALL_E2E_MOCK === "1"
+      ? discovered
+      : await enrichWithCatalogLimits(discovered, provider, dataDirectory, request);
   const database = openSharedDatabase(dataDirectory);
   const timestamp = Date.now();
   const upsert = database.client.prepare(

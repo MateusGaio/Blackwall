@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "./db/database.js";
 import { createStore } from "./db/store.js";
+import { listSessionArtifacts } from "./session-artifacts.js";
 import {
   type ApprovalRequest,
   cancelPendingApprovals,
+  executeMcpTool,
   executeTool,
   notifyWorkspacePolicyChanged,
   resolveApproval,
@@ -44,6 +46,97 @@ async function fixture(permissionMode: "ask" | "automatic" | "read-only" = "ask"
 }
 
 describe("ferramentas locais e permissões", () => {
+  it("executa search_workspace via callback injetado sem aprovação, inclusive em ask", async () => {
+    const { directory, state } = await fixture("ask");
+    const search = async (workspaceId: string, query: string, limit: number) => ({
+      mode: "lexical",
+      query,
+      results: [{ citation: { objectId: workspaceId, source: "vault" } }],
+      limit,
+    });
+    let approvals = 0;
+    await expect(
+      executeTool(
+        {
+          args: { query: "  fatos locais  " },
+          requestId: "search-ask",
+          sessionId: state.activeSessionId,
+          tool: "search_workspace",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        { onApproval: () => (approvals += 1), searchWorkspace: search },
+      ),
+    ).resolves.toMatchObject({ limit: 6, query: "fatos locais" });
+    expect(approvals).toBe(0);
+
+    await expect(
+      executeTool(
+        {
+          args: { limit: 8, query: "Vault" },
+          tool: "search_workspace",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        { searchWorkspace: search },
+      ),
+    ).resolves.toMatchObject({ limit: 8, query: "Vault" });
+  });
+
+  it("valida limite antes do callback e sanitiza indisponibilidade", async () => {
+    const { directory, state } = await fixture("automatic");
+    let calls = 0;
+    const options = {
+      searchWorkspace: async () => {
+        calls += 1;
+        return {};
+      },
+    };
+    await expect(
+      executeTool(
+        {
+          args: { limit: 9, query: "x" },
+          tool: "search_workspace",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        options,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_tool_arguments" });
+    expect(calls).toBe(0);
+    await expect(
+      executeTool(
+        {
+          args: { query: "x" },
+          tool: "search_workspace",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      ),
+    ).rejects.toMatchObject({
+      code: "SEARCH_UNAVAILABLE",
+      message: "Não foi possível consultar o índice local.",
+    });
+    await expect(
+      executeTool(
+        {
+          args: { query: "x" },
+          tool: "search_workspace",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+        {
+          searchWorkspace: async () => {
+            throw new Error("segredo em /private/index.db");
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "SEARCH_UNAVAILABLE",
+      message: "Não foi possível consultar o índice local.",
+    });
+  });
+
   it("lista caminhos canônicos, ignora dependências e trunca arquivos grandes", async () => {
     const { directory, state, workspaceRoot } = await fixture("automatic");
     await mkdir(join(workspaceRoot, "src"));
@@ -153,6 +246,63 @@ describe("ferramentas locais e permissões", () => {
         directory,
       ),
     ).rejects.toThrow("fora da pasta");
+  });
+
+  it("registra writes estruturados e diferenças do Bash sem conteúdo", async () => {
+    const { directory, state } = await fixture("automatic");
+    const workspaceId = state.activeWorkspaceId as string;
+    const sessionId = state.activeSessionId as string;
+    const updates: Array<{ created: number; deleted: number; modified: number }> = [];
+    await executeTool(
+      {
+        args: { content: "one\n", path: "artifact.txt" },
+        sessionId,
+        tool: "create_or_update_file",
+        workspaceId,
+      },
+      directory,
+      { onArtifactsUpdated: (counts) => updates.push(counts) },
+    );
+    await executeTool(
+      {
+        args: { newText: "two", oldText: "one", path: "artifact.txt" },
+        sessionId,
+        tool: "apply_patch",
+        workspaceId,
+      },
+      directory,
+      { onArtifactsUpdated: (counts) => updates.push(counts) },
+    );
+    await executeTool(
+      {
+        args: {
+          args: ["-e", "require('fs').writeFileSync('bash-artifact.txt', 'bash')"],
+          command: process.execPath,
+        },
+        sessionId,
+        tool: "execute_command",
+        workspaceId,
+      },
+      directory,
+      { onArtifactsUpdated: (counts) => updates.push(counts) },
+    );
+    const database = openDatabase(directory);
+    const artifacts = listSessionArtifacts(database.client, workspaceId, sessionId);
+    database.close();
+    expect(artifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ operation: "modified", path: "artifact.txt" }),
+        expect.objectContaining({ operation: "created", path: "bash-artifact.txt" }),
+      ]),
+    );
+    expect(updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ created: 1 }),
+        expect.objectContaining({ modified: 1 }),
+      ]),
+    );
+    expect(artifacts?.[0]).not.toHaveProperty("content");
+    expect(artifacts?.[0]).not.toHaveProperty("workspaceRoot");
   });
 
   it("sanitiza o ambiente dos comandos e nega aprovações canceladas", async () => {
@@ -617,5 +767,48 @@ describe("contrato estrito de execute_command.args (#210)", () => {
     await resolveApproval("args-absent", "allow_once", directory);
     const result = (await run) as { code?: number | null };
     expect(result.code).toBe(0);
+  });
+});
+
+describe("permissões de ferramentas MCP", () => {
+  it("pede confirmação em ask, mantém o grant no escopo sessão+servidor+ferramenta e bloqueia read-only", async () => {
+    const { directory, state } = await fixture("ask");
+    const base = {
+      args: { path: "README.md" },
+      publicName: "mcp__files_12345678__read_12345678",
+      remoteName: "read_file",
+      serverId: "mcp-server-a",
+      serverName: "Files",
+      sessionId: state.activeSessionId,
+      workspaceId: state.activeWorkspaceId as string,
+    };
+    let approvals = 0;
+    let executions = 0;
+    const first = executeMcpTool({ ...base, requestId: "mcp-ask" }, directory, {
+      execute: async () => ({ ok: ++executions }),
+      onApproval: () => (approvals += 1),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(approvals).toBe(1);
+    await resolveApproval("mcp-ask", "allow_session", directory);
+    await expect(first).resolves.toEqual({ ok: 1 });
+
+    await expect(
+      executeMcpTool(base, directory, {
+        execute: async () => ({ ok: ++executions }),
+        onApproval: () => (approvals += 1),
+      }),
+    ).resolves.toEqual({ ok: 2 });
+    expect(approvals).toBe(1);
+
+    await setWorkspacePermissionModeGuarded(
+      state.activeWorkspaceId as string,
+      "read-only",
+      directory,
+    );
+    await expect(
+      executeMcpTool(base, directory, { execute: async () => ({ ok: ++executions }) }),
+    ).rejects.toMatchObject({ code: "READ_ONLY_COMMAND" });
+    expect(executions).toBe(2);
   });
 });

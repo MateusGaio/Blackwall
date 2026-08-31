@@ -10,21 +10,11 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import {
-  type PointerEvent,
-  type ReactNode,
-  type UIEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type WheelEvent,
-} from "react";
+import { type PointerEvent, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/shared/components/motion/Skeleton";
 import { Button } from "@/shared/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
-import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -33,11 +23,9 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
-import { cn } from "@/shared/lib/utils";
 import type { VaultMemory } from "../../../app/shell/VaultSlot";
 import type { VaultTab } from "../../../app/vault-view";
 import { getVault, type VaultGraph } from "../../../shared/api/sidecar";
-import { SafeMarkdown } from "../../../shared/components/SafeMarkdown";
 import {
   defaultColorForGroup,
   defaultGraphPreferences,
@@ -47,9 +35,11 @@ import {
   writeGraphPreferences,
 } from "../graph-preferences";
 import { clampGraphZoom } from "../graph-zoom";
+import { FileWorkbench } from "./FileWorkbench";
 
 type VaultPanelProps = {
   cursorAvoidanceEnabled: boolean;
+  currentSessionId: string | null;
   memory: VaultMemory;
   /** Posição de leitura (lista + nota) preservada entre recolher/reabrir. */
   onMemoryChange: (memory: VaultMemory) => void;
@@ -133,154 +123,6 @@ export function buildFileTree(files: ReadonlyArray<{ path: string; title: string
             : 1,
       );
   return sortNodes(root);
-}
-
-const treeRowClass =
-  "flex w-full items-center gap-1.5 rounded py-1 pr-2 text-left text-[0.8rem] leading-none text-muted-foreground transition-colors duration-[120ms] hover:bg-neutral-800/40 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none";
-
-/** Pastas ancestrais de um caminho ("a/b/nota.md" → ["a", "a/b"]). */
-function ancestorsOf(path: string): string[] {
-  const segments = path.split("/").filter(Boolean).slice(0, -1);
-  const ancestors: string[] = [];
-  let accumulated = "";
-  for (const segment of segments) {
-    accumulated = accumulated ? `${accumulated}/${segment}` : segment;
-    ancestors.push(accumulated);
-  }
-  return ancestors;
-}
-
-/** Ícones compactos de pasta/arquivo da árvore (14px). */
-function TreeGlyph({ kind }: { kind: "file" | "folder-open" | "folder-closed" }) {
-  const paths =
-    kind === "file"
-      ? "M5 4h9l4 4v12H5V4Zm9 0v4h4"
-      : kind === "folder-open"
-        ? "M3 6h5l2 2h11v10H3V6Zm0 8h18"
-        : "M3 6h5l2 2h11v10H3V6Z";
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-3.5 shrink-0"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      viewBox="0 0 24 24"
-    >
-      <path d={paths} />
-    </svg>
-  );
-}
-
-/**
- * Árvore estilo explorador do Obsidian: pastas iniciam RECOLHIDAS (exceto os
- * ancestrais do arquivo ativo), ícones compactos e tooltip nos nomes truncados.
- */
-function FileTree({
-  activePath,
-  files,
-  onOpenFile,
-}: {
-  activePath: string | null;
-  files: VaultGraph["files"];
-  onOpenFile: (path: string) => void;
-}) {
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const tree = useMemo(() => buildFileTree(files), [files]);
-
-  // Ao abrir uma nota (inclusive pelo grafo), revela seus ancestrais.
-  useEffect(() => {
-    if (!activePath) return;
-    setExpanded((current) => {
-      const next = new Set(current);
-      for (const ancestor of ancestorsOf(activePath)) next.add(ancestor);
-      return next;
-    });
-  }, [activePath]);
-
-  function toggleFolder(path: string) {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  }
-
-  function renderNodes(nodes: VaultTreeNode[], depth: number): ReactNode {
-    return nodes.map((node) => {
-      if (node.kind === "folder") {
-        const isOpen = expanded.has(node.path);
-        return (
-          <li key={`folder:${node.path}`}>
-            <button
-              aria-expanded={isOpen}
-              aria-label={`${isOpen ? "Recolher" : "Expandir"} ${node.name}`}
-              className={treeRowClass}
-              onClick={() => toggleFolder(node.path)}
-              style={{ paddingLeft: depth * 11 + 6 }}
-              title={node.path}
-              type="button"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "shrink-0 transition-transform duration-[120ms] motion-reduce:transition-none",
-                  isOpen && "rotate-90",
-                )}
-              >
-                <svg
-                  aria-hidden="true"
-                  className="size-3"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </span>
-              <TreeGlyph kind={isOpen ? "folder-open" : "folder-closed"} />
-              <span className="truncate">{node.name}</span>
-            </button>
-            {isOpen && node.children.length > 0 && (
-              <ul
-                className="m-0 list-none border-l border-neutral-800/50 p-0"
-                style={{ marginLeft: depth * 11 + 15 }}
-              >
-                {renderNodes(node.children, depth + 1)}
-              </ul>
-            )}
-          </li>
-        );
-      }
-      return (
-        <li key={node.path}>
-          <button
-            aria-label={node.name}
-            className={treeRowClass}
-            onClick={() => onOpenFile(node.path)}
-            style={{ paddingLeft: depth * 11 + 6 }}
-            title={node.path}
-            type="button"
-          >
-            <span aria-hidden="true" className="w-3 shrink-0" />
-            <TreeGlyph kind="file" />
-            <span className="truncate">{node.name}</span>
-          </button>
-        </li>
-      );
-    });
-  }
-
-  return <ul className="m-0 grid list-none gap-0.5 p-2">{renderNodes(tree, 0)}</ul>;
 }
 
 function GraphView({
@@ -728,6 +570,7 @@ function GraphView({
 
 export function VaultPanel({
   cursorAvoidanceEnabled,
+  currentSessionId,
   memory,
   onMemoryChange,
   onSelectPath,
@@ -740,12 +583,6 @@ export function VaultPanel({
   const { t } = useTranslation();
   const [graph, setGraph] = useState<VaultGraph | null>(null);
   const [error, setError] = useState("");
-  const fileListWrapRef = useRef<HTMLDivElement | null>(null);
-  const noteWrapRef = useRef<HTMLDivElement | null>(null);
-  const memoryRef = useRef(memory);
-  const restoreIdentityRef = useRef<string | null>(null);
-  const restoreCancelledRef = useRef(false);
-  memoryRef.current = memory;
 
   useEffect(() => {
     // The increment is the explicit signal that a tool changed workspace files.
@@ -765,90 +602,6 @@ export function VaultPanel({
       cancelled = true;
     };
   }, [refreshKey, t, workspaceId]);
-
-  // A seleção sobrevive ao refresh quando a nota ainda existe; sumiu, cai
-  // para a lista sem erro — recolher/reabrir nunca perde a leitura.
-  const selectedNote = graph?.files.find((file) => file.path === selectedPath) ?? null;
-
-  // Restaura uma única vez por workspace + nota. O efeito não depende da
-  // posição que o próprio scroll atualiza, portanto wheel/inércia não rearma
-  // a restauração nem concorre com o usuário.
-  useEffect(() => {
-    if (!graph) return;
-    const identity = `${workspaceId}:${selectedPath ?? "__file-list__"}`;
-    if (restoreIdentityRef.current === identity) return;
-    restoreIdentityRef.current = identity;
-    restoreCancelledRef.current = false;
-    let attempts = 0;
-    let frame = 0;
-    const apply = () => {
-      if (restoreCancelledRef.current) return;
-      const listViewport = fileListWrapRef.current?.querySelector<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      const notePosition = selectedPath
-        ? (memoryRef.current.noteScrollTops?.[selectedPath] ?? 0)
-        : 0;
-      const wanted = selectedNote ? notePosition : memoryRef.current.fileListScrollTop;
-      if (listViewport && !selectedNote && wanted > 0) listViewport.scrollTop = wanted;
-      if (noteViewport && selectedNote && wanted > 0) noteViewport.scrollTop = wanted;
-      const target = selectedNote ? noteViewport : listViewport;
-      if (wanted > 0 && target && Math.abs(target.scrollTop - wanted) > 1 && attempts < 10) {
-        attempts += 1;
-        frame = requestAnimationFrame(apply);
-      }
-    };
-    frame = requestAnimationFrame(apply);
-    return () => cancelAnimationFrame(frame);
-  }, [graph, selectedNote, selectedPath, workspaceId]);
-
-  // No desmonte (recolher para rail), captura a posição ATUAL do DOM —
-  // o último evento de scroll pode ter sido perdido antes do unmount.
-  useEffect(
-    () => () => {
-      const noteViewport = noteWrapRef.current?.querySelector<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      const listViewport = fileListWrapRef.current?.querySelector<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      onMemoryChange({
-        fileListScrollTop: listViewport?.scrollTop ?? memoryRef.current.fileListScrollTop,
-        noteScrollTop: noteViewport?.scrollTop ?? memoryRef.current.noteScrollTop,
-        noteScrollTops: memoryRef.current.noteScrollTops ?? {},
-      });
-    },
-    [onMemoryChange],
-  );
-
-  function trackListScroll(event: UIEvent<HTMLDivElement>) {
-    const target = event.target as HTMLElement | null;
-    if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
-      onMemoryChange({ ...memoryRef.current, fileListScrollTop: target.scrollTop });
-    }
-  }
-
-  function trackNoteScroll(event: UIEvent<HTMLDivElement>) {
-    const target = event.target as HTMLElement | null;
-    if (target?.getAttribute?.("data-slot") === "scroll-area-viewport") {
-      if (!selectedPath) return;
-      onMemoryChange({
-        ...memoryRef.current,
-        noteScrollTop: target.scrollTop,
-        noteScrollTops: {
-          ...memoryRef.current.noteScrollTops,
-          [selectedPath]: target.scrollTop,
-        },
-      });
-    }
-  }
-
-  function cancelRestore() {
-    restoreCancelledRef.current = true;
-  }
 
   function openNote(path: string) {
     if (!graph?.files.some((file) => file.path === path)) return;
@@ -876,85 +629,40 @@ export function VaultPanel({
           <TabsTrigger value="graph">{t("vault.graph")}</TabsTrigger>
         </TabsList>
       </Tabs>
-      {!graph && !error && (
-        <div aria-busy="true" className="min-h-0 flex-1 p-4">
-          <Skeleton className="h-full" />
-        </div>
-      )}
       {error && (
         <p className="m-4 text-sm text-destructive" role="alert">
           {error}
         </p>
       )}
-      {graph &&
-        tab === "files" &&
-        (selectedNote ? (
-          <section
-            aria-label={`${t("vault.note")} ${selectedNote.title}`}
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-          >
-            <div className="min-w-0 px-2 pt-1">
-              <Button onClick={() => onSelectPath(null)} size="xs" variant="ghost">
-                ← {t("vault.files")}
-              </Button>
-            </div>
-            <header className="min-w-0 px-4 pt-1">
-              <p className="font-mono text-[0.7rem] tracking-[0.08em] text-muted-foreground uppercase">
-                {selectedNote.path}
-              </p>
-              <h2 className="mt-1 mb-2 text-lg font-medium">{selectedNote.title}</h2>
-            </header>
-            <section
-              aria-label={`${t("vault.note")} ${selectedNote.title}`}
-              className="min-h-0 min-w-0 flex-1"
-              onKeyDown={cancelRestore}
-              onPointerDown={cancelRestore}
-              onScrollCapture={trackNoteScroll}
-              onTouchStart={cancelRestore}
-              onWheel={cancelRestore}
-              ref={noteWrapRef}
-            >
-              <ScrollArea className="h-full">
-                <article className="px-4 pb-6">
-                  <SafeMarkdown
-                    content={selectedNote.content}
-                    cursorAvoidanceEnabled={cursorAvoidanceEnabled}
-                    currentPath={selectedNote.path}
-                    files={graph.files}
-                    onLocalLink={openNote}
-                  />
-                </article>
-              </ScrollArea>
-            </section>
-          </section>
-        ) : graph.files.length ? (
-          <section
-            aria-label={t("vault.files")}
-            className="min-h-0 flex-1"
-            onKeyDown={cancelRestore}
-            onPointerDown={cancelRestore}
-            onScrollCapture={trackListScroll}
-            onTouchStart={cancelRestore}
-            onWheel={cancelRestore}
-            ref={fileListWrapRef}
-          >
-            <ScrollArea className="h-full">
-              <FileTree activePath={selectedPath} files={graph.files} onOpenFile={openNote} />
-            </ScrollArea>
-          </section>
-        ) : (
-          <p className="p-4 text-sm leading-relaxed text-muted-foreground">
-            {t("vault.noMarkdownFilesWereFound")}
-          </p>
-        ))}
-      {graph && tab === "graph" && (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
-          <p aria-live="polite" className="px-4 py-2 font-mono text-[0.7rem] text-muted-foreground">
-            {graph.files.length} {t("vault.files2")} · {graph.edges.length} links
-          </p>
-        </div>
+      {tab === "files" && (
+        <FileWorkbench
+          cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+          graph={graph ?? { edges: [], files: [], nodes: [] }}
+          memory={memory}
+          onMemoryChange={onMemoryChange}
+          onSelectPath={onSelectPath}
+          refreshKey={refreshKey}
+          selectedPath={selectedPath}
+          sessionId={currentSessionId}
+          workspaceId={workspaceId}
+        />
       )}
+      {tab === "graph" &&
+        (graph ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <GraphView graph={graph} onOpenNote={openNote} workspaceId={workspaceId} />
+            <p
+              aria-live="polite"
+              className="px-4 py-2 font-mono text-[0.7rem] text-muted-foreground"
+            >
+              {graph.files.length} {t("vault.files2")} · {graph.edges.length} links
+            </p>
+          </div>
+        ) : (
+          <div aria-busy="true" className="min-h-0 flex-1 p-4">
+            <Skeleton className="h-full" />
+          </div>
+        ))}
     </aside>
   );
 }

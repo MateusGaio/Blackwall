@@ -3,7 +3,7 @@ import i18n from "i18next";
 import "../../i18n";
 import { sidecarConfig } from "../../platform/runtime";
 
-export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
+export type ToolCall = { arguments: string; id: string; name: string };
 
 export type ConnectedProvider = {
   baseUrl: string;
@@ -78,9 +78,86 @@ export type Workspace = {
   soul: string;
 };
 
+export type McpTransportKind = "stdio" | "streamable-http";
+
+export type McpServerConfig =
+  | { args: string[]; command: string; cwd: "isolated" | "workspace" }
+  | { url: string };
+
+export type McpTool = {
+  description: string;
+  discoveredAt: number;
+  enabled: boolean;
+  errorCode: string | null;
+  inputSchema: Record<string, unknown>;
+  publicName: string;
+  remoteName: string;
+  state: "ready" | "removed" | "unsupported";
+};
+
+export type McpServer = {
+  allowPrivateNetwork: boolean;
+  config: McpServerConfig;
+  enabled: boolean;
+  envNames: string[];
+  errorCode: string | null;
+  hasBearer: boolean;
+  id: string;
+  name: string;
+  shareWorkspaceRoot: boolean;
+  slug: string;
+  state: "disabled" | "disconnected" | "connecting" | "ready" | "error";
+  tools: McpTool[];
+  transport: McpTransportKind;
+  workspaceId: string;
+};
+
+export type McpServerInput = {
+  allowPrivateNetwork?: boolean;
+  /** Write-only. A resposta nunca ecoa este campo. */
+  bearer?: string | null;
+  config: McpServerConfig;
+  /** Valores são write-only; null remove uma variável configurada. */
+  environment?: Record<string, string | null>;
+  name: string;
+  shareWorkspaceRoot?: boolean;
+  transport: McpTransportKind;
+};
+
+export type McpExport = {
+  enabled: boolean;
+  endpointPath: string | null;
+  hasToken: boolean;
+  id: string | null;
+  lastUsedAt: number | null;
+  tools: Array<{ enabled: boolean; name: "search_workspace" }>;
+  workspaceId: string;
+};
+
+export type McpExportCall = {
+  createdAt: number;
+  durationMs: number;
+  errorCode: string | null;
+  outcome: "success" | "error" | "timeout" | "rate_limited";
+  toolName: "search_workspace";
+};
+
 export type VaultFile = {
   content: string;
   headings: string[];
+  managed?: boolean;
+  object?: {
+    body?: string;
+    createdAt?: string;
+    id?: string;
+    revisionId?: string;
+    source?: string;
+    sourceKind?: string;
+    status?: string;
+    title?: string;
+    type?: string;
+    updatedAt?: string;
+  };
   path: string;
   title: string;
 };
@@ -90,6 +167,84 @@ export type VaultGraph = {
   files: VaultFile[];
   nodes: Array<{ id: string; label: string; path: string }>;
 };
+
+export type VaultNoteType = "Project" | "Event" | "Note" | "Topic";
+export type VaultNoteStatus = "captured" | "organized" | "archived";
+
+export type VaultNoteRelationTarget = {
+  path: string;
+  portentId: string;
+  title: string;
+};
+
+export type VaultNoteSummary = {
+  contentHash: string;
+  createdAt?: string;
+  diagnosticCount: number;
+  managed: true;
+  path: string;
+  portentId: string;
+  revisionId?: string;
+  source: "blackwall";
+  sourceKind?: string;
+  status: VaultNoteStatus;
+  title: string;
+  type: VaultNoteType;
+  updatedAt?: string;
+};
+
+export type VaultNoteDetail = VaultNoteSummary & {
+  belongsTo: VaultNoteRelationTarget | null;
+  body: string;
+  relatedTo: VaultNoteRelationTarget[];
+};
+
+export type VaultNoteCreateInput = {
+  belongsTo: string | null;
+  body: string;
+  relatedTo: string[];
+  status: VaultNoteStatus;
+  title: string;
+  type: VaultNoteType;
+};
+
+export type VaultNotePatchInput = Partial<Omit<VaultNoteCreateInput, "belongsTo">> & {
+  belongsTo?: string | null;
+  expectedHash: string;
+};
+
+export type VaultNoteListResponse = {
+  notes: VaultNoteSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type VaultDiagnostic = {
+  code: string;
+  message: string;
+  path: string;
+  target?: string;
+};
+
+export type VaultDiagnosticPage = {
+  diagnostics: VaultDiagnostic[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export class SidecarApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly errorCode?: string,
+    readonly currentHash?: string,
+  ) {
+    super(message);
+    this.name = "SidecarApiError";
+  }
+}
 
 export type Session = {
   createdAt: number;
@@ -166,14 +321,70 @@ export type WorkspaceToolName =
   | "execute_command"
   | "list_directory"
   | "read_file"
-  | "search_text";
+  | "search_text"
+  | "search_workspace";
+
+export type WorkspaceSearchCitation =
+  | {
+      chunkIndex: number;
+      contentHash: string;
+      excerpt: string;
+      objectId: string;
+      path: string;
+      source: "vault";
+      title: string;
+    }
+  | {
+      attachmentId: string;
+      chunkIndex: number;
+      contentHash: string;
+      excerpt: string;
+      filename: string;
+      source: "attachment";
+    };
+
+export type WorkspaceSearchResponse = {
+  mode: "hybrid" | "lexical";
+  results: Array<{ citation: WorkspaceSearchCitation }>;
+  semanticUnavailable?: string;
+};
+
+export type WorkspaceTreeEntry = {
+  kind: "directory" | "file";
+  name: string;
+  path: string;
+  size: number | null;
+};
+
+export type WorkspaceFileTree = {
+  entries: WorkspaceTreeEntry[];
+  limited: boolean;
+  path: string;
+};
+
+export type WorkspaceFilePreview = {
+  content: string;
+  kind: "code" | "markdown" | "text";
+  path: string;
+  size: number;
+};
+
+export type SessionArtifact = {
+  firstSeenAt: number;
+  lastSeenAt: number;
+  operation: "created" | "modified" | "deleted";
+  path: string;
+};
 
 export type WorkspaceToolApproval = {
   args: Record<string, unknown>;
   id: string;
+  remoteName?: string;
   requestId: string;
+  serverId?: string;
+  serverName?: string;
   sessionId: string | null;
-  tool: WorkspaceToolName;
+  tool: string;
   workspaceId: string;
 };
 
@@ -208,9 +419,47 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   } catch {
     throw new Error(i18n.t("errors.sidecarUnreachable"));
   }
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? i18n.t("errors.localActionFailed"));
+  const body = (await response.json()) as T & {
+    currentHash?: string;
+    error?: string;
+    errorCode?: string;
+  };
+  if (!response.ok)
+    throw new SidecarApiError(
+      body.error ?? i18n.t("errors.localActionFailed"),
+      response.status,
+      body.errorCode,
+      body.currentHash,
+    );
   return body;
+}
+
+async function requestBytes(
+  path: string,
+  init: RequestInit,
+): Promise<{ bytes: Uint8Array; response: Response }> {
+  const config = await sidecarConfig();
+  const baseUrl = config.sidecar_url;
+  if (!baseUrl) throw new Error(i18n.t("errors.sidecarDesktopOnly"));
+  const headers = new Headers(init.headers);
+  if (config.sidecar_token) headers.set("authorization", `Bearer ${config.sidecar_token}`);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  } catch {
+    throw new Error(i18n.t("errors.sidecarUnreachable"));
+  }
+  if (!response.ok) {
+    let message = i18n.t("errors.localActionFailed");
+    try {
+      const body = (await response.json()) as { error?: string };
+      message = body.error ?? message;
+    } catch {
+      // Respostas binárias com erro não têm corpo JSON obrigatório.
+    }
+    throw new Error(message);
+  }
+  return { bytes: new Uint8Array(await response.arrayBuffer()), response };
 }
 
 export async function connectProvider(input: ProviderInput): Promise<ConnectedProvider> {
@@ -456,6 +705,141 @@ export async function setWorkspaceSoul(workspaceId: string, soul: string): Promi
   return response.workspace;
 }
 
+export async function listMcpServers(workspaceId: string): Promise<McpServer[]> {
+  const response = await request<{ servers: McpServer[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers`,
+    { method: "GET" },
+  );
+  return response.servers;
+}
+
+export async function createMcpServer(
+  workspaceId: string,
+  input: McpServerInput,
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.server;
+}
+
+export async function updateMcpServer(
+  workspaceId: string,
+  serverId: string,
+  input: McpServerInput | { enabled: boolean },
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.server;
+}
+
+export async function deleteMcpServer(workspaceId: string, serverId: string): Promise<void> {
+  await request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function testMcpServer(workspaceId: string, serverId: string): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/test`,
+    {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.server;
+}
+
+export async function setMcpServerTools(
+  workspaceId: string,
+  serverId: string,
+  enabled: string[],
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/tools`,
+    {
+      body: JSON.stringify({ enabled }),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.server;
+}
+
+export async function disconnectMcpServer(workspaceId: string, serverId: string): Promise<void> {
+  await request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/disconnect`,
+    {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function getMcpExport(workspaceId: string): Promise<McpExport> {
+  const response = await request<{ export: McpExport }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`,
+    { method: "GET" },
+  );
+  return response.export;
+}
+
+export async function updateMcpExport(
+  workspaceId: string,
+  input: { enabled?: boolean; tools?: Array<"search_workspace"> },
+): Promise<McpExport> {
+  const response = await request<{ export: McpExport }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.export;
+}
+
+export async function rotateMcpExportToken(
+  workspaceId: string,
+): Promise<{ export: McpExport; token: string }> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export/token/rotate`, {
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function listMcpExportCalls(workspaceId: string): Promise<McpExportCall[]> {
+  const response = await request<{ calls: McpExportCall[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export/calls`,
+    { method: "GET" },
+  );
+  return response.calls;
+}
+
+export async function deleteMcpExport(workspaceId: string): Promise<void> {
+  await request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`, {
+    method: "DELETE",
+  });
+}
+
+export async function mcpEndpointUrl(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  const config = await sidecarConfig();
+  return config.sidecar_url ? `${config.sidecar_url}${path}` : null;
+}
+
 export async function selectSession(sessionId: string): Promise<AppState> {
   return request(`/v1/sessions/${sessionId}/select`, {
     headers: { "content-type": "application/json" },
@@ -471,7 +855,158 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 }
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
-  return request(`/v1/workspaces/${workspaceId}/vault`, { method: "GET" });
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault`, { method: "GET" });
+}
+
+export async function listVaultNotes(
+  workspaceId: string,
+  options: {
+    hasDiagnostic?: boolean;
+    page?: number;
+    pageSize?: number;
+    status?: VaultNoteStatus;
+    type?: VaultNoteType;
+  } = {},
+): Promise<VaultNoteListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options))
+    if (value !== undefined) params.set(key, String(value));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function getVaultNote(
+  workspaceId: string,
+  portentId: string,
+): Promise<VaultNoteDetail> {
+  const response = await request<{ note: VaultNoteDetail }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    { method: "GET" },
+  );
+  return response.note;
+}
+
+export async function createVaultNote(
+  workspaceId: string,
+  input: VaultNoteCreateInput,
+): Promise<{ note: VaultNoteDetail; operation: "create"; revisionId: string }> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function patchVaultNote(
+  workspaceId: string,
+  portentId: string,
+  input: VaultNotePatchInput,
+): Promise<{
+  note: VaultNoteDetail;
+  operation: "update" | "archive" | "restore";
+  revisionId: string;
+}> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+}
+
+export async function deleteVaultNote(
+  workspaceId: string,
+  portentId: string,
+  expectedHash: string,
+): Promise<{ deleted: true; operation: "delete"; revisionId: string }> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    {
+      body: JSON.stringify({ expectedHash }),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function listVaultDiagnostics(
+  workspaceId: string,
+  options: { page?: number; pageSize?: number } = {},
+): Promise<VaultDiagnosticPage> {
+  const params = new URLSearchParams();
+  if (options.page !== undefined) params.set("page", String(options.page));
+  if (options.pageSize !== undefined) params.set("pageSize", String(options.pageSize));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/diagnostics${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function searchWorkspace(
+  workspaceId: string,
+  query: string,
+  limit = 20,
+  options: { includeLifecycle?: boolean } = {},
+): Promise<WorkspaceSearchResponse> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/search`, {
+    body: JSON.stringify({ includeLifecycle: options.includeLifecycle === true, limit, query }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function getWorkspaceFileTree(
+  workspaceId: string,
+  path = ".",
+): Promise<WorkspaceFileTree> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/tree?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getWorkspaceFileContent(
+  workspaceId: string,
+  path: string,
+): Promise<WorkspaceFilePreview> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getWorkspaceFilePdf(workspaceId: string, path: string): Promise<Uint8Array> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/pdf?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+  return result.bytes;
+}
+
+export async function getSessionArtifacts(
+  workspaceId: string,
+  sessionId: string,
+): Promise<SessionArtifact[]> {
+  const response = await request<{ artifacts: SessionArtifact[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/artifacts`,
+    { method: "GET" },
+  );
+  return response.artifacts;
+}
+
+export async function getAttachmentContent(
+  workspaceId: string,
+  attachmentId: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/attachments/${encodeURIComponent(attachmentId)}/content`,
+    { method: "GET" },
+  );
+  return { bytes: result.bytes, contentType: result.response.headers.get("content-type") ?? "" };
 }
 
 export async function undoVaultRevision(workspaceId: string, revisionId: string) {
@@ -663,7 +1198,7 @@ export type StreamHandlers = {
   /** Card resolvido sem o botão (troca de modo/stop): remove o card. */
   onApprovalResolved?: (event: { requestId?: string; status?: string }) => void;
   onToolCompleted?: (result: unknown, callId?: string) => void;
-  onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
+  onToolStarted?: (tool: string, args: Record<string, unknown>, callId?: string) => void;
   onToolFailed?: (
     message: string,
     callId?: string,
@@ -750,7 +1285,10 @@ export async function streamMessage(
       id?: string;
       result?: unknown;
       sessionId?: string;
-      tool?: WorkspaceToolName;
+      tool?: string;
+      remoteName?: string;
+      serverId?: string;
+      serverName?: string;
       type?: string;
       providerId?: string;
       model?: string;
@@ -784,7 +1322,10 @@ export async function streamMessage(
         {
           args: message.args ?? {},
           id: message.id ?? crypto.randomUUID(),
+          remoteName: message.remoteName,
           requestId: message.requestId ?? requestId,
+          serverId: message.serverId,
+          serverName: message.serverName,
           sessionId: message.sessionId ?? sessionId ?? null,
           tool: message.tool,
           workspaceId,

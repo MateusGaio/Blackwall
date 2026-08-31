@@ -56,7 +56,7 @@ async function completeOnboarding(page: Page, profileName: string) {
   await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
   await page
     .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-    .fill("http://127.0.0.1:17999/v1");
+    .fill("https://mock.invalid/v1");
   await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
   await page.getByLabel(/Chave de API|API key/).fill("test-key");
   await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -87,7 +87,7 @@ async function signOutViaSettings(page: Page) {
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
       .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
+      .fill("https://mock.invalid/v1");
     await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
     await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -193,7 +193,7 @@ test.describe("feedback de UI — perfis e onboarding", () => {
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
       .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
+      .fill("https://mock.invalid/v1");
     await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
     await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -484,7 +484,7 @@ test.describe("feedback de UI — Vault", () => {
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
       .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
+      .fill("https://mock.invalid/v1");
     await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
     await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();

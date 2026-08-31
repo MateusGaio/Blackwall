@@ -1,5 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 const timestamps = {
   createdAt: integer("created_at").notNull(),
@@ -52,6 +59,138 @@ export const providers = sqliteTable("providers", {
   status: text("status").notNull().default("unknown"),
   ...timestamps,
 });
+
+/** Configuração não secreta de um servidor MCP, sempre limitada a um workspace. */
+export const mcpServers = sqliteTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    transport: text("transport").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    configJson: text("config_json").notNull(),
+    shareWorkspaceRoot: integer("share_workspace_root", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    allowPrivateNetwork: integer("allow_private_network", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    state: text("state").notNull().default("disabled"),
+    errorCode: text("error_code"),
+    ...timestamps,
+  },
+  (table) => ({
+    workspaceSlug: uniqueIndex("mcp_servers_workspace_slug").on(table.workspaceId, table.slug),
+  }),
+);
+
+/** Metadados de segredos MCP; os valores ficam exclusivamente em secrets.enc. */
+export const mcpServerSecrets = sqliteTable(
+  "mcp_server_secrets",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    name: text("name").notNull().default(""),
+    secretRef: text("secret_ref").notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    serverKindName: uniqueIndex("mcp_server_secrets_server_kind_name").on(
+      table.serverId,
+      table.kind,
+      table.name,
+    ),
+  }),
+);
+
+/** Catálogo descoberto de ferramentas MCP. Nunca anuncia uma tool desabilitada. */
+export const mcpTools = sqliteTable(
+  "mcp_tools",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    remoteName: text("remote_name").notNull(),
+    publicName: text("public_name").notNull(),
+    description: text("description").notNull().default(""),
+    inputSchema: text("input_schema").notNull().default("{}"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    state: text("state").notNull().default("ready"),
+    errorCode: text("error_code"),
+    discoveredAt: integer("discovered_at").notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    publicName: uniqueIndex("mcp_tools_public_name").on(table.publicName),
+    serverRemoteName: uniqueIndex("mcp_tools_server_remote_name").on(
+      table.serverId,
+      table.remoteName,
+    ),
+  }),
+);
+
+/** Exportação MCP local por workspace; o token nunca é persistido no SQLite. */
+export const mcpExports = sqliteTable(
+  "mcp_exports",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    lastUsedAt: integer("last_used_at"),
+    ...timestamps,
+  },
+  (table) => ({
+    workspace: uniqueIndex("mcp_exports_workspace").on(table.workspaceId),
+  }),
+);
+
+/** Allowlist mínima do servidor MCP local. Nenhuma ferramenta nasce ativa. */
+export const mcpExportTools = sqliteTable(
+  "mcp_export_tools",
+  {
+    exportId: text("export_id")
+      .notNull()
+      .references(() => mcpExports.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    ...timestamps,
+  },
+  (table) => ({
+    primary: primaryKey({ columns: [table.exportId, table.toolName] }),
+  }),
+);
+
+/** Auditoria técnica limitada; nunca guarda argumentos, conteúdo ou segredos. */
+export const mcpExportCalls = sqliteTable(
+  "mcp_export_calls",
+  {
+    id: text("id").primaryKey(),
+    exportId: text("export_id")
+      .notNull()
+      .references(() => mcpExports.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    outcome: text("outcome").notNull(),
+    errorCode: text("error_code"),
+    durationMs: integer("duration_ms").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => ({
+    exportCreated: uniqueIndex("mcp_export_calls_export_created").on(
+      table.exportId,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const models = sqliteTable(
   "models",
@@ -265,6 +404,57 @@ export const workspaceVaultSettings = sqliteTable("workspace_vault_settings", {
   ...timestamps,
 });
 
+export const workspaceEmbeddingConfigs = sqliteTable("workspace_embedding_configs", {
+  workspaceId: text("workspace_id").primaryKey(),
+  providerKind: text("provider_kind").notNull(),
+  url: text("url").notNull(),
+  model: text("model").notNull(),
+  dimension: integer("dimension"),
+  state: text("state").notNull().default("stale"),
+  errorCode: text("error_code"),
+  ...timestamps,
+});
+
+export const workspaceEmbeddingStates = sqliteTable(
+  "workspace_embedding_states",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    state: text("state").notNull().default("unconfigured"),
+    errorCode: text("error_code"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => ({
+    workspaceSource: primaryKey({ columns: [table.workspaceId, table.source] }),
+  }),
+);
+
+export const sessionArtifacts = sqliteTable(
+  "session_artifacts",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    operation: text("operation").notNull(),
+    firstSeenAt: integer("first_seen_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+  },
+  (table) => ({
+    sessionPath: uniqueIndex("session_artifacts_session_path").on(
+      table.sessionId,
+      table.workspaceId,
+      table.path,
+    ),
+  }),
+);
+
 export const vaultObjects = sqliteTable("vault_objects", {
   rowId: text("row_id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
@@ -277,6 +467,7 @@ export const vaultObjects = sqliteTable("vault_objects", {
   sourceMtime: integer("source_mtime").notNull(),
   managed: integer("managed", { mode: "boolean" }).notNull().default(false),
   body: text("body").notNull().default(""),
+  sourceContent: text("source_content").notNull().default(""),
   ...timestamps,
 });
 
@@ -289,6 +480,32 @@ export const vaultRelations = sqliteTable("vault_relations", {
   targetObjectId: text("target_object_id"),
   resolution: text("resolution").notNull(),
 });
+
+/** Journal de escrita atômica; guarda somente metadados e hashes, nunca conteúdo. */
+export const vaultWriteOperations = sqliteTable(
+  "vault_write_operations",
+  {
+    operationId: text("operation_id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    portentId: text("portent_id"),
+    path: text("path").notNull(),
+    operation: text("operation").notNull(),
+    expectedHash: text("expected_hash"),
+    resultHash: text("result_hash"),
+    temporaryPath: text("temporary_path"),
+    state: text("state").notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    workspaceState: index("vault_write_operations_workspace_state").on(
+      table.workspaceId,
+      table.state,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const memoryCaptureJobs = sqliteTable("memory_capture_jobs", {
   id: text("id").primaryKey(),
@@ -363,6 +580,12 @@ export const schema = {
   workspaces,
   sessions,
   providers,
+  mcpServers,
+  mcpServerSecrets,
+  mcpTools,
+  mcpExports,
+  mcpExportTools,
+  mcpExportCalls,
   models,
   routerEntries,
   messages,
@@ -377,8 +600,12 @@ export const schema = {
   chatToolCalls,
   chatRunEvents,
   workspaceVaultSettings,
+  workspaceEmbeddingConfigs,
+  workspaceEmbeddingStates,
+  sessionArtifacts,
   vaultObjects,
   vaultRelations,
+  vaultWriteOperations,
   memoryCaptureJobs,
   memoryCandidates,
   profileMemories,
