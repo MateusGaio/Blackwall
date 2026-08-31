@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 
 export type UsageSource = "provider" | "local" | "manual";
 export type UsageMetric = "requests" | "tokens" | "credits";
+type UsagePurpose = "chat" | "compaction" | "memory_extract";
 
 export type TokenUsage = {
   inputTokens?: number;
@@ -35,6 +36,7 @@ type ProviderUsageEvent = {
   status?: "completed" | "failed";
   errorCode?: string;
   observedAt?: number;
+  purpose?: UsagePurpose;
 };
 
 type UsageSummary = {
@@ -70,6 +72,11 @@ type UsageSummary = {
     date: string;
     providerId: string;
     modelId: string;
+    requests: number;
+    totalTokens: number;
+  }>;
+  byPurpose: Array<{
+    purpose: UsagePurpose;
     requests: number;
     totalTokens: number;
   }>;
@@ -194,8 +201,8 @@ function usageStatementsFor(client: Database.Database) {
       insertEvent: client.prepare(
         `INSERT OR IGNORE INTO provider_usage_events
           (request_id, attempt_id, session_id, profile_id, provider_id, model_id, status, error_code,
-           input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, windows_json, observed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, windows_json, observed_at, purpose)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       upsertDaily: client.prepare(
         `INSERT INTO provider_usage_daily
@@ -239,6 +246,7 @@ export function recordProviderUsage(client: Database.Database, event: ProviderUs
       tokens.totalTokens ?? null,
       windows,
       observedAt,
+      event.purpose ?? "chat",
     );
     if (inserted.changes !== 1) return;
     const date = new Date(observedAt).toISOString().slice(0, 10);
@@ -307,6 +315,22 @@ export function getUsageSummary(
        ORDER BY date DESC, provider_id, model_id`,
     )
     .all(params) as UsageSummary["daily"];
+  const byPurpose = client
+    .prepare(
+      `SELECT purpose, COUNT(*) AS requests, COALESCE(SUM(total_tokens), 0) AS totalTokens
+         FROM provider_usage_events
+        WHERE observed_at BETWEEN @from AND @to${profileClause}${providerClause}${modelClause}${sessionClause}
+        GROUP BY purpose
+        ORDER BY purpose`,
+    )
+    .all(params)
+    .map((row) => {
+      const item = row as { purpose: string; requests: number; totalTokens: number };
+      const purpose: UsagePurpose = ["chat", "compaction", "memory_extract"].includes(item.purpose)
+        ? (item.purpose as UsagePurpose)
+        : "chat";
+      return { purpose, requests: item.requests, totalTokens: item.totalTokens };
+    });
   const latest = client
     .prepare(
       `SELECT e.windows_json AS windowsJson, e.input_tokens AS inputTokens, e.output_tokens AS outputTokens,
@@ -365,7 +389,7 @@ export function getUsageSummary(
         totalTokens: latest.totalTokens ?? 0,
       }
     : undefined;
-  return { daily: rows, lastRequest, totals, windows };
+  return { byPurpose, daily: rows, lastRequest, totals, windows };
 }
 
 export function setUsageLimits(

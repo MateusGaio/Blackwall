@@ -835,7 +835,11 @@ export class VaultEditorService {
     };
   }
 
-  async create(workspaceId: string, input: VaultNoteCreateInput) {
+  async create(
+    workspaceId: string,
+    input: VaultNoteCreateInput,
+    options: { sourceKind?: "user" | "automatic" } = {},
+  ) {
     return withWorkspaceLock(workspaceId, async () => {
       const { root } = await this.workspaceRoot(workspaceId);
       const graph = await scanVault(root, { includeArchived: true });
@@ -858,7 +862,7 @@ export class VaultEditorService {
         created_at: createdAt,
         updated_at: createdAt,
         source: "blackwall",
-        source_kind: "user",
+        source_kind: options.sourceKind ?? "user",
         revision_id: revisionId,
         ...(belongsTo ? { belongs_to: targetReference(belongsTo) } : {}),
         ...(relatedTo.length ? { related_to: relatedTo.map(targetReference) } : {}),

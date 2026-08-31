@@ -294,3 +294,11 @@ O contexto padrão de busca inclui notas gerenciadas `organized` e Markdown
 externo. `captured` e `archived` só entram quando a busca manual solicita o
 filtro de lifecycle. Uma mutação dispara uma sincronização incremental e um
 evento seguro `vault.note.changed` sem conteúdo, título, relação ou path.
+
+## 7. Memória automática e perfil (F2.9)
+
+A migração 22 consolida o scaffolding da migração 13: jobs `automatic/v2`, lease, provider/model da fonte, disclosure por perfil, hashes de revisão, índices de fila e `purpose` de uso. Jobs `v1` são cancelados e têm o payload limpo; `automatic_enabled` continua `0` até aceite da versão atual do disclosure.
+
+O terminal normal usa uma transação tipada que grava a mensagem final do assistant, o terminal da run, o evento e, quando o opt-in e a fonte persistida são válidos, o job idempotente. O worker local tem concorrência 1, lease de 60 segundos, três tentativas transitórias, quota diária e shutdown retomável. A extração recebe apenas `system` fixo e uma mensagem `user` redigida; o parser rejeita campos extras, enums inválidos, excesso e JSON tolerante.
+
+O policy local reclassifica fatos técnicos para workspace/unassigned, exige thresholds e evidências para organizar memória de perfil e nunca permite que memória autorize ferramentas, troque provider/workspace ou vença a instrução atual. O contexto injeta no máximo 12 memórias `organized`/aproximadamente 800 tokens depois das Souls, em delimitadores marcados como dado não confiável. `memory_extract` é agrupado no uso sem prompt, resposta, segredo ou URL.

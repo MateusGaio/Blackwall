@@ -36,7 +36,7 @@ type FetchLike = typeof fetch;
 type CompleteChatOptions = {
   dataDirectory?: string;
   protocol?: ResolvedProtocol;
-  purpose?: "chat" | "compaction";
+  purpose?: "chat" | "compaction" | "memory_extract";
   request?: FetchLike;
   signal?: AbortSignal;
 };
@@ -133,8 +133,11 @@ export async function completeChatMessage(
   );
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    const error = new ProviderHttpError(response.status, "obter o resumo da conversa");
-    if (detail.trim())
+    const error = new ProviderHttpError(
+      response.status,
+      options.purpose === "memory_extract" ? "extrair memória" : "obter o resumo da conversa",
+    );
+    if (detail.trim() && options.purpose !== "memory_extract")
       error.message = `${error.message} Detalhe do provedor: ${detail.trim().slice(0, 500)}`;
     throw error;
   }

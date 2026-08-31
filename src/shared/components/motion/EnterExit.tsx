@@ -101,6 +101,7 @@ export function EnterExit({
   if (!mounted) return null;
 
   const state = show ? (entered ? "entered" : "entering") : "exiting";
+  const motionOffset = show ? offsetPx : -2;
 
   return (
     <Host
@@ -114,12 +115,12 @@ export function EnterExit({
           ? { opacity: show ? 1 : 0 }
           : {
               opacity: entered ? 1 : 0,
-              transform: entered ? "translateY(0)" : `translateY(${offsetPx}px)`,
+              transform: entered ? "translateY(0)" : `translateY(${motionOffset}px)`,
               filter: entered ? "blur(0px)" : "blur(2px)",
               transitionProperty: "opacity, transform, filter",
               transitionDuration: `var(--motion-${duration})`,
               transitionTimingFunction: "var(--ease-out-quart)",
-              willChange: "opacity, transform, filter",
+              willChange: entered ? undefined : "opacity, transform, filter",
             }
       }
     >

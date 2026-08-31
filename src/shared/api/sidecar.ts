@@ -59,6 +59,11 @@ export type UsageSummary = {
     requests: number;
     totalTokens: number;
   }>;
+  byPurpose: Array<{
+    purpose: "chat" | "compaction" | "memory_extract";
+    requests: number;
+    totalTokens: number;
+  }>;
 };
 
 export type Profile = {
@@ -67,6 +72,58 @@ export type Profile = {
   locale: string;
   name: string;
   soul: string;
+};
+
+export type MemorySettings = {
+  automaticEnabled: boolean;
+  candidateRetentionDays: number;
+  disclosureAcceptedAt: number | null;
+  disclosureVersion: string | null;
+  extractorMode: string;
+  maxDailyJobs: number;
+  pausedReason: string | null;
+  profileId: string;
+  revisionRetentionDays: number;
+};
+
+export type ProfileMemory = {
+  confidence: number;
+  createdAt: number;
+  evidenceCount: number;
+  id: string;
+  kind: string;
+  lastSeenAt: number;
+  pinned: boolean;
+  reasonCode: string;
+  revisionHash: string;
+  statement: string;
+  status: "organized" | "captured" | "archived";
+  updatedAt: number;
+};
+
+export type MemoryActivity = {
+  candidates: Array<{
+    body: string;
+    confidence: number;
+    disposition: string;
+    id: string;
+    jobId: string;
+    kind: string;
+    reasonCode: string;
+    scope: "profile" | "workspace" | "unassigned";
+    title: string;
+  }>;
+  jobs: Array<{
+    attempts: number;
+    createdAt: number;
+    errorCode: string | null;
+    finishedAt: number | null;
+    id: string;
+    status: string;
+    updatedAt: number;
+  }>;
+  limit: number;
+  offset: number;
 };
 
 export type Workspace = {
@@ -639,6 +696,111 @@ export async function updateProfile(
     method: "PATCH",
   });
   return response.profile;
+}
+
+export async function getMemorySettings(profileId: string): Promise<MemorySettings> {
+  const response = await request<{ settings: MemorySettings }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/settings`,
+    { method: "GET" },
+  );
+  return response.settings;
+}
+
+export async function updateMemorySettings(
+  profileId: string,
+  input: {
+    acceptDisclosure?: boolean;
+    automaticEnabled: boolean;
+    disclosureVersion?: string;
+    maxDailyJobs?: number;
+  },
+): Promise<MemorySettings> {
+  const response = await request<{ settings: MemorySettings }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/settings`,
+    { body: JSON.stringify(input), headers: { "content-type": "application/json" }, method: "PUT" },
+  );
+  return response.settings;
+}
+
+export async function listProfileMemories(
+  profileId: string,
+  status?: string,
+): Promise<{ items: ProfileMemory[]; total: number }> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const response = await request<{ memories: { items: ProfileMemory[]; total: number } }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memories${query}`,
+    { method: "GET" },
+  );
+  return response.memories;
+}
+
+export async function updateProfileMemory(
+  profileId: string,
+  memoryId: string,
+  input: {
+    expectedHash: string;
+    pinned?: boolean;
+    statement?: string;
+    status?: ProfileMemory["status"];
+  },
+): Promise<ProfileMemory> {
+  const response = await request<{ memory: ProfileMemory }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memories/${encodeURIComponent(memoryId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return response.memory;
+}
+
+export async function deleteProfileMemory(
+  profileId: string,
+  memoryId: string,
+  expectedHash: string,
+): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memories/${encodeURIComponent(memoryId)}`,
+    {
+      body: JSON.stringify({ confirm: true, expectedHash }),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function getMemoryActivity(profileId: string): Promise<MemoryActivity> {
+  return request<MemoryActivity>(`/v1/profiles/${encodeURIComponent(profileId)}/memory/activity`, {
+    method: "GET",
+  });
+}
+
+export async function retryMemoryJob(profileId: string, jobId: string): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/jobs/${encodeURIComponent(jobId)}/retry`,
+    { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+  );
+}
+
+export async function approveMemoryCandidate(
+  profileId: string,
+  candidateId: string,
+): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/candidates/${encodeURIComponent(candidateId)}/approve`,
+    { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+  );
+}
+
+export async function discardMemoryCandidate(
+  profileId: string,
+  candidateId: string,
+): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/candidates/${encodeURIComponent(candidateId)}/discard`,
+    { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+  );
 }
 
 export async function deleteProfile(profileId: string): Promise<AppState> {

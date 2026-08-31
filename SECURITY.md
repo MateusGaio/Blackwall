@@ -125,3 +125,11 @@ relativo, estado e hashes em `vault_write_operations`, permitindo recovery
 determinístico sem armazenar corpo, título, frontmatter, path absoluto ou
 rascunho. Respostas e eventos `vault.note.changed` carregam somente metadados
 seguros; conteúdo não entra em logs, traces ou métricas.
+
+## Captura automática e memória de perfil (F2.9)
+
+O recurso é opt-in com disclosure versionado persistido na mesma transação do toggle. O terminal só enfileira `automatic/v2` para uma mensagem `user` já persistida, com hash SHA-256 de ID e conteúdo UTF-8 exato; `/nota`, failed, cancelled, blocked, Stop e replay não enfileiram. Jobs `v1` são cancelados no upgrade/startup e todos os payloads são scrubbed.
+
+Antes de qualquer rede, a entrada passa por normalização Unicode, remoção de controles, limite de 4.000 caracteres, redaction de PEM, Authorization/Bearer, cookies, `.env`, URLs com credenciais e padrões GitHub/OpenAI/AWS. Conteúdo predominantemente secreto é descartado. O extrator não recebe assistant, tools/MCP, Soul, histórico, anexos, Vault, RAG, paths ou configuração; erros remotos são reduzidos a códigos estáveis.
+
+Perfil e workspace são fronteiras distintas: fatos técnicos não viram memória de perfil, memórias não concedem autoridade e o seletor injeta somente itens `organized` do perfil ativo, limitados e marcados como dado não confiável. Eventos WebSocket e usage carregam IDs, status, contagens, propósito e códigos sanitizados; nunca statement, título, path, prompt, resposta, key ou conteúdo original. Jobs/candidatos/revisões seguem retenção local e exclusão de perfil usa cascade SQL sem remover Markdown.
