@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/shared/components/ui/button";
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
@@ -15,6 +15,7 @@ import {
   type Workspace,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
+import { Skeleton } from "../../../shared/components/motion/Skeleton";
 import { type SettingsSection, settingsSections } from "../settings-sections";
 import { ProfileSettings } from "./provider-manager/ProfileSettings";
 import { ProviderFormSection } from "./provider-manager/ProviderFormSection";
@@ -25,6 +26,11 @@ import { useProfileSettingsForm } from "./provider-manager/useProfileSettingsFor
 import { useWorkspaceSettingsForm } from "./provider-manager/useWorkspaceSettingsForm";
 import { WorkspacesSection } from "./provider-manager/WorkspacesSection";
 import { UsageDashboard } from "./UsageDashboard";
+
+const McpSettingsSection = lazy(async () => {
+  const module = await import("./McpSettingsSection");
+  return { default: module.McpSettingsSection };
+});
 
 type ProviderManagerProps = {
   activeSessionId?: string | null;
@@ -197,7 +203,9 @@ export function ProviderManager({
         ? t("settings.tabProfile")
         : section === "workspaces"
           ? t("settings.tabWorkspaces")
-          : t("settings.tabProviders");
+          : section === "providers"
+            ? t("settings.tabProviders")
+            : t("settings.tabMcp");
 
   return (
     <>
@@ -321,6 +329,19 @@ export function ProviderManager({
                     status={status}
                   />
                 </div>
+              )}
+              {section === "mcp" && (
+                <Suspense
+                  fallback={
+                    <div className="grid gap-3" data-testid="mcp-settings-skeleton">
+                      <Skeleton className="h-7 w-40" />
+                      <Skeleton className="h-36 rounded-[var(--radius-panel)]" />
+                      <Skeleton className="h-28 rounded-[var(--radius-panel)]" />
+                    </div>
+                  }
+                >
+                  <McpSettingsSection activeWorkspaceId={activeWorkspaceId} />
+                </Suspense>
               )}
             </div>
           </ScrollArea>

@@ -10,19 +10,19 @@ export type ToolSupportSource = "metadata" | "probe" | "manual";
 export type ToolDefinition = {
   type: "function";
   function: {
-    name: ToolName;
+    name: string;
     description: string;
     parameters: Record<string, unknown>;
-    strict: true;
+    strict: boolean;
   };
 };
 
 export type ResponsesToolDefinition = {
   type: "function";
-  name: ToolName | "blackwall_capability_probe";
+  name: string;
   description: string;
   parameters: Record<string, unknown>;
-  strict: true;
+  strict: boolean;
 };
 
 export type ToolName =
@@ -41,7 +41,7 @@ export type LegacyToolName = "execute_command";
 
 export type ToolCall = {
   id: string;
-  name: ToolName;
+  name: string;
   arguments: string;
 };
 
@@ -49,8 +49,13 @@ export type ToolResult = {
   callId: string;
   content: string;
   isError?: boolean;
-  name: ToolName;
+  name: string;
 };
+
+/** Destino resolvido do loop. Nomes públicos MCP jamais são parseados. */
+export type ResolvedToolTarget =
+  | { kind: "local"; tool: ToolName }
+  | { kind: "mcp"; publicName: string; remoteName: string; serverId: string };
 
 export const legacyCommandSpec = Symbol("blackwall.legacyCommandSpec");
 export type LegacyCommandSpec = { args: string[]; command: string };
@@ -275,8 +280,8 @@ export const capabilityProbeTool: ToolDefinition = {
 };
 
 const toolNames = new Set<ToolName>([
-  ...workspaceToolDefinitions.map((item) => item.function.name),
-  vaultNoteToolDefinition.function.name,
+  ...workspaceToolDefinitions.map((item) => item.function.name as ToolName),
+  vaultNoteToolDefinition.function.name as ToolName,
 ]);
 
 export function canonicalToolName(value: string): ToolName | null {
@@ -422,8 +427,10 @@ export function toOpenAIChatTools(tools: ToolDefinition[]): ToolDefinition[] {
   return tools.map((tool) => ({
     function: {
       ...tool.function,
-      parameters: { ...tool.function.parameters, additionalProperties: false },
-      strict: true,
+      parameters: tool.function.strict
+        ? { ...tool.function.parameters, additionalProperties: false }
+        : tool.function.parameters,
+      strict: tool.function.strict,
     },
     type: "function",
   }));
@@ -434,7 +441,7 @@ export function toOpenAIResponsesTools(tools: ToolDefinition[]): ResponsesToolDe
     description: tool.function.description,
     name: tool.function.name,
     parameters: tool.function.parameters,
-    strict: true,
+    strict: tool.function.strict,
     type: "function",
   }));
 }

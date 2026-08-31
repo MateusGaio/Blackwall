@@ -53,6 +53,83 @@ export const providers = sqliteTable("providers", {
   ...timestamps,
 });
 
+/** Configuração não secreta de um servidor MCP, sempre limitada a um workspace. */
+export const mcpServers = sqliteTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    transport: text("transport").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    configJson: text("config_json").notNull(),
+    shareWorkspaceRoot: integer("share_workspace_root", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    allowPrivateNetwork: integer("allow_private_network", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    state: text("state").notNull().default("disabled"),
+    errorCode: text("error_code"),
+    ...timestamps,
+  },
+  (table) => ({
+    workspaceSlug: uniqueIndex("mcp_servers_workspace_slug").on(table.workspaceId, table.slug),
+  }),
+);
+
+/** Metadados de segredos MCP; os valores ficam exclusivamente em secrets.enc. */
+export const mcpServerSecrets = sqliteTable(
+  "mcp_server_secrets",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    name: text("name").notNull().default(""),
+    secretRef: text("secret_ref").notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    serverKindName: uniqueIndex("mcp_server_secrets_server_kind_name").on(
+      table.serverId,
+      table.kind,
+      table.name,
+    ),
+  }),
+);
+
+/** Catálogo descoberto de ferramentas MCP. Nunca anuncia uma tool desabilitada. */
+export const mcpTools = sqliteTable(
+  "mcp_tools",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id")
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: "cascade" }),
+    remoteName: text("remote_name").notNull(),
+    publicName: text("public_name").notNull(),
+    description: text("description").notNull().default(""),
+    inputSchema: text("input_schema").notNull().default("{}"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    state: text("state").notNull().default("ready"),
+    errorCode: text("error_code"),
+    discoveredAt: integer("discovered_at").notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    publicName: uniqueIndex("mcp_tools_public_name").on(table.publicName),
+    serverRemoteName: uniqueIndex("mcp_tools_server_remote_name").on(
+      table.serverId,
+      table.remoteName,
+    ),
+  }),
+);
+
 export const models = sqliteTable(
   "models",
   {
@@ -415,6 +492,9 @@ export const schema = {
   workspaces,
   sessions,
   providers,
+  mcpServers,
+  mcpServerSecrets,
+  mcpTools,
   models,
   routerEntries,
   messages,

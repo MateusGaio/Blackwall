@@ -3,7 +3,7 @@ import i18n from "i18next";
 import "../../i18n";
 import { sidecarConfig } from "../../platform/runtime";
 
-export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
+export type ToolCall = { arguments: string; id: string; name: string };
 
 export type ConnectedProvider = {
   baseUrl: string;
@@ -76,6 +76,52 @@ export type Workspace = {
   profileId: string;
   rootPath: string;
   soul: string;
+};
+
+export type McpTransportKind = "stdio" | "streamable-http";
+
+export type McpServerConfig =
+  | { args: string[]; command: string; cwd: "isolated" | "workspace" }
+  | { url: string };
+
+export type McpTool = {
+  description: string;
+  discoveredAt: number;
+  enabled: boolean;
+  errorCode: string | null;
+  inputSchema: Record<string, unknown>;
+  publicName: string;
+  remoteName: string;
+  state: "ready" | "removed" | "unsupported";
+};
+
+export type McpServer = {
+  allowPrivateNetwork: boolean;
+  config: McpServerConfig;
+  enabled: boolean;
+  envNames: string[];
+  errorCode: string | null;
+  hasBearer: boolean;
+  id: string;
+  name: string;
+  shareWorkspaceRoot: boolean;
+  slug: string;
+  state: "disabled" | "disconnected" | "connecting" | "ready" | "error";
+  tools: McpTool[];
+  transport: McpTransportKind;
+  workspaceId: string;
+};
+
+export type McpServerInput = {
+  allowPrivateNetwork?: boolean;
+  /** Write-only. A resposta nunca ecoa este campo. */
+  bearer?: string | null;
+  config: McpServerConfig;
+  /** Valores são write-only; null remove uma variável configurada. */
+  environment?: Record<string, string | null>;
+  name: string;
+  shareWorkspaceRoot?: boolean;
+  transport: McpTransportKind;
 };
 
 export type VaultFile = {
@@ -224,9 +270,12 @@ export type SessionArtifact = {
 export type WorkspaceToolApproval = {
   args: Record<string, unknown>;
   id: string;
+  remoteName?: string;
   requestId: string;
+  serverId?: string;
+  serverName?: string;
   sessionId: string | null;
-  tool: WorkspaceToolName;
+  tool: string;
   workspaceId: string;
 };
 
@@ -537,6 +586,89 @@ export async function setWorkspaceSoul(workspaceId: string, soul: string): Promi
   return response.workspace;
 }
 
+export async function listMcpServers(workspaceId: string): Promise<McpServer[]> {
+  const response = await request<{ servers: McpServer[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers`,
+    { method: "GET" },
+  );
+  return response.servers;
+}
+
+export async function createMcpServer(
+  workspaceId: string,
+  input: McpServerInput,
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.server;
+}
+
+export async function updateMcpServer(
+  workspaceId: string,
+  serverId: string,
+  input: McpServerInput | { enabled: boolean },
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.server;
+}
+
+export async function deleteMcpServer(workspaceId: string, serverId: string): Promise<void> {
+  await request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function testMcpServer(workspaceId: string, serverId: string): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/test`,
+    {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.server;
+}
+
+export async function setMcpServerTools(
+  workspaceId: string,
+  serverId: string,
+  enabled: string[],
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/tools`,
+    {
+      body: JSON.stringify({ enabled }),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.server;
+}
+
+export async function disconnectMcpServer(workspaceId: string, serverId: string): Promise<void> {
+  await request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/disconnect`,
+    {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
 export async function selectSession(sessionId: string): Promise<AppState> {
   return request(`/v1/sessions/${sessionId}/select`, {
     headers: { "content-type": "application/json" },
@@ -806,7 +938,7 @@ export type StreamHandlers = {
   /** Card resolvido sem o botão (troca de modo/stop): remove o card. */
   onApprovalResolved?: (event: { requestId?: string; status?: string }) => void;
   onToolCompleted?: (result: unknown, callId?: string) => void;
-  onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
+  onToolStarted?: (tool: string, args: Record<string, unknown>, callId?: string) => void;
   onToolFailed?: (
     message: string,
     callId?: string,
@@ -893,7 +1025,10 @@ export async function streamMessage(
       id?: string;
       result?: unknown;
       sessionId?: string;
-      tool?: WorkspaceToolName;
+      tool?: string;
+      remoteName?: string;
+      serverId?: string;
+      serverName?: string;
       type?: string;
       providerId?: string;
       model?: string;
@@ -927,7 +1062,10 @@ export async function streamMessage(
         {
           args: message.args ?? {},
           id: message.id ?? crypto.randomUUID(),
+          remoteName: message.remoteName,
           requestId: message.requestId ?? requestId,
+          serverId: message.serverId,
+          serverName: message.serverName,
           sessionId: message.sessionId ?? sessionId ?? null,
           tool: message.tool,
           workspaceId,

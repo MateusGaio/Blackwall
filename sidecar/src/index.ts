@@ -40,6 +40,18 @@ import { dataDirectory, openDatabase } from "./db/database.js";
 import { models, profiles, routerEntries, sessions, workspaces } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { EmbeddingAdapterError, sanitizeEmbeddingErrorCode } from "./embeddings.js";
+import {
+  enabledMcpToolDefinitions,
+  listMcpServers,
+  McpClientManager,
+  McpConnectionError,
+  McpInputError,
+  McpNotFoundError,
+  type McpServerInput,
+  resolveEnabledMcpTool,
+  setMcpServerEnabled,
+  setMcpToolsEnabled,
+} from "./mcp.js";
 import { detectExplicitCaptureIntent } from "./memory-intent.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
@@ -78,7 +90,6 @@ import {
 } from "./streaming.js";
 import {
   canonicalToolName,
-  isToolName,
   MAX_SEARCH_WORKSPACE_CALLS_PER_TURN,
   MAX_TOOL_RESULT_BYTES_PER_TURN,
   parseToolArguments,
@@ -96,11 +107,13 @@ import { classifyTool } from "./tool-policy.js";
 import {
   type ApprovalDecision,
   cancelPendingApprovals,
+  executeMcpTool,
   executeTool,
   notifyWorkspacePolicyChanged,
   resolveApproval,
   revokeGrants,
   setWorkspacePermissionModeGuarded,
+  type ToolName,
   ToolPolicyDenied,
   terminateStaleApprovals,
 } from "./tools.js";
@@ -328,6 +341,10 @@ export async function createSidecar(
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
   }
+  const mcpClients = new McpClientManager(storageDirectory, ({ count, serverId, workspaceId }) => {
+    revokeGrants({ workspaceId });
+    broadcast(JSON.stringify({ count, serverId, type: "mcp.tools.updated", workspaceId }));
+  });
   const vaultWatchers = new Map<string, ReturnType<typeof createVaultWatcher>>();
   const vaultIndexQueues = new Map<string, Promise<unknown>>();
 
@@ -1004,6 +1021,96 @@ export async function createSidecar(
         });
         return;
       }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/mcp\/servers$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        const workspace = database.db
+          .select({ id: workspaces.id })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .get();
+        if (!workspace) throw new HttpError(404, "O workspace selecionado não existe.");
+        writeJson(response, 200, { servers: listMcpServers(workspaceId, storageDirectory) });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/mcp\/servers$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        const server = await mcpClients.saveServer(
+          workspaceId,
+          (await requestBody(request)) as McpServerInput,
+        );
+        revokeGrants({ workspaceId });
+        writeJson(response, 201, { server });
+        return;
+      }
+      if (
+        request.method === "PUT" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/servers\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const serverId = parts[6];
+        const input = (await requestBody(request)) as McpServerInput | { enabled: boolean };
+        const server =
+          "enabled" in input && typeof input.enabled === "boolean" && !("config" in input)
+            ? setMcpServerEnabled(workspaceId, serverId, input.enabled, storageDirectory)
+            : await mcpClients.saveServer(workspaceId, {
+                ...(input as McpServerInput),
+                id: serverId,
+              });
+        revokeGrants({ workspaceId });
+        writeJson(response, 200, { server });
+        return;
+      }
+      if (
+        request.method === "DELETE" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/servers\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        await mcpClients.removeServer(workspaceId, parts[6]);
+        revokeGrants({ workspaceId });
+        writeJson(response, 200, { ok: true });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/servers\/[^/]+\/test$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const server = await mcpClients.testServer(workspaceId, parts[6]);
+        revokeGrants({ workspaceId });
+        writeJson(response, 200, { server });
+        return;
+      }
+      if (
+        request.method === "PUT" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/servers\/[^/]+\/tools$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const input = (await requestBody(request)) as { enabled?: string[] };
+        const server = setMcpToolsEnabled(
+          workspaceId,
+          parts[6],
+          input.enabled ?? [],
+          storageDirectory,
+        );
+        revokeGrants({ workspaceId });
+        writeJson(response, 200, { server });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/servers\/[^/]+\/disconnect$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        await mcpClients.disconnect(parts[6]);
+        revokeGrants({ workspaceId });
+        writeJson(response, 200, { ok: true });
+        return;
+      }
       if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/sessions\/recent$/.test(pathname)) {
         const profileId = pathname.split("/")[3];
         writeJson(response, 200, { sessions: store.listRecentSessions(profileId, 30) });
@@ -1245,30 +1352,37 @@ export async function createSidecar(
           ? error.status
           : error instanceof ProviderInputError
             ? 400
-            : error instanceof ProviderNotFoundError
-              ? 404
-              : error instanceof ProviderConnectionError
-                ? 503
-                : error instanceof ProviderHttpError
-                  ? error.status
-                  : error instanceof EmbeddingAdapterError
-                    ? 400
-                    : error instanceof EmbeddingServiceError
-                      ? error.status
-                      : error instanceof WorkspaceFilesError ||
-                          error instanceof AttachmentPreviewError
+            : error instanceof McpInputError
+              ? 400
+              : error instanceof McpNotFoundError
+                ? 404
+                : error instanceof McpConnectionError
+                  ? 503
+                  : error instanceof ProviderNotFoundError
+                    ? 404
+                    : error instanceof ProviderConnectionError
+                      ? 503
+                      : error instanceof ProviderHttpError
                         ? error.status
-                        : typeof error === "object" &&
-                            error &&
-                            "status" in error &&
-                            typeof error.status === "number"
-                          ? error.status
-                          : 500;
+                        : error instanceof EmbeddingAdapterError
+                          ? 400
+                          : error instanceof EmbeddingServiceError
+                            ? error.status
+                            : error instanceof WorkspaceFilesError ||
+                                error instanceof AttachmentPreviewError
+                              ? error.status
+                              : typeof error === "object" &&
+                                  error &&
+                                  "status" in error &&
+                                  typeof error.status === "number"
+                                ? error.status
+                                : 500;
       writeJson(response, status, { error: message });
     }
   });
   server.once("close", () => {
     stopAllVaultWatchers();
+    void mcpClients.closeAll();
     void embeddings.close();
     database.close();
   });
@@ -1468,6 +1582,13 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
       });
     };
     const captureTools = [vaultNoteToolDefinition];
+    // O catálogo vem somente do SQLite e nunca abre conexão durante a montagem
+    // do prompt. /nota e sessões sem workspace permanecem sem MCP.
+    const mcpTools =
+      input.workspaceId && !captureMode
+        ? enabledMcpToolDefinitions(input.workspaceId, storageDirectory)
+        : [];
+    const workspaceAndMcpTools = [...workspaceToolDefinitions, ...mcpTools];
     let captureProtocolCorrectionUsed = false;
     let captureValidCallCount = 0;
     let captureResult: {
@@ -1586,9 +1707,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
           if (toolMode === "compatibility") {
             transcript = [
               {
-                content: toCompatibilityPrompt(
-                  captureMode ? captureTools : workspaceToolDefinitions,
-                ),
+                content: toCompatibilityPrompt(captureMode ? captureTools : workspaceAndMcpTools),
                 role: "system",
               },
               ...transcript,
@@ -1736,7 +1855,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                       tools: toolsEnabled
                         ? captureMode
                           ? captureTools
-                          : workspaceToolDefinitions
+                          : workspaceAndMcpTools
                         : [],
                       parallelToolCalls,
                     },
@@ -1932,18 +2051,20 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
               const activeWorkspaceId = input.workspaceId;
               if (!activeWorkspaceId)
                 throw new Error("Selecione um workspace antes de usar ferramentas locais.");
-              if (!isToolName(call.name))
+              const canonicalLocalName = canonicalToolName(call.name);
+              const resolvedMcp = canonicalLocalName
+                ? null
+                : resolveEnabledMcpTool(activeWorkspaceId, call.name, storageDirectory);
+              if (!canonicalLocalName && !resolvedMcp)
                 throw new Error(`A ferramenta ${call.name} não é permitida.`);
-              if (call.name === "blackwall_capability_probe")
+              if (canonicalLocalName === "blackwall_capability_probe")
                 throw new Error(
                   "A ferramenta interna de diagnóstico não pode ser executada no chat.",
                 );
               const callId = seenToolCallIds.has(call.id)
                 ? `${input.requestId}:${toolCount}:${call.id}`
                 : call.id;
-              const canonicalName = canonicalToolName(call.name);
-              if (!canonicalName) throw new Error(`A ferramenta ${call.name} não é permitida.`);
-              if (captureMode && canonicalName !== "create_vault_note") {
+              if (captureMode && canonicalLocalName !== "create_vault_note") {
                 if (captureProtocolCorrectionUsed)
                   throw new Error("O turno /nota aceita somente create_vault_note.");
                 captureProtocolCorrectionUsed = true;
@@ -1967,15 +2088,28 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 transcript = appendToolExchange(transcript, call, protocolResult, toolMode);
                 continue;
               }
-              const normalizedCall = { ...call, id: callId, name: canonicalName };
+              const normalizedCall = {
+                ...call,
+                id: callId,
+                name: canonicalLocalName ?? resolvedMcp?.publicName ?? call.name,
+              };
               seenToolCallIds.add(callId);
               let args: Record<string, unknown>;
               try {
-                const parseName =
-                  (call.name as string) === "execute_command"
-                    ? "execute_command"
-                    : normalizedCall.name;
-                args = parseToolArguments(parseName, normalizedCall.arguments);
+                if (resolvedMcp) {
+                  const parsed = JSON.parse(normalizedCall.arguments) as unknown;
+                  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+                    throw new Error(
+                      `Os argumentos da ferramenta ${normalizedCall.name} devem ser um objeto.`,
+                    );
+                  args = parsed as Record<string, unknown>;
+                } else {
+                  const parseName =
+                    (call.name as string) === "execute_command"
+                      ? "execute_command"
+                      : (normalizedCall.name as import("./tool-contract.js").ToolName);
+                  args = parseToolArguments(parseName, normalizedCall.arguments);
+                }
               } catch (error) {
                 toolCount += 1;
                 if (toolCount > toolBudget)
@@ -2080,7 +2214,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   `A ferramenta ${normalizedCall.name} repetiu a mesma chamada sem progresso. O ciclo foi interrompido para evitar spam.`,
                 );
               }
-              const hasCachedResult = successfulToolResults.has(executionSignature);
+              const hasCachedResult = !resolvedMcp && successfulToolResults.has(executionSignature);
               let searchWorkspaceLimitExceeded = false;
               if (!hasCachedResult) {
                 toolCount += 1;
@@ -2111,58 +2245,93 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 } else {
                   toolResult = hasCachedResult
                     ? cachedResult
-                    : await executeTool(
-                        {
-                          args,
-                          requestId: toolRequestId,
-                          sessionId: input.sessionId,
-                          tool: normalizedCall.name as import("./tools.js").ToolName,
-                          workspaceId: activeWorkspaceId,
-                        },
-                        storageDirectory,
-                        {
-                          explicitVaultCapture: captureMode,
-                          onApproval: (approval) =>
-                            socket.send(
-                              JSON.stringify({
-                                ...approval,
-                                args,
-                                callId: normalizedCall.id,
-                                requestId: toolRequestId,
-                                sessionId: input.sessionId,
-                                type: "approval.requested",
-                              }),
-                            ),
-                          onApprovalResolved: (event) => {
-                            // Card pode ser resolvido sem o botão (troca de
-                            // modo/stop): cliente precisa remover o card.
-                            socket.send(
-                              JSON.stringify({
-                                ...event,
-                                callId: normalizedCall.id,
-                                requestId: event.requestId,
-                                sessionId: input.sessionId,
-                                tool: normalizedCall.name,
-                                type: "approval.resolved",
-                              }),
-                            );
+                    : resolvedMcp
+                      ? await executeMcpTool(
+                          {
+                            args,
+                            publicName: resolvedMcp.publicName,
+                            remoteName: resolvedMcp.remoteName,
+                            requestId: toolRequestId,
+                            serverId: resolvedMcp.serverId,
+                            serverName: resolvedMcp.serverName,
+                            sessionId: input.sessionId,
+                            workspaceId: activeWorkspaceId,
                           },
-                          onArtifactsUpdated: (counts) =>
-                            broadcast(
-                              JSON.stringify({
-                                ...counts,
-                                sessionId: input.sessionId ?? null,
-                                type: "workspace.artifacts.updated",
-                                workspaceId: activeWorkspaceId,
-                              }),
-                            ),
-                          onVaultWrite: (path) =>
-                            vaultWatchers.get(activeWorkspaceId)?.markInternalWrite(path),
-                          searchWorkspace: (workspaceId, query, limit) =>
-                            searchWorkspace(database.client, embeddings, workspaceId, query, limit),
-                          signal: controller.signal,
-                        },
-                      );
+                          storageDirectory,
+                          {
+                            execute: () =>
+                              mcpClients.callTool(resolvedMcp, args, controller.signal),
+                            onApproval: (approval) =>
+                              socket.send(
+                                JSON.stringify({
+                                  ...approval,
+                                  args,
+                                  callId: normalizedCall.id,
+                                  requestId: toolRequestId,
+                                  sessionId: input.sessionId,
+                                  type: "approval.requested",
+                                }),
+                              ),
+                          },
+                        )
+                      : await executeTool(
+                          {
+                            args,
+                            requestId: toolRequestId,
+                            sessionId: input.sessionId,
+                            tool: normalizedCall.name as ToolName,
+                            workspaceId: activeWorkspaceId,
+                          },
+                          storageDirectory,
+                          {
+                            explicitVaultCapture: captureMode,
+                            onApproval: (approval) =>
+                              socket.send(
+                                JSON.stringify({
+                                  ...approval,
+                                  args,
+                                  callId: normalizedCall.id,
+                                  requestId: toolRequestId,
+                                  sessionId: input.sessionId,
+                                  type: "approval.requested",
+                                }),
+                              ),
+                            onApprovalResolved: (event) => {
+                              // Card pode ser resolvido sem o botão (troca de
+                              // modo/stop): cliente precisa remover o card.
+                              socket.send(
+                                JSON.stringify({
+                                  ...event,
+                                  callId: normalizedCall.id,
+                                  requestId: event.requestId,
+                                  sessionId: input.sessionId,
+                                  tool: normalizedCall.name,
+                                  type: "approval.resolved",
+                                }),
+                              );
+                            },
+                            onArtifactsUpdated: (counts) =>
+                              broadcast(
+                                JSON.stringify({
+                                  ...counts,
+                                  sessionId: input.sessionId ?? null,
+                                  type: "workspace.artifacts.updated",
+                                  workspaceId: activeWorkspaceId,
+                                }),
+                              ),
+                            onVaultWrite: (path) =>
+                              vaultWatchers.get(activeWorkspaceId)?.markInternalWrite(path),
+                            searchWorkspace: (workspaceId, query, limit) =>
+                              searchWorkspace(
+                                database.client,
+                                embeddings,
+                                workspaceId,
+                                query,
+                                limit,
+                              ),
+                            signal: controller.signal,
+                          },
+                        );
                 }
               } catch (error) {
                 toolError = true;
@@ -2178,6 +2347,8 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   },
                 };
               }
+              if (resolvedMcp && (toolResult as { isError?: unknown })?.isError === true)
+                toolError = true;
               if (!toolError) {
                 const commandResult = toolResult as {
                   code?: number | null;
@@ -2227,7 +2398,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                 !hasCachedResult && classifyTool(normalizedCall.name) !== "read";
               if (attemptedNonRead) {
                 successfulToolResults.clear();
-              } else if (!toolError) {
+              } else if (!toolError && !resolvedMcp) {
                 successfulToolResults.set(executionSignature, toolResult);
               }
               const resultBytes = Buffer.byteLength(JSON.stringify(toolResult));

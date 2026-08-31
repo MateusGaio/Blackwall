@@ -673,4 +673,59 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const mcpClient = client.prepare("SELECT id FROM _migrations WHERE id = 19").get();
+  if (!mcpClient) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          transport TEXT NOT NULL CHECK (transport IN ('stdio', 'streamable-http')),
+          enabled INTEGER NOT NULL DEFAULT 0,
+          config_json TEXT NOT NULL,
+          share_workspace_root INTEGER NOT NULL DEFAULT 0,
+          allow_private_network INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL DEFAULT 'disabled',
+          error_code TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, slug)
+        );
+        CREATE TABLE IF NOT EXISTS mcp_server_secrets (
+          id TEXT PRIMARY KEY NOT NULL,
+          server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('bearer', 'env')),
+          name TEXT NOT NULL DEFAULT '',
+          secret_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(server_id, kind, name)
+        );
+        CREATE TABLE IF NOT EXISTS mcp_tools (
+          id TEXT PRIMARY KEY NOT NULL,
+          server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+          remote_name TEXT NOT NULL,
+          public_name TEXT NOT NULL UNIQUE,
+          description TEXT NOT NULL DEFAULT '',
+          input_schema TEXT NOT NULL DEFAULT '{}',
+          enabled INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL DEFAULT 'ready',
+          error_code TEXT,
+          discovered_at INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(server_id, remote_name)
+        );
+        CREATE INDEX IF NOT EXISTS mcp_servers_workspace_updated
+          ON mcp_servers(workspace_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS mcp_tools_server_enabled
+          ON mcp_tools(server_id, enabled);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(19, Date.now());
+    });
+    transaction();
+  }
 }

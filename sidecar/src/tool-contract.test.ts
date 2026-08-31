@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { describe, expect, it } from "vitest";
+import type { McpToolDefinition } from "./mcp.js";
 import {
   DEFAULT_SEARCH_WORKSPACE_LIMIT,
   DEFAULT_TOOL_CALL_BUDGET,
@@ -146,6 +147,23 @@ describe("contrato de ferramentas", () => {
       strict: true,
       type: "function",
     });
+  });
+
+  it("preserva schemas MCP não estritos sem forçar additionalProperties", () => {
+    const mcpTool: McpToolDefinition = {
+      function: {
+        description: "Schema remoto",
+        name: "mcp__filesystem__read",
+        parameters: { properties: { path: { type: "string" } }, type: "object" },
+        strict: false,
+      },
+      type: "function",
+    };
+    expect(toOpenAIChatTools([mcpTool])[0]?.function).toMatchObject({
+      parameters: { properties: { path: { type: "string" } }, type: "object" },
+      strict: false,
+    });
+    expect(toOpenAIResponsesTools([mcpTool])[0]).toMatchObject({ strict: false });
   });
 });
 
