@@ -124,16 +124,15 @@ export function VaultNoteIndex({
       </div>
       <div
         className="flex flex-wrap gap-0.5 px-1 pb-1"
-        role="tablist"
+        role="group"
         aria-label={t("vault.noteFilters")}
       >
         {filters.map(([value, label]) => (
           <button
-            aria-selected={filter === value}
+            aria-pressed={filter === value}
             className={cn(filterClass, filter === value && "bg-neutral-800/70 text-foreground")}
             key={value}
             onClick={() => setFilter(value)}
-            role="tab"
             type="button"
           >
             {label}
