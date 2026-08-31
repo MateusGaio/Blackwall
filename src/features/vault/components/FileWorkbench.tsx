@@ -195,7 +195,7 @@ export function FileWorkbench({
   const listWrapRef = useRef<HTMLDivElement | null>(null);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const rememberedMemory = workbenchMemoryByWorkspace.get(workspaceId);
-  const initialMemory = rememberedMemory ? { ...rememberedMemory, ...memory } : memory;
+  const initialMemory = rememberedMemory ? { ...memory, ...rememberedMemory } : memory;
   const memoryRef = useRef(initialMemory);
   const fileListScrollTopRef = useRef(initialMemory.fileListScrollTop);
   const noteScrollTopRef = useRef(initialMemory.noteScrollTop);
@@ -205,7 +205,6 @@ export function FileWorkbench({
     path: string | null;
     scrollTop: number;
   }>({ attachment: null, path: null, scrollTop: 0 });
-  memoryRef.current = memory;
 
   const loadDirectory = useCallback(
     async (requestedPath: string, force = false) => {
@@ -351,24 +350,52 @@ export function FileWorkbench({
   }, [previewNonce, refreshKey, selectedAttachment, selectedPath, t, workspaceId]);
 
   useEffect(() => {
-    void preview;
-    if (!selectedPath) return;
+    if (!selectedPath || previewLoading || !preview) return;
+    const viewport = previewWrapRef.current?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]',
+    );
+    if (!viewport) return;
+    const currentMemory = memoryRef.current;
+    const top =
+      currentMemory.noteScrollTops[selectedPath] ??
+      currentMemory.noteScrollTop ??
+      noteScrollTopsRef.current[selectedPath] ??
+      noteScrollTopRef.current;
+    let cancelled = false;
+    let observer: MutationObserver | null = null;
     const restore = () => {
-      const viewport = previewWrapRef.current?.querySelector<HTMLElement>(
-        '[data-slot="scroll-area-viewport"]',
-      );
-      if (!viewport) return;
-      const top =
-        memory.noteScrollTops[selectedPath] ??
-        memory.noteScrollTop ??
-        noteScrollTopsRef.current[selectedPath] ??
-        noteScrollTopRef.current;
+      if (cancelled || viewport.scrollHeight - viewport.clientHeight < top) return false;
       viewport.scrollTop = top;
+      return true;
     };
-    restore();
-    const frame = requestAnimationFrame(restore);
-    return () => cancelAnimationFrame(frame);
-  }, [memory, preview, selectedPath]);
+    const cancelRestore = () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
+    const cancelExternalScroll = () => {
+      if (viewport.scrollTop === top) return;
+      if (viewport.scrollHeight - viewport.clientHeight < top) return;
+      cancelled = true;
+      observer?.disconnect();
+    };
+    const interactionEvents = ["keydown", "pointerdown", "touchstart", "wheel"] as const;
+    for (const eventName of interactionEvents)
+      viewport.addEventListener(eventName, cancelRestore, { passive: true });
+    viewport.addEventListener("scroll", cancelExternalScroll, { passive: true });
+    if (!restore()) {
+      observer = new MutationObserver(() => {
+        if (restore()) observer?.disconnect();
+      });
+      observer.observe(previewWrapRef.current ?? viewport, { childList: true, subtree: true });
+    }
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+      for (const eventName of interactionEvents)
+        viewport.removeEventListener(eventName, cancelRestore);
+      viewport.removeEventListener("scroll", cancelExternalScroll);
+    };
+  }, [preview, previewLoading, selectedPath]);
 
   useEffect(
     () => () => {
