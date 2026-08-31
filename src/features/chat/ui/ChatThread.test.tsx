@@ -84,6 +84,19 @@ describe("ChatThread", () => {
     expect(html).toContain("Gerando…");
   });
 
+  it("mostra carregamento estático e acessível durante search_workspace", () => {
+    const html = renderThread({
+      runningTool: "search_workspace",
+      streamingId: "stream-search",
+      streamingStatus: "Consultando o Vault…",
+      visibleMessages: [{ content: "", id: "stream-search", role: "assistant" }],
+    });
+    expect(html).toContain('data-testid="vault-search-loading"');
+    expect(html).toContain('data-slot="vault-search-skeleton"');
+    expect(html).toContain("Consultando o Vault…");
+    expect(html).not.toContain("motion-caret-blink");
+  });
+
   it("cartões de resumo substituem a mensagem marcada como isSummary", () => {
     const html = renderThread({
       visibleMessages: [

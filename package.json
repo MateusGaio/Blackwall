@@ -33,6 +33,7 @@
   "dependencies": {
     "@assistant-ui/react": "^0.15.16",
     "@chenglou/pretext": "^0.0.8",
+    "@lancedb/lancedb": "^0.37.1",
     "@opentelemetry/api": "^1.9.0",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
@@ -45,6 +46,7 @@
     "i18next": "^25.5.2",
     "lucide-react": "^1.33.0",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "5.6.205",
     "radix-ui": "^1.6.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

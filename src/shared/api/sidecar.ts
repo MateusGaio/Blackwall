@@ -166,7 +166,60 @@ export type WorkspaceToolName =
   | "execute_command"
   | "list_directory"
   | "read_file"
-  | "search_text";
+  | "search_text"
+  | "search_workspace";
+
+export type WorkspaceSearchCitation =
+  | {
+      chunkIndex: number;
+      contentHash: string;
+      excerpt: string;
+      objectId: string;
+      path: string;
+      source: "vault";
+      title: string;
+    }
+  | {
+      attachmentId: string;
+      chunkIndex: number;
+      contentHash: string;
+      excerpt: string;
+      filename: string;
+      source: "attachment";
+    };
+
+export type WorkspaceSearchResponse = {
+  mode: "hybrid" | "lexical";
+  results: Array<{ citation: WorkspaceSearchCitation }>;
+  semanticUnavailable?: string;
+};
+
+export type WorkspaceTreeEntry = {
+  kind: "directory" | "file";
+  name: string;
+  path: string;
+  size: number | null;
+};
+
+export type WorkspaceFileTree = {
+  entries: WorkspaceTreeEntry[];
+  limited: boolean;
+  path: string;
+};
+
+export type WorkspaceFilePreview = {
+  content: string;
+  kind: "code" | "markdown" | "text";
+  path: string;
+  size: number;
+};
+
+export type SessionArtifact = {
+  firstSeenAt: number;
+  lastSeenAt: number;
+  operation: "created" | "modified" | "deleted";
+  path: string;
+};
 
 export type WorkspaceToolApproval = {
   args: Record<string, unknown>;
@@ -211,6 +264,34 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   const body = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? i18n.t("errors.localActionFailed"));
   return body;
+}
+
+async function requestBytes(
+  path: string,
+  init: RequestInit,
+): Promise<{ bytes: Uint8Array; response: Response }> {
+  const config = await sidecarConfig();
+  const baseUrl = config.sidecar_url;
+  if (!baseUrl) throw new Error(i18n.t("errors.sidecarDesktopOnly"));
+  const headers = new Headers(init.headers);
+  if (config.sidecar_token) headers.set("authorization", `Bearer ${config.sidecar_token}`);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  } catch {
+    throw new Error(i18n.t("errors.sidecarUnreachable"));
+  }
+  if (!response.ok) {
+    let message = i18n.t("errors.localActionFailed");
+    try {
+      const body = (await response.json()) as { error?: string };
+      message = body.error ?? message;
+    } catch {
+      // Respostas binárias com erro não têm corpo JSON obrigatório.
+    }
+    throw new Error(message);
+  }
+  return { bytes: new Uint8Array(await response.arrayBuffer()), response };
 }
 
 export async function connectProvider(input: ProviderInput): Promise<ConnectedProvider> {
@@ -472,6 +553,68 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
   return request(`/v1/workspaces/${workspaceId}/vault`, { method: "GET" });
+}
+
+export async function searchWorkspace(
+  workspaceId: string,
+  query: string,
+  limit = 20,
+): Promise<WorkspaceSearchResponse> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/search`, {
+    body: JSON.stringify({ limit, query }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function getWorkspaceFileTree(
+  workspaceId: string,
+  path = ".",
+): Promise<WorkspaceFileTree> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/tree?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getWorkspaceFileContent(
+  workspaceId: string,
+  path: string,
+): Promise<WorkspaceFilePreview> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getWorkspaceFilePdf(workspaceId: string, path: string): Promise<Uint8Array> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/pdf?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+  return result.bytes;
+}
+
+export async function getSessionArtifacts(
+  workspaceId: string,
+  sessionId: string,
+): Promise<SessionArtifact[]> {
+  const response = await request<{ artifacts: SessionArtifact[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/artifacts`,
+    { method: "GET" },
+  );
+  return response.artifacts;
+}
+
+export async function getAttachmentContent(
+  workspaceId: string,
+  attachmentId: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/attachments/${encodeURIComponent(attachmentId)}/content`,
+    { method: "GET" },
+  );
+  return { bytes: result.bytes, contentType: result.response.headers.get("content-type") ?? "" };
 }
 
 export async function undoVaultRevision(workspaceId: string, revisionId: string) {

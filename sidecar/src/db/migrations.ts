@@ -592,4 +592,85 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const vaultSourceContent = client.prepare("SELECT id FROM _migrations WHERE id = 15").get();
+  if (!vaultSourceContent) {
+    const transaction = client.transaction(() => {
+      const columns = new Set(
+        (client.prepare("PRAGMA table_info(vault_objects)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+      if (!columns.has("source_content")) {
+        client.exec("ALTER TABLE vault_objects ADD COLUMN source_content TEXT NOT NULL DEFAULT ''");
+      }
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(15, Date.now());
+    });
+    transaction();
+  }
+
+  const workspaceEmbeddingConfigs = client
+    .prepare("SELECT id FROM _migrations WHERE id = 16")
+    .get();
+  if (!workspaceEmbeddingConfigs) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_embedding_configs (
+          workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          provider_kind TEXT NOT NULL,
+          url TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dimension INTEGER,
+          state TEXT NOT NULL DEFAULT 'stale',
+          error_code TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(16, Date.now());
+    });
+    transaction();
+  }
+
+  const workspaceEmbeddingStates = client.prepare("SELECT id FROM _migrations WHERE id = 17").get();
+  if (!workspaceEmbeddingStates) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_embedding_states (
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          source TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'unconfigured',
+          error_code TEXT,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (workspace_id, source),
+          CHECK (source IN ('vault', 'attachment'))
+        );
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(17, Date.now());
+    });
+    transaction();
+  }
+
+  const sessionArtifacts = client.prepare("SELECT id FROM _migrations WHERE id = 18").get();
+  if (!sessionArtifacts) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS session_artifacts (
+          id TEXT PRIMARY KEY NOT NULL,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          first_seen_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          UNIQUE(session_id, workspace_id, path),
+          CHECK (operation IN ('created', 'modified', 'deleted'))
+        );
+        CREATE INDEX IF NOT EXISTS session_artifacts_workspace_session_seen
+          ON session_artifacts(workspace_id, session_id, last_seen_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(18, Date.now());
+    });
+    transaction();
+  }
 }

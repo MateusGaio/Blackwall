@@ -10,7 +10,7 @@ import {
   type VaultDiagnostic,
 } from "./vault-portent.js";
 
-type VaultFile = {
+export type VaultFile = {
   content: string;
   headings: string[];
   managed: boolean;
@@ -57,9 +57,9 @@ const ignoredDirectories = new Set([
   "venv",
 ]);
 const maxFiles = 5000;
-const maxFileSize = 2_000_000;
+export const MAX_VAULT_FILE_SIZE = 2_000_000;
 
-function markdownHeadings(content: string) {
+export function markdownHeadings(content: string) {
   return Array.from(content.matchAll(/^#{1,6}\s+(.+)$/gm), (match) => match[1].trim()).slice(
     0,
     100,
@@ -79,7 +79,7 @@ async function collectMarkdown(rootPath: string, currentPath = rootPath, result:
     }
     if (!entry.isFile() || !/\.(md|markdown)$/i.test(entry.name)) continue;
     const info = await stat(entryPath).catch(() => null);
-    if (!info || info.size > maxFileSize) continue;
+    if (!info || info.size > MAX_VAULT_FILE_SIZE) continue;
     const content = await readFile(entryPath, "utf8");
     const path = relative(rootPath, entryPath).split("\\").join("/");
     const parsed = parseMarkdownObject(content, path);
@@ -106,7 +106,7 @@ function normalizeReference(reference: string) {
     .join("/");
 }
 
-function graphForFiles(files: VaultFile[], includeArchived: boolean): VaultGraph {
+export function resolveVaultRelations(files: VaultFile[], includeArchived: boolean) {
   const visibleFiles = includeArchived
     ? files
     : files.filter((file) => file.object.status !== "archived");
@@ -168,8 +168,16 @@ function graphForFiles(files: VaultFile[], includeArchived: boolean): VaultGraph
     }
   }
 
+  return { diagnostics, edges, relations };
+}
+
+function graphForFiles(files: VaultFile[], includeArchived: boolean): VaultGraph {
+  const relationGraph = resolveVaultRelations(files, includeArchived);
+  const visibleFiles = includeArchived
+    ? files
+    : files.filter((file) => file.object.status !== "archived");
   const nodes = visibleFiles.map((file) => ({ id: file.path, label: file.title, path: file.path }));
-  return { diagnostics, edges, files, nodes, relations };
+  return { ...relationGraph, files, nodes };
 }
 
 export async function scanVault(rootPath: string, options?: { includeArchived?: boolean }) {

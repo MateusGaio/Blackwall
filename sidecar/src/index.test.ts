@@ -26,6 +26,28 @@ function responseWithLines(lines: string[]) {
   );
 }
 
+function toolCallResponse(id: string, name: string, args: Record<string, unknown>) {
+  return responseWithLines([
+    `data: ${JSON.stringify({
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                function: { arguments: JSON.stringify(args), name },
+                id,
+                index: 0,
+                type: "function",
+              },
+            ],
+          },
+        },
+      ],
+    })}`,
+    "data: [DONE]",
+  ]);
+}
+
 afterEach(async () => {
   await Promise.all(
     servers
@@ -693,8 +715,11 @@ describe("sidecar robustez", () => {
       directory,
     );
     let calls = 0;
-    const fetchMock = vi.fn(() => {
+    const requestBodies: Array<{ tools?: unknown[] }> = [];
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) => {
       calls += 1;
+      if (init?.body !== undefined)
+        requestBodies.push(JSON.parse(String(init.body)) as { tools?: unknown[] });
       if (calls === 1)
         return Promise.resolve(
           responseWithLines([
@@ -779,6 +804,14 @@ describe("sidecar robustez", () => {
         /^Salvo no Vault: Fonte local \(Blackwall Vault\/Notes\/fonte-local--[a-f0-9]{8}\.md\)\.$/,
       );
       expect(calls).toBe(2);
+      expect(requestBodies.length).toBeGreaterThan(0);
+      expect(requestBodies).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: "search_workspace" }),
+          }),
+        ]),
+      );
       expect(messages.some((message) => message.type === "chat.delta")).toBe(false);
       expect(messages.some((message) => message.type === "approval.requested")).toBe(false);
       expect(
@@ -787,6 +820,84 @@ describe("sidecar robustez", () => {
     } finally {
       vi.unstubAllGlobals();
       client?.close();
+    }
+  });
+
+  it("inicia o watcher, sincroniza alterações externas e protege o reindex", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-vault-lifecycle-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory, { token: "lifecycle-token" });
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        profileName: "Vault lifecycle",
+        profileSoul: "Profile",
+        workspaceName: "Workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: {
+        authorization: "Bearer lifecycle-token",
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as { activeWorkspaceId: string };
+    const workspaceId = state.activeWorkspaceId;
+    const unauthorized = await fetch(`${baseUrl}/v1/workspaces/${workspaceId}/vault/reindex`, {
+      method: "POST",
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`, [
+      SIDECAR_WS_PROTOCOL,
+      "lifecycle-token",
+    ]);
+    const messages: Record<string, unknown>[] = [];
+    const waiters = new Map<string, (message: Record<string, unknown>) => void>();
+    client.on("message", (raw) => {
+      const message = JSON.parse(String(raw)) as Record<string, unknown>;
+      const type = String(message.type ?? message.topic);
+      const waiter = waiters.get(type);
+      if (waiter) {
+        waiters.delete(type);
+        waiter(message);
+      } else messages.push(message);
+    });
+    const waitFor = (type: string) => {
+      const queued = messages.findIndex(
+        (message) => String(message.type ?? message.topic) === type,
+      );
+      if (queued >= 0)
+        return Promise.resolve(messages.splice(queued, 1)[0] as Record<string, unknown>);
+      return new Promise<Record<string, unknown>>((resolve) => waiters.set(type, resolve));
+    };
+    try {
+      await once(client, "open");
+      await waitFor("system:ready");
+      await writeFile(join(workspaceRoot, "outside-edit.md"), "# Fora do app\n\nWatcher", "utf8");
+      await expect(waitFor("vault.graph.updated")).resolves.toMatchObject({ workspaceId });
+
+      const database = openDatabase(directory);
+      expect(
+        database.client
+          .prepare("SELECT source_content AS sourceContent FROM vault_objects WHERE path = ?")
+          .get("outside-edit.md"),
+      ).toEqual({ sourceContent: "# Fora do app\n\nWatcher" });
+      database.close();
+
+      const reindex = await fetch(`${baseUrl}/v1/workspaces/${workspaceId}/vault/reindex`, {
+        headers: { authorization: "Bearer lifecycle-token" },
+        method: "POST",
+      });
+      expect(reindex.status).toBe(200);
+      await expect(reindex.json()).resolves.toMatchObject({ indexedFiles: 1 });
+    } finally {
+      client.close();
     }
   });
 
@@ -1486,6 +1597,266 @@ describe("harness resiliente (#210): side effect possível e fingerprints", () =
             message.type === "chat.failed" && String(message.message ?? "").includes("repetiu"),
         ),
       ).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  }, 20_000);
+});
+
+describe("RAG sob demanda e citações no chat (#243)", () => {
+  it("executa a busca híbrida/lexical real e persiste somente citações seguras", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-rag-tool-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    await writeFile(join(workspaceRoot, "nota.md"), "# Nota\n\nSQLite local verificável.", "utf8");
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "RAG tool",
+        profileSoul: "Profile",
+        workspaceName: "RAG workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeProfileId: string;
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "rag-key",
+        baseUrl: "https://rag.example/v1",
+        model: "rag-model",
+        name: "RAG provider",
+      },
+      directory,
+    );
+    const requestBodies: Array<{ messages?: unknown[]; tools?: unknown[] }> = [];
+    let providerCalls = 0;
+    const fetchMock = vi.fn((_url: string | URL, init?: RequestInit) => {
+      providerCalls += 1;
+      const body = JSON.parse(String(init?.body)) as {
+        messages?: unknown[];
+        tools?: unknown[];
+      };
+      requestBodies.push(body);
+      if (providerCalls === 1)
+        return Promise.resolve(
+          toolCallResponse("rag-call-1", "search_workspace", { query: "local" }),
+        );
+      return Promise.resolve(
+        responseWithLines([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "Resposta com fonte local." } }] })}`,
+          "data: [DONE]",
+        ]),
+      );
+    }) as unknown as typeof fetch;
+    const localFetch = fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const queued: Record<string, unknown>[] = [];
+      const waiters = new Map<string, Array<(message: Record<string, unknown>) => void>>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const pending = waiters.get(type);
+        if (pending?.length) pending.shift()?.(message);
+        else queued.push(message);
+      });
+      const waitFor = (type: string) => {
+        const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+        if (index >= 0)
+          return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => {
+          const pending = waiters.get(type) ?? [];
+          pending.push(resolve);
+          waiters.set(type, pending);
+        });
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "Qual é o fato local?", role: "user" }],
+          model: provider.model,
+          profileId: state.activeProfileId,
+          providerId: provider.id,
+          requestId: "rag-tool-real",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+
+      const completedTool = await waitFor("tool.completed");
+      const result = completedTool.result as {
+        mode?: string;
+        results?: Array<{ citation?: Record<string, unknown> }>;
+      };
+      expect(result.mode).toBe("lexical");
+      expect(result.results).toEqual([
+        {
+          citation: expect.objectContaining({
+            excerpt: expect.stringContaining("SQLite local verificável"),
+            path: "nota.md",
+            source: "vault",
+          }),
+        },
+      ]);
+      expect(JSON.stringify(result)).not.toContain(workspaceRoot);
+      expect(JSON.stringify(result)).not.toContain("score");
+      await expect(waitFor("chat.completed")).resolves.toMatchObject({
+        content: "Resposta com fonte local.",
+        requestId: "rag-tool-real",
+      });
+      expect(requestBodies[0]?.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: "search_workspace" }),
+          }),
+        ]),
+      );
+      expect(providerCalls).toBe(2);
+
+      const persistedResponse = await localFetch(
+        `${baseUrl}/v1/sessions/${state.activeSessionId}/messages`,
+      );
+      const persisted = (await persistedResponse.json()) as {
+        messages: Array<{ content: string; role: string; toolName?: string }>;
+      };
+      const searchMessages = persisted.messages.filter(
+        (message) => message.role === "tool" && message.toolName === "search_workspace",
+      );
+      expect(searchMessages).toHaveLength(1);
+      expect(searchMessages[0]?.content).toContain('"path":"nota.md"');
+      expect(searchMessages[0]?.content).not.toContain(workspaceRoot);
+    } finally {
+      vi.unstubAllGlobals();
+      client?.close();
+    }
+  }, 20_000);
+
+  it("encerra a quarta busca nova com erro estruturado e sem quinto request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "blackwall-rag-budget-"));
+    const workspaceRoot = join(directory, "project");
+    await mkdir(workspaceRoot);
+    directories.push(directory);
+    const { port, server } = await createSidecar(0, directory);
+    servers.push(server);
+    const baseUrl = `http://${SIDECAR_HOST}:${port}`;
+    const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
+      body: JSON.stringify({
+        locale: "pt-BR",
+        permissionMode: "automatic",
+        profileName: "RAG budget",
+        profileSoul: "Profile",
+        workspaceName: "RAG budget workspace",
+        workspaceRootPath: workspaceRoot,
+        workspaceSoul: "Workspace",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const state = (await bootstrap.json()) as {
+      activeSessionId: string;
+      activeWorkspaceId: string;
+    };
+    const provider = await saveProvider(
+      {
+        apiKey: "rag-budget-key",
+        baseUrl: "https://rag-budget.example/v1",
+        model: "rag-budget-model",
+        name: "RAG budget provider",
+      },
+      directory,
+    );
+    let providerCalls = 0;
+    const fetchMock = vi.fn(() => {
+      providerCalls += 1;
+      if (providerCalls > 4) throw new Error("não deveria consultar o provedor novamente");
+      return Promise.resolve(
+        toolCallResponse(`rag-budget-${providerCalls}`, "search_workspace", {
+          query: `consulta-${providerCalls}`,
+        }),
+      );
+    }) as unknown as typeof fetch;
+    const localFetch = fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    let client: WebSocket | undefined;
+    try {
+      client = new WebSocket(`ws://${SIDECAR_HOST}:${port}`);
+      const queued: Record<string, unknown>[] = [];
+      const waiters = new Map<string, Array<(message: Record<string, unknown>) => void>>();
+      client.on("message", (raw) => {
+        const message = JSON.parse(String(raw)) as Record<string, unknown>;
+        const type = String(message.type ?? message.topic);
+        const pending = waiters.get(type);
+        if (pending?.length) pending.shift()?.(message);
+        else queued.push(message);
+      });
+      const waitFor = (type: string) => {
+        const index = queued.findIndex((message) => String(message.type ?? message.topic) === type);
+        if (index >= 0)
+          return Promise.resolve(queued.splice(index, 1)[0] as Record<string, unknown>);
+        return new Promise<Record<string, unknown>>((resolve) => {
+          const pending = waiters.get(type) ?? [];
+          pending.push(resolve);
+          waiters.set(type, pending);
+        });
+      };
+      await once(client, "open");
+      await waitFor("system:ready");
+      client.send(
+        JSON.stringify({
+          messages: [{ content: "consulte quatro vezes", role: "user" }],
+          model: provider.model,
+          providerId: provider.id,
+          requestId: "rag-budget",
+          sessionId: state.activeSessionId,
+          type: "chat.start",
+          workspaceId: state.activeWorkspaceId,
+        }),
+      );
+
+      const failedTool = await waitFor("tool.failed");
+      expect(failedTool.result).toEqual({
+        error: {
+          code: "search_workspace_turn_limit",
+          message: "O limite de três consultas novas ao workspace por turno foi atingido.",
+          retryable: false,
+        },
+      });
+      await expect(waitFor("chat.failed")).resolves.toMatchObject({
+        requestId: "rag-budget",
+        message: "O limite de três consultas novas ao workspace por turno foi atingido.",
+      });
+      expect(providerCalls).toBe(4);
+
+      const persistedResponse = await localFetch(
+        `${baseUrl}/v1/sessions/${state.activeSessionId}/messages`,
+      );
+      const persisted = (await persistedResponse.json()) as {
+        messages: Array<{ content: string; role: string; toolName?: string }>;
+      };
+      const failedSearch = persisted.messages.filter(
+        (message) => message.role === "tool" && message.toolName === "search_workspace",
+      );
+      expect(failedSearch).toHaveLength(4);
+      expect(failedSearch.at(-1)?.content).toContain('"code":"search_workspace_turn_limit"');
     } finally {
       vi.unstubAllGlobals();
       client?.close();

@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const timestamps = {
   createdAt: integer("created_at").notNull(),
@@ -265,6 +265,57 @@ export const workspaceVaultSettings = sqliteTable("workspace_vault_settings", {
   ...timestamps,
 });
 
+export const workspaceEmbeddingConfigs = sqliteTable("workspace_embedding_configs", {
+  workspaceId: text("workspace_id").primaryKey(),
+  providerKind: text("provider_kind").notNull(),
+  url: text("url").notNull(),
+  model: text("model").notNull(),
+  dimension: integer("dimension"),
+  state: text("state").notNull().default("stale"),
+  errorCode: text("error_code"),
+  ...timestamps,
+});
+
+export const workspaceEmbeddingStates = sqliteTable(
+  "workspace_embedding_states",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    state: text("state").notNull().default("unconfigured"),
+    errorCode: text("error_code"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => ({
+    workspaceSource: primaryKey({ columns: [table.workspaceId, table.source] }),
+  }),
+);
+
+export const sessionArtifacts = sqliteTable(
+  "session_artifacts",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    operation: text("operation").notNull(),
+    firstSeenAt: integer("first_seen_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+  },
+  (table) => ({
+    sessionPath: uniqueIndex("session_artifacts_session_path").on(
+      table.sessionId,
+      table.workspaceId,
+      table.path,
+    ),
+  }),
+);
+
 export const vaultObjects = sqliteTable("vault_objects", {
   rowId: text("row_id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
@@ -277,6 +328,7 @@ export const vaultObjects = sqliteTable("vault_objects", {
   sourceMtime: integer("source_mtime").notNull(),
   managed: integer("managed", { mode: "boolean" }).notNull().default(false),
   body: text("body").notNull().default(""),
+  sourceContent: text("source_content").notNull().default(""),
   ...timestamps,
 });
 
@@ -377,6 +429,9 @@ export const schema = {
   chatToolCalls,
   chatRunEvents,
   workspaceVaultSettings,
+  workspaceEmbeddingConfigs,
+  workspaceEmbeddingStates,
+  sessionArtifacts,
   vaultObjects,
   vaultRelations,
   memoryCaptureJobs,

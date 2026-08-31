@@ -42,6 +42,16 @@ describe("EnterExit", () => {
     expect(html).toContain("var(--motion-slow)");
     expect(html).toContain("var(--ease-out-quart)");
   });
+
+  it("permite uma abertura instantânea iniciada pelo teclado", () => {
+    const html = renderToStaticMarkup(
+      <EnterExit instant show>
+        <p>x</p>
+      </EnterExit>,
+    );
+    expect(html).toContain('data-state="entered"');
+    expect(html).not.toContain("var(--motion-base)");
+  });
 });
 
 describe("Skeleton", () => {

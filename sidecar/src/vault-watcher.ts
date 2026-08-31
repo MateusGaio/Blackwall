@@ -31,14 +31,16 @@ type WatchFactory = (
 type VaultWatcherOptions = {
   debounceMs?: number;
   onChange: (paths: string[]) => void | Promise<void>;
+  onError?: (error: unknown) => void;
   reconcileMs?: number;
   rootPath: string;
   watchFactory?: WatchFactory;
 };
 
 async function directoriesUnder(rootPath: string, currentPath = rootPath, result: string[] = []) {
+  const entries = await readdir(currentPath, { withFileTypes: true }).catch(() => null);
+  if (!entries) return result;
   result.push(currentPath);
-  const entries = await readdir(currentPath, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.isSymbolicLink() || ignoredDirectories.has(entry.name))
       continue;
@@ -56,45 +58,61 @@ export function createVaultWatcher(options: VaultWatcherOptions) {
   const debounceMs = options.debounceMs ?? 250;
   const factory =
     options.watchFactory ??
-    ((directory, onEvent) =>
-      fsWatch(directory, { persistent: false }, (event, filename) =>
+    ((directory, onEvent) => {
+      const watcher = fsWatch(directory, { persistent: false }, (event, filename) =>
         onEvent(event, filename?.toString()),
-      ));
+      );
+      watcher.on("error", (error) => options.onError?.(error));
+      return watcher;
+    });
   const handles = new Map<string, WatchHandle>();
-  const pending = new Map<string, ReturnType<typeof setTimeout>>();
+  const pending = new Set<string>();
   const internalWrites = new Map<string, ReturnType<typeof setTimeout>>();
   let stopped = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let reconcileTimer: ReturnType<typeof setInterval> | undefined;
+  let installing: Promise<void> | undefined;
 
   const schedule = (path: string) => {
     if (stopped || !markdownPath(path)) return;
-    const oldTimer = pending.get(path);
-    if (oldTimer) clearTimeout(oldTimer);
-    pending.set(
-      path,
-      setTimeout(() => {
-        pending.delete(path);
-        void options.onChange([path]);
-      }, debounceMs),
-    );
+    pending.add(path);
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = undefined;
+      const paths = [...pending].sort();
+      pending.clear();
+      void Promise.resolve(options.onChange(paths)).catch((error) => options.onError?.(error));
+    }, debounceMs);
   };
 
-  const install = async () => {
-    for (const directory of await directoriesUnder(rootPath)) {
-      if (stopped || handles.has(directory)) continue;
-      const handle = factory(directory, (_event, filename) => {
-        const path = resolve(directory, filename ?? "");
-        const internalTimer = internalWrites.get(path);
-        if (internalTimer) {
-          clearTimeout(internalTimer);
-          internalWrites.delete(path);
-          return;
+  const install = () => {
+    if (installing) return installing;
+    installing = (async () => {
+      const directories = await directoriesUnder(rootPath);
+      const discovered = new Set(directories);
+      for (const [directory, handle] of handles) {
+        if (discovered.has(directory)) continue;
+        handle.close();
+        handles.delete(directory);
+      }
+      for (const directory of directories) {
+        if (stopped || handles.has(directory)) continue;
+        try {
+          const handle = factory(directory, (_event, filename) => {
+            const path = resolve(directory, filename ?? "");
+            if (internalWrites.has(path)) return;
+            schedule(path);
+            void install();
+          });
+          handles.set(directory, handle);
+        } catch (error) {
+          options.onError?.(error);
         }
-        schedule(path);
-        void install();
-      });
-      handles.set(directory, handle);
-    }
+      }
+    })().finally(() => {
+      installing = undefined;
+    });
+    return installing;
   };
 
   const start = async () => {
@@ -119,9 +137,10 @@ export function createVaultWatcher(options: VaultWatcherOptions) {
       );
     },
     stop() {
+      if (stopped) return;
       stopped = true;
       if (reconcileTimer) clearInterval(reconcileTimer);
-      for (const timer of pending.values()) clearTimeout(timer);
+      if (debounceTimer) clearTimeout(debounceTimer);
       for (const timer of internalWrites.values()) clearTimeout(timer);
       for (const handle of handles.values()) handle.close();
       pending.clear();

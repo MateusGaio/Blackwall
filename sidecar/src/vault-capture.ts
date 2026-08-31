@@ -43,6 +43,7 @@ type CaptureInput = {
   relatedTo: string[];
   title: string;
   type: VaultNoteType;
+  onWrite?: (path: string) => void;
   workspaceId: string;
   workspaceRoot: string;
 };
@@ -251,6 +252,7 @@ export async function createVaultNote(input: CaptureInput): Promise<VaultNoteRes
       timestamp,
     );
   try {
+    if (!existing?.path) input.onWrite?.(path);
     const writtenPath = existing?.path ?? (await atomicCreate(input.workspaceRoot, path, markdown));
     input.client
       .prepare(
@@ -271,6 +273,7 @@ export async function undoVaultRevision(
   workspaceId: string,
   workspaceRoot: string,
   revisionId: string,
+  options: { onWrite?: (path: string) => void } = {},
 ) {
   const row = client
     .prepare(
@@ -308,7 +311,10 @@ export async function undoVaultRevision(
       "vault_revision_conflict",
       "A nota mudou desde a captura; o undo foi bloqueado.",
     );
-  if (current) await unlink(safeTarget);
+  if (current) {
+    options.onWrite?.(row.path);
+    await unlink(safeTarget);
+  }
   client
     .prepare(
       "UPDATE vault_revisions SET state = 'undone', undone_at = ?, updated_at = ? WHERE revision_id = ? AND workspace_id = ?",

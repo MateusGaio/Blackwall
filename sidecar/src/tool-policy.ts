@@ -46,6 +46,7 @@ export function classifyTool(tool: string): PolicyToolClass {
     case "list_directory":
     case "read_file":
     case "search_text":
+    case "search_workspace":
       return "read";
     default:
       // Ferramenta desconhecida é tratada no nível mais restritivo.
