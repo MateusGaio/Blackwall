@@ -36,7 +36,7 @@ type AttachmentCitation = {
 
 type SearchCitation = VaultCitation | AttachmentCitation;
 
-type WorkspaceSearchResponse = {
+export type WorkspaceSearchResponse = {
   mode: "hybrid" | "lexical";
   results: Array<{ citation: SearchCitation }>;
   semanticUnavailable?: string;
@@ -231,6 +231,7 @@ export async function searchWorkspace(
   workspaceId: string,
   query: string,
   limit: number,
+  signal?: AbortSignal,
 ): Promise<WorkspaceSearchResponse> {
   const vaultLexical = searchVaultDetailed(client, workspaceId, query, 20);
   const attachmentLexical = searchAttachmentsDetailed(client, workspaceId, query, 20);
@@ -263,10 +264,11 @@ export async function searchWorkspace(
 
   let queryVector: number[];
   try {
-    const vectors = await embeddings.embedTexts(workspaceId, [query]);
+    const vectors = await embeddings.embedTexts(workspaceId, [query], signal);
     if (!Array.isArray(vectors[0])) throw new Error("embedding_query_vector_invalid");
     queryVector = vectors[0];
   } catch (error) {
+    if (signal?.aborted) throw error;
     return {
       mode: "lexical",
       results: fuseRankedSearchLists(lexicalLists, limit),

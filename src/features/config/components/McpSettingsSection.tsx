@@ -4,15 +4,23 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next";
 import {
   createMcpServer,
+  deleteMcpExport,
   deleteMcpServer,
   disconnectMcpServer,
+  getMcpExport,
+  listMcpExportCalls,
   listMcpServers,
+  type McpExport,
+  type McpExportCall,
   type McpServer,
   type McpServerConfig,
   type McpServerInput,
   type McpTransportKind,
+  mcpEndpointUrl,
+  rotateMcpExportToken,
   setMcpServerTools,
   testMcpServer,
+  updateMcpExport,
   updateMcpServer,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
@@ -95,6 +103,264 @@ function statusLabel(state: McpServer["state"], t: (key: string) => string) {
     ready: t("settings.mcpStateReady"),
   };
   return labels[state];
+}
+
+/** Exportação read-only separada das conexões MCP que o Blackwall consome. */
+function McpExportCard({ workspaceId }: { workspaceId: string }) {
+  const { t } = useTranslation();
+  const [exportConfig, setExportConfig] = useState<McpExport | null>(null);
+  const [calls, setCalls] = useState<McpExportCall[]>([]);
+  const [endpoint, setEndpoint] = useState<string | null>(null);
+  const [token, setToken] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmAction, setConfirmAction] = useState<"delete" | "rotate" | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const next = await getMcpExport(workspaceId);
+      const [nextCalls, nextEndpoint] = await Promise.all([
+        next.id ? listMcpExportCalls(workspaceId).catch(() => []) : Promise.resolve([]),
+        mcpEndpointUrl(next.endpointPath),
+      ]);
+      setExportConfig(next);
+      setCalls(nextCalls);
+      setEndpoint(nextEndpoint);
+    } catch (reason) {
+      setError(message(reason, t("settings.mcpExportCouldNotLoad")));
+    } finally {
+      setLoading(false);
+    }
+  }, [t, workspaceId]);
+
+  useEffect(() => {
+    void load();
+    return () => setToken("");
+  }, [load]);
+
+  async function save(input: { enabled?: boolean; tools?: Array<"search_workspace"> }) {
+    setBusy(true);
+    setError("");
+    try {
+      const next = await updateMcpExport(workspaceId, input);
+      setExportConfig(next);
+      setEndpoint(await mcpEndpointUrl(next.endpointPath));
+    } catch (reason) {
+      setError(message(reason, t("settings.mcpExportCouldNotSave")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rotate() {
+    setBusy(true);
+    setError("");
+    try {
+      const next = await rotateMcpExportToken(workspaceId);
+      setExportConfig(next.export);
+      setEndpoint(await mcpEndpointUrl(next.export.endpointPath));
+      setToken(next.token);
+    } catch (reason) {
+      setError(message(reason, t("settings.mcpExportCouldNotRotate")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError("");
+    try {
+      await deleteMcpExport(workspaceId);
+      setToken("");
+      await load();
+    } catch (reason) {
+      setError(message(reason, t("settings.mcpExportCouldNotDelete")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      setError(t("settings.mcpExportCouldNotCopy"));
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="grid gap-3" data-testid="mcp-export-skeleton">
+        <Skeleton className="h-6 w-52" />
+        <Skeleton className="h-52 rounded-[var(--radius-panel)]" />
+      </section>
+    );
+  }
+  const toolEnabled =
+    exportConfig?.tools.some((tool) => tool.name === "search_workspace" && tool.enabled) ?? false;
+  return (
+    <EnterExit className="grid gap-3" show>
+      <section
+        className="grid gap-4 rounded-[var(--radius-panel)] border border-border bg-muted/20 p-4"
+        aria-labelledby="mcp-export-heading"
+      >
+        <div className="grid gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium" id="mcp-export-heading">
+              {t("settings.mcpExportTitle")}
+            </h3>
+            <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[0.65rem] text-muted-foreground">
+              {exportConfig?.enabled
+                ? t("settings.mcpExportActive")
+                : t("settings.mcpExportDisabled")}
+            </span>
+          </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t("settings.mcpExportLocalOnly")}
+          </p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t("settings.mcpExportWarning")}
+          </p>
+        </div>
+        <label className="flex items-start gap-2 text-xs leading-5">
+          <input
+            checked={toolEnabled}
+            disabled={busy}
+            onChange={(event) =>
+              void save({ tools: event.target.checked ? ["search_workspace"] : [] })
+            }
+            type="checkbox"
+          />
+          <span>
+            <span className="font-mono">search_workspace</span> —{" "}
+            {t("settings.mcpExportSearchDescription")}
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-xs leading-5">
+          <input
+            checked={exportConfig?.enabled ?? false}
+            disabled={busy || !exportConfig?.hasToken || !toolEnabled}
+            onChange={(event) => void save({ enabled: event.target.checked })}
+            type="checkbox"
+          />
+          <span>{t("settings.mcpExportEnable")}</span>
+        </label>
+        {endpoint && (
+          <div className="grid gap-2 rounded-lg border border-border p-3">
+            <p className="text-xs font-medium">{t("settings.mcpExportEndpoint")}</p>
+            <div className="flex flex-wrap gap-2">
+              <code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1.5 text-xs">
+                {endpoint}
+              </code>
+              <Button
+                onClick={() => void copy(endpoint)}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                {t("settings.copy")}
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={busy}
+            onClick={() =>
+              exportConfig?.hasToken && exportConfig.enabled
+                ? setConfirmAction("rotate")
+                : void rotate()
+            }
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            {exportConfig?.hasToken
+              ? t("settings.mcpExportRotateToken")
+              : t("settings.mcpExportGenerateToken")}
+          </Button>
+          {exportConfig?.id && (
+            <Button
+              disabled={busy}
+              onClick={() => setConfirmAction("delete")}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {t("settings.mcpExportDelete")}
+            </Button>
+          )}
+        </div>
+        <EnterExit className="grid gap-2 rounded-lg border border-border p-3" show={Boolean(token)}>
+          {token && (
+            <>
+              <p className="text-xs font-medium">{t("settings.mcpExportTokenOnce")}</p>
+              <div className="flex flex-wrap gap-2">
+                <code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1.5 text-xs">
+                  {token}
+                </code>
+                <Button
+                  onClick={() => void copy(token)}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  {t("settings.copy")}
+                </Button>
+              </div>
+            </>
+          )}
+        </EnterExit>
+        {calls.length > 0 && (
+          <div className="grid gap-1 border-t border-border pt-3">
+            <p className="text-xs font-medium">{t("settings.mcpExportAudit")}</p>
+            <ul className="grid gap-1 text-xs text-muted-foreground">
+              {calls.slice(0, 5).map((call) => (
+                <li key={`${call.createdAt}-${call.durationMs}`}>
+                  {call.toolName} · {call.outcome} · {call.durationMs}ms
+                  {call.errorCode ? ` · ${call.errorCode}` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {busy && <ProgressIndicator label={t("motion.progressBusy")} />}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </section>
+      {confirmAction && (
+        <ConfirmDialog
+          cancelLabel={t("settings.cancel")}
+          confirmLabel={
+            confirmAction === "delete"
+              ? t("settings.mcpExportDelete")
+              : t("settings.mcpExportRotateToken")
+          }
+          description={
+            confirmAction === "delete"
+              ? t("settings.mcpExportDeleteDescription")
+              : t("settings.mcpExportRotateDescription")
+          }
+          headingLabel={t("settings.confirmation")}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={() => {
+            const action = confirmAction;
+            setConfirmAction(null);
+            if (action === "delete") void remove();
+            else void rotate();
+          }}
+          title={
+            confirmAction === "delete"
+              ? t("settings.mcpExportDeleteTitle")
+              : t("settings.mcpExportRotateTitle")
+          }
+        />
+      )}
+    </EnterExit>
+  );
 }
 
 /** Configuração local de servidores MCP, carregada apenas ao abrir esta seção. */
@@ -340,6 +606,14 @@ export function McpSettingsSection({ activeWorkspaceId }: McpSettingsSectionProp
       className="grid gap-6"
       data-testid="mcp-settings-section"
     >
+      <McpExportCard workspaceId={activeWorkspaceId} />
+
+      <div className="grid gap-1 border-t border-border pt-6">
+        <h3 className="text-sm font-medium">{t("settings.mcpConnectTitle")}</h3>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {t("settings.mcpConnectDescription")}
+        </p>
+      </div>
       <section className="grid gap-3 rounded-[var(--radius-panel)] border border-border bg-muted/30 p-4">
         <div className="grid gap-1">
           <h3 className="text-sm font-medium">

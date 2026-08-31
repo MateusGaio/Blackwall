@@ -147,6 +147,13 @@ Isso resolve três pontos ao mesmo tempo:
 
 **Decisão:** cada conexão MCP configurada pelo usuário tem uma matriz de permissão própria (quais ferramentas do servidor MCP estão habilitadas, se ele pode acessar filesystem, se pode ver outras chaves de API configuradas no Blackwall). Padrão é restritivo (nada liberado até o usuário habilitar), mas o usuário tem liberdade total para abrir o que quiser — exatamente como você pediu.
 
+O **cliente MCP** consome capacidades remotas explicitamente configuradas por workspace. O
+**servidor MCP** do Blackwall é uma superfície separada: um único export local por workspace,
+desligado por padrão, preso a loopback e autenticado por token próprio guardado em
+`secrets.enc`. Nesta primeira versão ele anuncia somente `search_workspace`, em modo
+somente leitura; não encaminha ferramentas remotas nem fornece recursos, prompts, escrita,
+stdio, OAuth ou bind de rede.
+
 ### ADR-16: Política de retry do roteador
 
 **Decisão:** até **8 tentativas** na lista de fallback, com backoff exponencial curto entre elas. Durante as tentativas, o usuário vê o nome do provedor sendo tentado no momento (não um spinner genérico) — isso também resolve o ponto 15 de UX (mensagem de erro final acionável, não um stack trace).

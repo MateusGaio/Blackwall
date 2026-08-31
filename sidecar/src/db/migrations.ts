@@ -728,4 +728,41 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const mcpExport = client.prepare("SELECT id FROM _migrations WHERE id = 20").get();
+  if (!mcpExport) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS mcp_exports (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL UNIQUE REFERENCES workspaces(id) ON DELETE CASCADE,
+          enabled INTEGER NOT NULL DEFAULT 0,
+          last_used_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS mcp_export_tools (
+          export_id TEXT NOT NULL REFERENCES mcp_exports(id) ON DELETE CASCADE,
+          tool_name TEXT NOT NULL CHECK (tool_name = 'search_workspace'),
+          enabled INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (export_id, tool_name)
+        );
+        CREATE TABLE IF NOT EXISTS mcp_export_calls (
+          id TEXT PRIMARY KEY NOT NULL,
+          export_id TEXT NOT NULL REFERENCES mcp_exports(id) ON DELETE CASCADE,
+          tool_name TEXT NOT NULL CHECK (tool_name = 'search_workspace'),
+          outcome TEXT NOT NULL CHECK (outcome IN ('success', 'error', 'timeout', 'rate_limited')),
+          error_code TEXT,
+          duration_ms INTEGER NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS mcp_export_calls_export_created
+          ON mcp_export_calls(export_id, created_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(20, Date.now());
+    });
+    transaction();
+  }
 }
