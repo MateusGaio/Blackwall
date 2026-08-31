@@ -35,7 +35,12 @@ export function ApprovalCard({ onResolve, request }: ApprovalCardProps) {
         <p className="m-0 font-mono text-[0.68rem] uppercase tracking-[0.08em] text-muted-foreground">
           {t("chat.permissionRequested")}
         </p>
-        <strong className="m-0 font-mono text-sm">{request.tool}</strong>
+        <strong className="m-0 font-mono text-sm">{request.remoteName ?? request.tool}</strong>
+        {request.serverName && (
+          <p className="m-0 font-mono text-[0.7rem] text-muted-foreground">
+            MCP · {request.serverName}
+          </p>
+        )}
         <pre className="m-0 max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-control)] border border-border bg-background px-2.5 py-2 font-mono text-[0.72rem] text-foreground/80">
           {JSON.stringify(request.args, null, 2)}
         </pre>

@@ -94,7 +94,7 @@ type ToolInput = {
   args: Record<string, unknown>;
   requestId?: string;
   sessionId?: string | null;
-  tool: ToolName;
+  tool: string;
   workspaceId: string;
 };
 
@@ -104,8 +104,12 @@ export type ApprovalRequest = {
   id: string;
   requestId: string;
   sessionId: string | null;
-  tool: ToolName;
+  tool: string;
   workspaceId: string;
+  /** MCP sempre informa o destino real no card, sem inferi-lo pelo nome público. */
+  serverId?: string;
+  serverName?: string;
+  remoteName?: string;
 };
 
 type ToolExecutionOptions = {
@@ -136,6 +140,7 @@ export class ToolPolicyDenied extends Error {
 
 type Workspace = typeof workspaces.$inferSelect;
 type PendingApproval = {
+  grantKey?: string;
   resolve: (decision: ApprovalDecision) => void;
   timer: NodeJS.Timeout;
   workspaceId: string;
@@ -364,6 +369,7 @@ async function requestApproval(
   input: ToolInput,
   storageDirectory: string,
   approval: ApprovalRequest,
+  grantKey?: string,
 ): Promise<ApprovalDecision> {
   const requestId = approval.requestId;
   const database = openSharedDatabase(storageDirectory);
@@ -389,6 +395,7 @@ async function requestApproval(
       resolveDecision("deny");
     }, 5 * 60_000);
     pendingApprovals.set(requestId, {
+      grantKey,
       resolve: resolveDecision,
       timer,
       workspaceId: input.workspaceId,
@@ -425,12 +432,14 @@ export async function resolveApproval(
     .where(eq(approvals.id, approval.id))
     .run();
   database.close();
-  // Grant de sessão limitado a leitura (capacidade explicitada): nunca
-  // cobre mutação/comando e jamais supera um deny reavaliado depois.
-  if (decision === "allow_session" && classifyTool(approval.tool) === "read") {
-    sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
-  }
   const pending = pendingApprovals.get(requestId);
+  // Local permanece limitado a leitura. Para MCP, grantKey inclui workspace,
+  // sessão, servidor e ferramenta e é criado somente no fluxo específico.
+  if (decision === "allow_session") {
+    if (pending?.grantKey) sessionApprovals.add(pending.grantKey);
+    else if (classifyTool(approval.tool) === "read")
+      sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
+  }
   if (pending) {
     clearTimeout(pending.timer);
     pendingApprovals.delete(requestId);
@@ -576,7 +585,7 @@ export async function executeTool(
       : ((input.args as Record<PropertyKey, unknown>)[legacyCommandSpec] as
           | LegacyCommandSpec
           | undefined);
-  const canonicalTool = input.tool === "execute_command" ? "bash" : input.tool;
+  const canonicalTool = (input.tool === "execute_command" ? "bash" : input.tool) as ToolName;
   const executionArgs =
     input.tool === "execute_command"
       ? normalizeToolArguments("execute_command", input.args)
@@ -995,5 +1004,90 @@ export async function executeTool(
     if (commitBarrierHook) await commitBarrierHook(input.workspaceId);
     const root = await workspaceRoot(fresh);
     return runEffect(root);
+  });
+}
+
+type McpToolExecutionInput = {
+  args: Record<string, unknown>;
+  publicName: string;
+  remoteName: string;
+  requestId?: string;
+  serverId: string;
+  serverName: string;
+  sessionId?: string | null;
+  workspaceId: string;
+};
+
+type McpToolExecutionOptions = {
+  execute: () => Promise<unknown>;
+  onApproval?: (approval: ApprovalRequest) => void;
+  onApprovalResolved?: (event: { requestId: string; status: string }) => void;
+};
+
+/**
+ * MCP é sempre tratado como comando: grants de sessão têm escopo explícito
+ * workspace+sessão+servidor+ferramenta e nunca afrouxam a política local.
+ */
+export async function executeMcpTool(
+  input: McpToolExecutionInput,
+  storageDirectory = dataDirectory(),
+  options: McpToolExecutionOptions,
+) {
+  const workspace = await workspaceFor(input.workspaceId, storageDirectory);
+  const toolClass = "command" as const;
+  let decision = evaluateToolPolicy(workspace.permissionMode as PermissionMode, toolClass);
+  if (decision.kind === "deny")
+    throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
+  const grantKey = `${input.workspaceId}:${input.sessionId ?? ""}:mcp:${input.serverId}:${input.publicName}`;
+  if (decision.kind === "prompt" && !sessionApprovals.has(grantKey)) {
+    const requestId = input.requestId ?? randomUUID();
+    const approval: ApprovalRequest = {
+      id: randomUUID(),
+      remoteName: input.remoteName,
+      requestId,
+      serverId: input.serverId,
+      serverName: input.serverName,
+      sessionId: input.sessionId ?? null,
+      tool: input.publicName,
+      workspaceId: input.workspaceId,
+    };
+    options.onApproval?.(approval);
+    const decided = await requestApproval(
+      {
+        args: input.args,
+        requestId,
+        sessionId: input.sessionId,
+        tool: input.publicName,
+        workspaceId: input.workspaceId,
+      },
+      storageDirectory,
+      approval,
+      grantKey,
+    );
+    if (decided === "deny") {
+      const policyMessage = policyDeniedMessages.get(requestId);
+      policyDeniedMessages.delete(requestId);
+      throw policyMessage
+        ? new ToolPolicyDenied("POLICY_CHANGED_DURING_APPROVAL", policyMessage)
+        : new ToolPolicyDenied("APPROVAL_DENIED", "A ação foi negada pelo usuário.");
+    }
+    const fresh = await workspaceFor(input.workspaceId, storageDirectory);
+    decision = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+    if (decision.kind === "deny")
+      throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
+  }
+  const snapshotEpoch = gateFor(input.workspaceId).epoch;
+  return withWorkspaceGate(input.workspaceId, async (gate) => {
+    const fresh = await workspaceFor(input.workspaceId, storageDirectory);
+    const committed = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+    if (gate.epoch !== snapshotEpoch)
+      throw new ToolPolicyDenied(
+        "POLICY_EPOCH_CHANGED",
+        "O modo de permissão mudou durante a operação; a ação foi cancelada antes do efeito.",
+      );
+    if (committed.kind === "deny")
+      throw new ToolPolicyDenied(committed.reasonCode, committed.userMessage);
+    if (commitBarrierHook) await commitBarrierHook(input.workspaceId);
+    return options.execute();
   });
 }

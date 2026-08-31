@@ -9,6 +9,7 @@ import { listSessionArtifacts } from "./session-artifacts.js";
 import {
   type ApprovalRequest,
   cancelPendingApprovals,
+  executeMcpTool,
   executeTool,
   notifyWorkspacePolicyChanged,
   resolveApproval,
@@ -766,5 +767,48 @@ describe("contrato estrito de execute_command.args (#210)", () => {
     await resolveApproval("args-absent", "allow_once", directory);
     const result = (await run) as { code?: number | null };
     expect(result.code).toBe(0);
+  });
+});
+
+describe("permissões de ferramentas MCP", () => {
+  it("pede confirmação em ask, mantém o grant no escopo sessão+servidor+ferramenta e bloqueia read-only", async () => {
+    const { directory, state } = await fixture("ask");
+    const base = {
+      args: { path: "README.md" },
+      publicName: "mcp__files_12345678__read_12345678",
+      remoteName: "read_file",
+      serverId: "mcp-server-a",
+      serverName: "Files",
+      sessionId: state.activeSessionId,
+      workspaceId: state.activeWorkspaceId as string,
+    };
+    let approvals = 0;
+    let executions = 0;
+    const first = executeMcpTool({ ...base, requestId: "mcp-ask" }, directory, {
+      execute: async () => ({ ok: ++executions }),
+      onApproval: () => (approvals += 1),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(approvals).toBe(1);
+    await resolveApproval("mcp-ask", "allow_session", directory);
+    await expect(first).resolves.toEqual({ ok: 1 });
+
+    await expect(
+      executeMcpTool(base, directory, {
+        execute: async () => ({ ok: ++executions }),
+        onApproval: () => (approvals += 1),
+      }),
+    ).resolves.toEqual({ ok: 2 });
+    expect(approvals).toBe(1);
+
+    await setWorkspacePermissionModeGuarded(
+      state.activeWorkspaceId as string,
+      "read-only",
+      directory,
+    );
+    await expect(
+      executeMcpTool(base, directory, { execute: async () => ({ ok: ++executions }) }),
+    ).rejects.toMatchObject({ code: "READ_ONLY_COMMAND" });
+    expect(executions).toBe(2);
   });
 });
