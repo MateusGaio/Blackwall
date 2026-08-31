@@ -12,6 +12,7 @@ import {
   type SessionArtifact,
   searchWorkspace,
   type VaultGraph,
+  type VaultNoteDetail,
   type WorkspaceFilePreview,
   type WorkspaceSearchCitation,
   type WorkspaceSearchResponse,
@@ -29,9 +30,13 @@ import {
 } from "../../../shared/components/ui/resizable";
 import { ScrollArea } from "../../../shared/components/ui/scroll-area";
 import { cn } from "../../../shared/lib/utils";
+import { VaultNoteIndex } from "./VaultNoteIndex";
 
 const PdfPreview = lazy(() =>
   import("./PdfPreview").then((module) => ({ default: module.PdfPreview })),
+);
+const VaultNoteEditor = lazy(() =>
+  import("./VaultNoteEditor").then((module) => ({ default: module.VaultNoteEditor })),
 );
 const workbenchMemoryByWorkspace = new Map<string, VaultMemory>();
 
@@ -184,6 +189,9 @@ export function FileWorkbench({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [previewNonce, setPreviewNonce] = useState(0);
+  const [editorMode, setEditorMode] = useState<"new" | { id: string } | null>(null);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [noteIndexRefresh, setNoteIndexRefresh] = useState(0);
   const listWrapRef = useRef<HTMLDivElement | null>(null);
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const rememberedMemory = workbenchMemoryByWorkspace.get(workspaceId);
@@ -423,6 +431,9 @@ export function FileWorkbench({
 
   const visibleSearchResults = searchResults;
   const hasSearch = submittedQuery !== null;
+  const selectedFile = selectedPath
+    ? (graph.files.find((file) => file.path === selectedPath) ?? null)
+    : null;
 
   useEffect(() => {
     void directories.get(".");
@@ -443,6 +454,7 @@ export function FileWorkbench({
   }
 
   function openTreeFile(path: string) {
+    if (editorMode) return;
     setSelectedAttachment(null);
     onSelectPath(path);
   }
@@ -501,7 +513,7 @@ export function FileWorkbench({
     setSearchError("");
     setSelectedAttachment(null);
     try {
-      const response = await searchWorkspace(workspaceId, query, 20);
+      const response = await searchWorkspace(workspaceId, query, 20, { includeLifecycle: true });
       setSearchResults(response.results);
       setSearchMode(response.mode);
     } catch (reason) {
@@ -531,6 +543,7 @@ export function FileWorkbench({
   }
 
   function openCitation(citation: WorkspaceSearchCitation) {
+    if (editorMode) return;
     if (citation.source === "vault") void revealPath(citation.path);
     else {
       setSelectedAttachment({ filename: citation.filename, id: citation.attachmentId });
@@ -688,6 +701,25 @@ export function FileWorkbench({
                 </div>
               ) : (
                 <div className="p-1">
+                  <VaultNoteIndex
+                    onNewNote={() => {
+                      setSelectedAttachment(null);
+                      setEditorMode("new");
+                      setEditorVisible(true);
+                    }}
+                    onOpenNote={(note) => {
+                      setSelectedAttachment(null);
+                      onSelectPath(note.path);
+                      setEditorMode({ id: note.portentId });
+                      setEditorVisible(true);
+                    }}
+                    onSelectPath={(path) => {
+                      setEditorMode(null);
+                      void revealPath(path);
+                    }}
+                    refreshKey={refreshKey + noteIndexRefresh}
+                    workspaceId={workspaceId}
+                  />
                   <section
                     aria-label={t("vault.generatedByAgent")}
                     className="mb-2 border-b border-border/60 pb-2"
@@ -769,6 +801,24 @@ export function FileWorkbench({
                   {preview?.name ?? selectedAttachment?.filename ?? pathName(selectedPath ?? "")}
                 </h2>
               )}
+              {selectedFile?.managed && selectedFile.object?.id && !editorMode && (
+                <Button
+                  className="mt-2"
+                  onClick={() => {
+                    setEditorMode({ id: selectedFile.object?.id ?? "" });
+                    setEditorVisible(true);
+                  }}
+                  size="xs"
+                  variant="outline"
+                >
+                  {t("vault.editNote")}
+                </Button>
+              )}
+              {selectedFile && selectedFile.managed === false && (
+                <p className="mt-1 text-[0.68rem] text-muted-foreground">
+                  {t("vault.externalFileReadOnly")}
+                </p>
+              )}
             </header>
             <div
               className="min-h-0 flex-1"
@@ -776,65 +826,99 @@ export function FileWorkbench({
               ref={previewWrapRef}
             >
               <ScrollArea className="h-full">
-                {previewLoading && (
-                  <div aria-busy="true" className="p-3">
-                    <Skeleton className="h-48" />
-                  </div>
-                )}
-                {!previewLoading && previewError && (
-                  <div className="p-3" role="alert">
-                    <p className="text-sm text-destructive">{previewError}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("vault.previewMetadataHint")}
-                    </p>
-                    <Button
-                      className="mt-3"
-                      onClick={() => setPreviewNonce((value) => value + 1)}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {t("vault.retryPreview")}
-                    </Button>
-                  </div>
-                )}
-                {!previewLoading && !previewError && !preview && (
-                  <p className="p-3 text-sm text-muted-foreground">
-                    {t("vault.selectFileToPreview")}
-                  </p>
-                )}
-                <EnterExit
-                  show={!previewLoading && Boolean(preview)}
-                  className="min-h-0"
-                  instant={false}
-                >
-                  {preview?.kind === "pdf" ? (
-                    <Suspense
-                      fallback={
-                        <div className="p-3">
-                          <Skeleton className="h-48" />
-                        </div>
-                      }
-                    >
-                      <PdfPreview bytes={preview.bytes} />
-                    </Suspense>
-                  ) : preview ? (
-                    <article className="vault-file-preview px-3 pb-6 pt-2">
-                      {preview.kind === "markdown" ? (
-                        <SafeMarkdown
-                          content={preview.content}
-                          cursorAvoidanceEnabled={cursorAvoidanceEnabled}
-                          currentPath={preview.path}
-                          files={graph.files}
-                          onLocalLink={(path) => void revealPath(path)}
-                        />
-                      ) : (
-                        <pre className="max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">
-                          {preview.content}
-                        </pre>
+                {editorMode && (
+                  <Suspense
+                    fallback={
+                      <div className="p-3">
+                        <Skeleton className="h-64" />
+                      </div>
+                    }
+                  >
+                    <VaultNoteEditor
+                      onClose={() => setEditorVisible(false)}
+                      onExited={() => {
+                        setEditorMode(null);
+                        setEditorVisible(false);
+                      }}
+                      onSaved={(note: VaultNoteDetail) => {
+                        setNoteIndexRefresh((value) => value + 1);
+                        onSelectPath(note.path);
+                        setPreviewNonce((value) => value + 1);
+                      }}
+                      portentId={editorMode === "new" ? null : editorMode.id}
+                      relationOptions={graph.files.flatMap((file) =>
+                        file.managed && file.object?.id
+                          ? [{ id: file.object.id, title: file.title }]
+                          : [],
                       )}
-                    </article>
-                  ) : null}
-                </EnterExit>
+                      visible={editorVisible}
+                      workspaceId={workspaceId}
+                    />
+                  </Suspense>
+                )}
+                {!editorMode && (
+                  <>
+                    {previewLoading && (
+                      <div aria-busy="true" className="p-3">
+                        <Skeleton className="h-48" />
+                      </div>
+                    )}
+                    {!previewLoading && previewError && (
+                      <div className="p-3" role="alert">
+                        <p className="text-sm text-destructive">{previewError}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("vault.previewMetadataHint")}
+                        </p>
+                        <Button
+                          className="mt-3"
+                          onClick={() => setPreviewNonce((value) => value + 1)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          {t("vault.retryPreview")}
+                        </Button>
+                      </div>
+                    )}
+                    {!previewLoading && !previewError && !preview && (
+                      <p className="p-3 text-sm text-muted-foreground">
+                        {t("vault.selectFileToPreview")}
+                      </p>
+                    )}
+                    <EnterExit
+                      show={!previewLoading && Boolean(preview)}
+                      className="min-h-0"
+                      instant={false}
+                    >
+                      {preview?.kind === "pdf" ? (
+                        <Suspense
+                          fallback={
+                            <div className="p-3">
+                              <Skeleton className="h-48" />
+                            </div>
+                          }
+                        >
+                          <PdfPreview bytes={preview.bytes} />
+                        </Suspense>
+                      ) : preview ? (
+                        <article className="vault-file-preview px-3 pb-6 pt-2">
+                          {preview.kind === "markdown" ? (
+                            <SafeMarkdown
+                              content={preview.content}
+                              cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+                              currentPath={preview.path}
+                              files={graph.files}
+                              onLocalLink={(path) => void revealPath(path)}
+                            />
+                          ) : (
+                            <pre className="max-w-full overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">
+                              {preview.content}
+                            </pre>
+                          )}
+                        </article>
+                      ) : null}
+                    </EnterExit>
+                  </>
+                )}
               </ScrollArea>
             </div>
           </section>

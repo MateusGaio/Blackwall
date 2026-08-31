@@ -271,3 +271,26 @@ Histórico é a conversa bruta da sessão; memória de perfil é uma preferênci
 - **Telemetria vs. privacidade** — qualquer decisão de observabilidade precisa reforçar que é opt-in e anonimizada, para não contradizer o pilar "local-first e privado" do produto.
 - **Repositório privado durante a construção** — Issues, PRs, logs de CI, fixtures e artefatos podem conter contexto operacional; o pipeline não deve tratá-los como material público antes da revisão de publicação.
 - **Publicação futura** — mudar a visibilidade, habilitar Releases públicas ou abrir a `main` exige revisão de histórico, segredos, licença, dependências, Actions e proteção de branch. Nenhuma automação deve executar esse passo implicitamente.
+
+## 6. Editor seguro do Vault (F2.8)
+
+O Markdown real permanece a autoridade. O editor da UI só aceita objetos
+Portent cujo parser confirme `managed:true`; arquivos externos, legados ou com
+frontmatter inválido continuam somente leitura. A identidade de mutação é o
+`portent_id`, enquanto o path permanece estável e não é renomeado quando o
+título muda. Relações recebidas pela API usam IDs opacos, são re-resolvidas no
+workspace no ponto de commit e são serializadas como wikilinks relativos com
+alias legível.
+
+As APIs `/v1/workspaces/:id/vault/notes` e `/diagnostics` usam o bearer do
+sidecar e retornam somente metadados sanitizados. Create/update/archive/restore
+e delete são serializados por workspace, revalidam `realpath`/`lstat`, usam
+SHA-256 esperado e escrevem em temporário exclusivo no mesmo diretório antes
+de `rename` atômico. A migração 21 cria `vault_write_operations`, que guarda
+somente hashes e metadados para recuperação determinística após crash; não é
+histórico visível nem fonte concorrente.
+
+O contexto padrão de busca inclui notas gerenciadas `organized` e Markdown
+externo. `captured` e `archived` só entram quando a busca manual solicita o
+filtro de lifecycle. Uma mutação dispara uma sincronização incremental e um
+evento seguro `vault.note.changed` sem conteúdo, título, relação ou path.

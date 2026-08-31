@@ -109,3 +109,19 @@ owner.
 
 Consulte [`AGENTS.md`](AGENTS.md) e [`CONTRIBUTING.md`](CONTRIBUTING.md) para o
 fluxo Issue → branch → PR e o gate de futura publicação pública.
+
+## Editor seguro do Vault (F2.8)
+
+As mutações do editor são autenticadas pelo bearer do sidecar e limitadas ao
+workspace resolvido no banco. O serviço rejeita traversal, NUL, separadores
+alternativos, symlinks, arquivos especiais e paths absolutos; revalida o root e
+o parent real imediatamente antes do efeito. PATCH e DELETE exigem SHA-256 do
+detalhe carregado, usam comparação em tempo constante e nunca sobrescrevem um
+terceiro hash.
+
+O arquivo é escrito em temporário exclusivo no mesmo diretório, sincronizado e
+renomeado atomicamente. A migração 21 registra apenas operação, IDs, path
+relativo, estado e hashes em `vault_write_operations`, permitindo recovery
+determinístico sem armazenar corpo, título, frontmatter, path absoluto ou
+rascunho. Respostas e eventos `vault.note.changed` carregam somente metadados
+seguros; conteúdo não entra em logs, traces ou métricas.

@@ -405,6 +405,7 @@ export function searchVaultDetailed(
   workspaceId: string,
   query: string,
   limit = 20,
+  options: { includeLifecycle?: boolean } = {},
 ): VaultLexicalSearchResult[] {
   const ftsQuery = query
     .trim()
@@ -413,13 +414,16 @@ export function searchVaultDetailed(
     .map((term) => `"${term.replaceAll('"', '""')}"`)
     .join(" ");
   if (!ftsQuery) return [];
+  const lifecycleClause = options.includeLifecycle
+    ? ""
+    : " AND (o.managed = 0 OR o.status = 'organized')";
   const rows = client
     .prepare(
       `SELECT f.object_id AS objectId, o.path, o.title,
               o.content_hash AS contentHash, o.body, o.source_content AS sourceContent
        FROM vault_objects_fts f
        JOIN vault_objects o ON o.row_id = f.object_id AND o.workspace_id = f.workspace_id
-       WHERE f.workspace_id = ? AND vault_objects_fts MATCH ?
+       WHERE f.workspace_id = ? AND vault_objects_fts MATCH ?${lifecycleClause}
        ORDER BY bm25(vault_objects_fts, 1, 2), o.path, o.row_id
        LIMIT ?`,
     )

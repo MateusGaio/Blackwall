@@ -56,6 +56,10 @@ Conforme `PRODUCT.md`, a Fase 2 abre duas frentes:
   HTTP loopback, com token independente e `search_workspace` como única ferramenta. A
   exportação permanece desligada até haver token e allowlist explícita; stdio, OAuth,
   resources/prompts, escrita e proxy de ferramentas remotas seguem fora do escopo.
+- **F2.8 — Vault avançado, editor seguro e motion:** em implementação nesta branch/Issue #248:
+  editor Portent com escrita atômica e conflito por hash, Inbox, diagnósticos, lifecycle e
+  auditoria de motion. Captura automática, memória comportamental e escrita MCP permanecem
+  explicitamente fora do escopo e são candidatos à F2.9.
 
 **Pré-requisitos sugeridos antes de abrir a Fase 2:**
 

@@ -127,8 +127,18 @@ import {
   setUsageLimits,
   type UsageWindow,
 } from "./usage.js";
-import { scanVault } from "./vault.js";
+import { MAX_VAULT_FILE_SIZE, scanVault } from "./vault.js";
 import { undoVaultRevision } from "./vault-capture.js";
+import {
+  parseVaultNoteCreateInput,
+  parseVaultNoteDeleteInput,
+  parseVaultNotePatchInput,
+  recoverVaultWriteOperations,
+  VaultEditorError,
+  VaultEditorService,
+  type VaultNoteStatus,
+  type VaultNoteType,
+} from "./vault-editor.js";
 import { EmbeddingServiceError, VaultEmbeddingService } from "./vault-embeddings.js";
 import { rebuildVaultIndex, syncVaultIndexChanges } from "./vault-index.js";
 import { createVaultWatcher } from "./vault-watcher.js";
@@ -199,6 +209,16 @@ class HttpError extends Error {
     super(message);
     this.name = "HttpError";
   }
+}
+
+function paging(url: URL) {
+  const page = Number(url.searchParams.get("page") ?? 1);
+  const pageSize = Number(url.searchParams.get("pageSize") ?? 50);
+  if (!Number.isSafeInteger(page) || page < 1 || page > 10_000)
+    throw new HttpError(400, "A página solicitada é inválida.");
+  if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100)
+    throw new HttpError(400, "O tamanho da página deve estar entre 1 e 100.");
+  return { page, pageSize };
 }
 
 function requestBody(
@@ -390,6 +410,23 @@ export async function createSidecar(
     );
   }
 
+  function publishVaultNoteChanged(
+    workspaceId: string,
+    portentId: string,
+    operation: "create" | "update" | "archive" | "restore" | "delete",
+    revisionId: string,
+  ) {
+    broadcast(
+      JSON.stringify({
+        operation,
+        portentId,
+        revisionId,
+        type: "vault.note.changed",
+        workspaceId,
+      }),
+    );
+  }
+
   function publishAttachmentEmbeddingFailure(workspaceId: string, error: unknown) {
     broadcast(
       JSON.stringify({
@@ -464,6 +501,11 @@ export async function createSidecar(
     });
   }
 
+  const vaultEditor = new VaultEditorService(database.client, {
+    onIndexed: (workspaceId, path) => syncWorkspaceVault(workspaceId, [path]),
+    onWrite: (workspaceId, path) => vaultWatchers.get(workspaceId)?.markInternalWrite(path),
+  });
+
   async function ensureVaultWorkspace(workspaceId: string) {
     if (vaultWatchers.has(workspaceId)) return;
     const workspace = database.db
@@ -487,6 +529,7 @@ export async function createSidecar(
     });
     vaultWatchers.set(workspaceId, watcher);
     try {
+      await recoverVaultWriteOperations(database.client, workspaceId, workspace.rootPath);
       await rebuildVaultIndex(database.client, {
         rootPath: workspace.rootPath,
         workspaceId,
@@ -633,6 +676,100 @@ export async function createSidecar(
           .get();
         if (!workspace) throw new Error("O workspace selecionado não existe.");
         writeJson(response, 200, await scanVault(workspace.rootPath));
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/vault\/notes$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const { page, pageSize } = paging(url);
+        const status = url.searchParams.get("status");
+        const type = url.searchParams.get("type");
+        const hasDiagnostic = url.searchParams.get("hasDiagnostic");
+        if (status && !["captured", "organized", "archived"].includes(status))
+          throw new HttpError(400, "O filtro de status é inválido.");
+        if (type && !["Project", "Event", "Note", "Topic"].includes(type))
+          throw new HttpError(400, "O filtro de tipo é inválido.");
+        if (hasDiagnostic && hasDiagnostic !== "true" && hasDiagnostic !== "false")
+          throw new HttpError(400, "O filtro de diagnóstico é inválido.");
+        writeJson(response, 200, {
+          ...(await vaultEditor.listNotes(workspaceId, {
+            hasDiagnostic: hasDiagnostic === null ? undefined : hasDiagnostic === "true",
+            page,
+            pageSize,
+            status: status as VaultNoteStatus | undefined,
+            type: type as VaultNoteType | undefined,
+          })),
+        });
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/notes\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const portentId = decodeURIComponent(parts[6] ?? "");
+        writeJson(response, 200, { note: await vaultEditor.getNote(workspaceId, portentId) });
+        return;
+      }
+      if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/vault\/notes$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        const input = parseVaultNoteCreateInput(
+          await requestBody(request, MAX_VAULT_FILE_SIZE + 512_000),
+        );
+        const result = await vaultEditor.create(workspaceId, input);
+        publishVaultNoteChanged(
+          workspaceId,
+          result.note.portentId,
+          result.operation,
+          result.revisionId,
+        );
+        writeJson(response, 201, result);
+        return;
+      }
+      if (
+        request.method === "PATCH" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/notes\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const portentId = decodeURIComponent(parts[6] ?? "");
+        const input = parseVaultNotePatchInput(
+          await requestBody(request, MAX_VAULT_FILE_SIZE + 512_000),
+        );
+        const result = await vaultEditor.update(workspaceId, portentId, input);
+        publishVaultNoteChanged(
+          workspaceId,
+          result.note.portentId,
+          result.operation,
+          result.revisionId,
+        );
+        writeJson(response, 200, result);
+        return;
+      }
+      if (
+        request.method === "DELETE" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/notes\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const portentId = decodeURIComponent(parts[6] ?? "");
+        const input = parseVaultNoteDeleteInput(
+          await requestBody(request, MAX_VAULT_FILE_SIZE + 128_000),
+        );
+        const result = await vaultEditor.delete(workspaceId, portentId, input.expectedHash);
+        publishVaultNoteChanged(workspaceId, portentId, result.operation, result.revisionId);
+        writeJson(response, 200, result);
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/diagnostics$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const { page, pageSize } = paging(url);
+        writeJson(response, 200, await vaultEditor.listDiagnostics(workspaceId, page, pageSize));
         return;
       }
       if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/files\/tree$/.test(pathname)) {
@@ -855,7 +992,11 @@ export async function createSidecar(
           .where(eq(workspaces.id, workspaceId))
           .get();
         if (!workspace) throw new HttpError(404, "O workspace selecionado não existe.");
-        const body = (await requestBody(request)) as { limit?: unknown; query?: unknown };
+        const body = (await requestBody(request)) as {
+          includeLifecycle?: unknown;
+          limit?: unknown;
+          query?: unknown;
+        };
         if (!body || typeof body.query !== "string" || !body.query.trim()) {
           throw new HttpError(400, "A consulta não pode ficar vazia.");
         }
@@ -863,11 +1004,23 @@ export async function createSidecar(
         if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
           throw new HttpError(400, "O limite da busca deve ser um inteiro entre 1 e 20.");
         }
+        if (body.includeLifecycle !== undefined && typeof body.includeLifecycle !== "boolean")
+          throw new HttpError(400, "O filtro de ciclo de vida é inválido.");
         try {
           writeJson(
             response,
             200,
-            await searchWorkspace(database.client, embeddings, workspaceId, body.query, limit),
+            await searchWorkspace(
+              database.client,
+              embeddings,
+              workspaceId,
+              body.query,
+              limit,
+              undefined,
+              {
+                includeLifecycle: body.includeLifecycle === true,
+              },
+            ),
           );
         } catch {
           throw new HttpError(500, "Não foi possível consultar o índice local.");
@@ -1474,7 +1627,14 @@ export async function createSidecar(
                                       typeof error.status === "number"
                                     ? error.status
                                     : 500;
-      writeJson(response, status, { error: message });
+      const errorCode = error instanceof VaultEditorError ? error.code : undefined;
+      writeJson(response, status, {
+        error: message,
+        ...(errorCode ? { errorCode } : {}),
+        ...(error instanceof VaultEditorError && error.details.currentHash
+          ? { currentHash: error.details.currentHash }
+          : {}),
+      });
     }
   });
   server.once("close", () => {

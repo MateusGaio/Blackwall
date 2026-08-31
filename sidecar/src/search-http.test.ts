@@ -107,6 +107,45 @@ describe("endpoint de busca híbrida", () => {
     expect(calls).not.toHaveBeenCalled();
   });
 
+  it("exclui captured/archived do contexto padrão e permite inclusão manual", async () => {
+    const { baseUrl, root, state, token } = await fixture();
+    const managed = (id: string, status: string) =>
+      `---\nid: ${id}\ntitle: ${status}\ntype: Note\nstatus: ${status}\ncreated_at: 2026-08-31T12:00:00.000Z\nupdated_at: 2026-08-31T12:00:00.000Z\nsource: blackwall\n---\nconteudo lifecycle`;
+    await writeFile(join(root, "organized.md"), managed("organized-1", "organized"), "utf8");
+    await writeFile(join(root, "captured.md"), managed("captured-1", "captured"), "utf8");
+    await writeFile(join(root, "archived.md"), managed("archived-1", "archived"), "utf8");
+    await writeFile(join(root, "external.md"), "# Externa\n\nconteudo lifecycle", "utf8");
+    await nativeFetch(`${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/vault/reindex`, {
+      headers: auth(token),
+      method: "POST",
+    });
+    const path = `${baseUrl}/v1/workspaces/${state.activeWorkspaceId}/search`;
+    const standard = await nativeFetch(path, {
+      body: JSON.stringify({ query: "lifecycle", limit: 20 }),
+      headers: auth(token),
+      method: "POST",
+    });
+    const standardBody = (await standard.json()) as {
+      results: Array<{ citation: { path?: string } }>;
+    };
+    expect(standardBody.results.map((item) => item.citation.path).sort()).toEqual([
+      "external.md",
+      "organized.md",
+    ]);
+    const manual = await nativeFetch(path, {
+      body: JSON.stringify({ includeLifecycle: true, query: "lifecycle", limit: 20 }),
+      headers: auth(token),
+      method: "POST",
+    });
+    const manualBody = (await manual.json()) as { results: Array<{ citation: { path?: string } }> };
+    expect(manualBody.results.map((item) => item.citation.path).sort()).toEqual([
+      "archived.md",
+      "captured.md",
+      "external.md",
+      "organized.md",
+    ]);
+  });
+
   it("usa uma embedding de consulta no modo híbrido e degrada com código seguro", async () => {
     const calls = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { input: string[] };

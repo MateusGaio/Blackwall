@@ -117,6 +117,7 @@ function verifyVaultVector(
   client: Database.Database,
   workspaceId: string,
   candidate: VectorCandidate,
+  options: { includeLifecycle?: boolean } = {},
 ): VaultCitation | null {
   if (candidate.workspaceId !== workspaceId) return null;
   const objectId = validText(candidate.objectId);
@@ -129,7 +130,7 @@ function verifyVaultVector(
   const row = client
     .prepare(
       `SELECT row_id AS objectId, path, title, content_hash AS contentHash,
-              body, source_content AS sourceContent
+              body, source_content AS sourceContent, managed, status
        FROM vault_objects
        WHERE workspace_id = ? AND row_id = ?`,
     )
@@ -137,13 +138,16 @@ function verifyVaultVector(
     | {
         body: string;
         contentHash: string;
+        managed: number;
         objectId: string;
         path: string;
         sourceContent: string;
+        status: string | null;
         title: string;
       }
     | undefined;
   if (!row || row.path !== path || row.contentHash !== contentHash) return null;
+  if (!options.includeLifecycle && row.managed === 1 && row.status !== "organized") return null;
   const body = row.sourceContent ? parseMarkdownObject(row.sourceContent, row.path).body : row.body;
   const chunks = chunkVaultObject(row.title, body);
   const excerpt = chunks[chunkIndex];
@@ -232,8 +236,9 @@ export async function searchWorkspace(
   query: string,
   limit: number,
   signal?: AbortSignal,
+  options: { includeLifecycle?: boolean } = {},
 ): Promise<WorkspaceSearchResponse> {
-  const vaultLexical = searchVaultDetailed(client, workspaceId, query, 20);
+  const vaultLexical = searchVaultDetailed(client, workspaceId, query, 20, options);
   const attachmentLexical = searchAttachmentsDetailed(client, workspaceId, query, 20);
   const lexicalLists = [
     lexicalRanked(
@@ -289,7 +294,7 @@ export async function searchWorkspace(
   if (vaultRows.status === "fulfilled") {
     semanticLists.push(
       semanticRanked(vaultRows.value, (candidate) =>
-        verifyVaultVector(client, workspaceId, candidate),
+        verifyVaultVector(client, workspaceId, candidate, options),
       ),
     );
   } else {

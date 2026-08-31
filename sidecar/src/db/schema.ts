@@ -1,5 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 const timestamps = {
   createdAt: integer("created_at").notNull(),
@@ -474,6 +481,32 @@ export const vaultRelations = sqliteTable("vault_relations", {
   resolution: text("resolution").notNull(),
 });
 
+/** Journal de escrita atômica; guarda somente metadados e hashes, nunca conteúdo. */
+export const vaultWriteOperations = sqliteTable(
+  "vault_write_operations",
+  {
+    operationId: text("operation_id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    portentId: text("portent_id"),
+    path: text("path").notNull(),
+    operation: text("operation").notNull(),
+    expectedHash: text("expected_hash"),
+    resultHash: text("result_hash"),
+    temporaryPath: text("temporary_path"),
+    state: text("state").notNull(),
+    ...timestamps,
+  },
+  (table) => ({
+    workspaceState: index("vault_write_operations_workspace_state").on(
+      table.workspaceId,
+      table.state,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const memoryCaptureJobs = sqliteTable("memory_capture_jobs", {
   id: text("id").primaryKey(),
   idempotencyKey: text("idempotency_key").notNull(),
@@ -572,6 +605,7 @@ export const schema = {
   sessionArtifacts,
   vaultObjects,
   vaultRelations,
+  vaultWriteOperations,
   memoryCaptureJobs,
   memoryCandidates,
   profileMemories,

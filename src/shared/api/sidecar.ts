@@ -145,6 +145,19 @@ export type McpExportCall = {
 export type VaultFile = {
   content: string;
   headings: string[];
+  managed?: boolean;
+  object?: {
+    body?: string;
+    createdAt?: string;
+    id?: string;
+    revisionId?: string;
+    source?: string;
+    sourceKind?: string;
+    status?: string;
+    title?: string;
+    type?: string;
+    updatedAt?: string;
+  };
   path: string;
   title: string;
 };
@@ -154,6 +167,84 @@ export type VaultGraph = {
   files: VaultFile[];
   nodes: Array<{ id: string; label: string; path: string }>;
 };
+
+export type VaultNoteType = "Project" | "Event" | "Note" | "Topic";
+export type VaultNoteStatus = "captured" | "organized" | "archived";
+
+export type VaultNoteRelationTarget = {
+  path: string;
+  portentId: string;
+  title: string;
+};
+
+export type VaultNoteSummary = {
+  contentHash: string;
+  createdAt?: string;
+  diagnosticCount: number;
+  managed: true;
+  path: string;
+  portentId: string;
+  revisionId?: string;
+  source: "blackwall";
+  sourceKind?: string;
+  status: VaultNoteStatus;
+  title: string;
+  type: VaultNoteType;
+  updatedAt?: string;
+};
+
+export type VaultNoteDetail = VaultNoteSummary & {
+  belongsTo: VaultNoteRelationTarget | null;
+  body: string;
+  relatedTo: VaultNoteRelationTarget[];
+};
+
+export type VaultNoteCreateInput = {
+  belongsTo: string | null;
+  body: string;
+  relatedTo: string[];
+  status: VaultNoteStatus;
+  title: string;
+  type: VaultNoteType;
+};
+
+export type VaultNotePatchInput = Partial<Omit<VaultNoteCreateInput, "belongsTo">> & {
+  belongsTo?: string | null;
+  expectedHash: string;
+};
+
+export type VaultNoteListResponse = {
+  notes: VaultNoteSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type VaultDiagnostic = {
+  code: string;
+  message: string;
+  path: string;
+  target?: string;
+};
+
+export type VaultDiagnosticPage = {
+  diagnostics: VaultDiagnostic[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export class SidecarApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly errorCode?: string,
+    readonly currentHash?: string,
+  ) {
+    super(message);
+    this.name = "SidecarApiError";
+  }
+}
 
 export type Session = {
   createdAt: number;
@@ -328,8 +419,18 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   } catch {
     throw new Error(i18n.t("errors.sidecarUnreachable"));
   }
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? i18n.t("errors.localActionFailed"));
+  const body = (await response.json()) as T & {
+    currentHash?: string;
+    error?: string;
+    errorCode?: string;
+  };
+  if (!response.ok)
+    throw new SidecarApiError(
+      body.error ?? i18n.t("errors.localActionFailed"),
+      response.status,
+      body.errorCode,
+      body.currentHash,
+    );
   return body;
 }
 
@@ -754,16 +855,105 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 }
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
-  return request(`/v1/workspaces/${workspaceId}/vault`, { method: "GET" });
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault`, { method: "GET" });
+}
+
+export async function listVaultNotes(
+  workspaceId: string,
+  options: {
+    hasDiagnostic?: boolean;
+    page?: number;
+    pageSize?: number;
+    status?: VaultNoteStatus;
+    type?: VaultNoteType;
+  } = {},
+): Promise<VaultNoteListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options))
+    if (value !== undefined) params.set(key, String(value));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function getVaultNote(
+  workspaceId: string,
+  portentId: string,
+): Promise<VaultNoteDetail> {
+  const response = await request<{ note: VaultNoteDetail }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    { method: "GET" },
+  );
+  return response.note;
+}
+
+export async function createVaultNote(
+  workspaceId: string,
+  input: VaultNoteCreateInput,
+): Promise<{ note: VaultNoteDetail; operation: "create"; revisionId: string }> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function patchVaultNote(
+  workspaceId: string,
+  portentId: string,
+  input: VaultNotePatchInput,
+): Promise<{
+  note: VaultNoteDetail;
+  operation: "update" | "archive" | "restore";
+  revisionId: string;
+}> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+}
+
+export async function deleteVaultNote(
+  workspaceId: string,
+  portentId: string,
+  expectedHash: string,
+): Promise<{ deleted: true; operation: "delete"; revisionId: string }> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    {
+      body: JSON.stringify({ expectedHash }),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function listVaultDiagnostics(
+  workspaceId: string,
+  options: { page?: number; pageSize?: number } = {},
+): Promise<VaultDiagnosticPage> {
+  const params = new URLSearchParams();
+  if (options.page !== undefined) params.set("page", String(options.page));
+  if (options.pageSize !== undefined) params.set("pageSize", String(options.pageSize));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/diagnostics${suffix}`, {
+    method: "GET",
+  });
 }
 
 export async function searchWorkspace(
   workspaceId: string,
   query: string,
   limit = 20,
+  options: { includeLifecycle?: boolean } = {},
 ): Promise<WorkspaceSearchResponse> {
   return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/search`, {
-    body: JSON.stringify({ limit, query }),
+    body: JSON.stringify({ includeLifecycle: options.includeLifecycle === true, limit, query }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });

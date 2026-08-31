@@ -167,3 +167,18 @@ rotacionar, pode ser copiado nessa resposta imediata e é limpo ao fechar/desmon
 para localStorage. Rotação e exclusão pedem confirmação; carregamento usa skeleton, ações
 assíncronas mostram progresso e mudanças de estado usam transições funcionais de 120–180 ms
 (instantâneas para teclado e reduced motion).
+
+## 15. Vault avançado (F2.8)
+
+Na aba `Arquivos`, a barra compacta oferece `Todos`, `Inbox`, `Organizadas`,
+`Arquivadas` e `Problemas`, sem criar uma terceira navegação global. A Inbox é
+uma view virtual de notas `captured`; arquivar, restaurar e excluir só aparecem
+para notas gerenciadas. Markdown externo permanece visível no explorador, com
+badge de somente leitura e sem ação de edição.
+
+O editor lazy carrega o detalhe por ID, mantém preview Markdown sanitizado,
+mostra progresso e preserva rascunho em erro. Um rascunho sujo exige escolha
+antes de fechar; conflito 409 oferece recarregar a versão do disco ou copiar o
+rascunho, sem force-save ou merge automático. Exclusão é definitiva e exige
+confirmação explícita. Entradas e saídas usam motion funcional de 120–180 ms,
+com estado instantâneo para teclado e `prefers-reduced-motion`.
