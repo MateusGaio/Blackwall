@@ -182,3 +182,11 @@ antes de fechar; conflito 409 oferece recarregar a versão do disco ou copiar o
 rascunho, sem force-save ou merge automático. Exclusão é definitiva e exige
 confirmação explícita. Entradas e saídas usam motion funcional de 120–180 ms,
 com estado instantâneo para teclado e `prefers-reduced-motion`.
+
+## 16. Memória contínua (F2.9)
+
+Configurações inclui a seção lazy `Memória` entre `Perfil` e `Workspaces`. O card de Aprendizado automático começa desligado, explica a segunda chamada potencialmente paga, a redaction da mensagem atual e a separação perfil/Inbox. A primeira ativação exige um diálogo explícito com Cancelar e Ativar aprendizado; Escape, fechamento e reduced motion não ativam o recurso.
+
+A seção mostra limite diário de 1–100, status pausado/ativo/limite/erro, filtros de memórias e activity. Memórias permitem editar com hash de revisão, fixar, arquivar/restaurar e excluir com confirmação definitiva. Candidatos mostram apenas a versão redigida, scope, tipo e motivo, com ações de aprovar/descartar/tentar novamente. Jobs continuam fora do caminho do chat e atualizações são notificações discretas acionáveis.
+
+O carregamento usa skeleton e lazy loading; entradas e saídas ocasionais usam motion funcional de 120–180 ms, sem pulse, loop, stagger, scale(0), layout animation ou `transition: all`. Toggle, filtro, pin e ações de teclado são instantâneos e todo deslocamento é removido por `prefers-reduced-motion`.

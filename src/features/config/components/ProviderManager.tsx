@@ -31,6 +31,10 @@ const McpSettingsSection = lazy(async () => {
   const module = await import("./McpSettingsSection");
   return { default: module.McpSettingsSection };
 });
+const MemorySettingsSection = lazy(async () => {
+  const module = await import("./MemorySettingsSection");
+  return { default: module.MemorySettingsSection };
+});
 
 type ProviderManagerProps = {
   activeSessionId?: string | null;
@@ -203,9 +207,11 @@ export function ProviderManager({
         ? t("settings.tabProfile")
         : section === "workspaces"
           ? t("settings.tabWorkspaces")
-          : section === "providers"
-            ? t("settings.tabProviders")
-            : t("settings.tabMcp");
+          : section === "memory"
+            ? t("settings.tabMemory")
+            : section === "providers"
+              ? t("settings.tabProviders")
+              : t("settings.tabMcp");
 
   return (
     <>
@@ -307,6 +313,19 @@ export function ProviderManager({
                   workspaceSoul={workspaceSettings.workspaceSoul}
                   workspaceStatus={workspaceSettings.workspaceStatus}
                 />
+              )}
+              {section === "memory" && (
+                <Suspense
+                  fallback={
+                    <div className="grid gap-3" data-testid="memory-settings-skeleton">
+                      <Skeleton className="h-7 w-52" />
+                      <Skeleton className="h-44 rounded-[var(--radius-panel)]" />
+                      <Skeleton className="h-32 rounded-[var(--radius-panel)]" />
+                    </div>
+                  }
+                >
+                  <MemorySettingsSection profileId={profileId} />
+                </Suspense>
               )}
               {section === "providers" && (
                 <div className="grid gap-6">

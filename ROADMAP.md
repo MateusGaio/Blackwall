@@ -60,6 +60,12 @@ Conforme `PRODUCT.md`, a Fase 2 abre duas frentes:
   editor Portent com escrita atômica e conflito por hash, Inbox, diagnósticos, lifecycle e
   auditoria de motion. Captura automática, memória comportamental e escrita MCP permanecem
   explicitamente fora do escopo e são candidatos à F2.9.
+- **F2.9 — captura automática opt-in e memória de perfil:** implementação local iniciada em
+  branch pendente de Issue/PR porque a autenticação GitHub do ambiente está inválida. A base
+  já inclui migração 22, commit atômico terminal+job, worker com lease/retry/quota, redaction,
+  parser estrito, policy de escopo, contexto limitado, APIs autenticadas e seção lazy de
+  Memória. Não considerar a Fase 2 encerrada até registrar a Issue, abrir PR draft e concluir
+  todos os gates, incluindo E2E e motion audit.
 
 **Pré-requisitos sugeridos antes de abrir a Fase 2:**
 

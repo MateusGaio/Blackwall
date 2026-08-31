@@ -38,7 +38,14 @@ import {
   selectMessagesForContext,
 } from "./context-budget.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
-import { models, profiles, routerEntries, sessions, workspaces } from "./db/schema.js";
+import {
+  models,
+  profileMemories,
+  profiles,
+  routerEntries,
+  sessions,
+  workspaces,
+} from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
 import { EmbeddingAdapterError, sanitizeEmbeddingErrorCode } from "./embeddings.js";
 import {
@@ -54,7 +61,24 @@ import {
   setMcpToolsEnabled,
 } from "./mcp.js";
 import { McpExportInputError, McpExportNotFoundError, McpExportService } from "./mcp-server.js";
+import { selectProfileMemoryContext } from "./memory-context.js";
 import { detectExplicitCaptureIntent } from "./memory-intent.js";
+import {
+  approveMemoryCandidate,
+  cancelLegacyMemoryJobs,
+  deleteProfileMemory,
+  discardMemoryCandidate,
+  listMemoryActivity,
+  listMemorySettings,
+  listProfileMemories,
+  MemoryConflictError,
+  MemoryProfileNotFoundError,
+  pruneMemory,
+  retryFailedMemoryJob,
+  updateMemorySettings,
+  updateProfileMemory,
+} from "./memory-store.js";
+import { createMemoryWorker } from "./memory-worker.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
   getProvider,
@@ -340,6 +364,8 @@ export async function createSidecar(
       : (process.env.BLACKWALL_SIDECAR_TOKEN ?? (isTestFixture ? null : generateSidecarToken()));
   const database = openDatabase(storageDirectory);
   pruneUsage(database.client);
+  pruneMemory(database.client);
+  cancelLegacyMemoryJobs(database.client);
   // Reconciliação legada e idempotente de duplicatas de provedores (ADR-12:
   // sem geração automática de schema; só dados). Nunca derruba o sidecar.
   try {
@@ -363,6 +389,42 @@ export async function createSidecar(
       if (socket.readyState === socket.OPEN) socket.send(payload);
     }
   }
+  let vaultEditor: VaultEditorService;
+  const memoryWorker = createMemoryWorker({
+    client: database.client,
+    dataDirectory: storageDirectory,
+    onEvent: (event) => broadcast(JSON.stringify(event)),
+    onWorkspaceCandidate: async (candidate) => {
+      const workspace = database.db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, candidate.workspaceId))
+        .get();
+      if (!workspace || workspace.permissionMode === "read-only") return false;
+      const result = await vaultEditor.create(
+        candidate.workspaceId,
+        {
+          belongsTo: null,
+          body: candidate.body,
+          relatedTo: [],
+          status: "captured",
+          title: candidate.title,
+          type: candidate.proposedType,
+        },
+        { sourceKind: "automatic" },
+      );
+      broadcast(
+        JSON.stringify({
+          noteId: result.note.portentId,
+          path: result.note.path,
+          revisionId: result.revisionId,
+          type: "vault.note.created",
+          workspaceId: candidate.workspaceId,
+        }),
+      );
+      return true;
+    },
+  });
   const mcpClients = new McpClientManager(storageDirectory, ({ count, serverId, workspaceId }) => {
     revokeGrants({ workspaceId });
     broadcast(JSON.stringify({ count, serverId, type: "mcp.tools.updated", workspaceId }));
@@ -501,7 +563,7 @@ export async function createSidecar(
     });
   }
 
-  const vaultEditor = new VaultEditorService(database.client, {
+  vaultEditor = new VaultEditorService(database.client, {
     onIndexed: (workspaceId, path) => syncWorkspaceVault(workspaceId, [path]),
     onWrite: (workspaceId, path) => vaultWatchers.get(workspaceId)?.markInternalWrite(path),
   });
@@ -599,6 +661,113 @@ export async function createSidecar(
     try {
       if (request.method === "GET" && pathname === "/v1/state") {
         writeJson(response, 200, store.getState());
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/memory\/settings$/.test(pathname)) {
+        writeJson(response, 200, {
+          settings: listMemorySettings(database.client, pathname.split("/")[3]),
+        });
+        return;
+      }
+      if (request.method === "PUT" && /^\/v1\/profiles\/[^/]+\/memory\/settings$/.test(pathname)) {
+        const input = (await requestBody(request, 32_000)) as {
+          acceptDisclosure?: boolean;
+          automaticEnabled: boolean;
+          disclosureVersion?: string;
+          maxDailyJobs?: number;
+        };
+        if (typeof input.automaticEnabled !== "boolean")
+          throw new HttpError(400, "automaticEnabled é obrigatório.");
+        const settings = updateMemorySettings(database.client, pathname.split("/")[3], input);
+        if (settings.automaticEnabled) memoryWorker.wake();
+        writeJson(response, 200, { settings });
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/memories$/.test(pathname)) {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const { page, pageSize } = paging(url);
+        writeJson(response, 200, {
+          memories: listProfileMemories(database.client, pathname.split("/")[3], {
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+            status: url.searchParams.get("status") ?? undefined,
+          }),
+        });
+        return;
+      }
+      if (request.method === "PATCH" && /^\/v1\/profiles\/[^/]+\/memories\/[^/]+$/.test(pathname)) {
+        const input = (await requestBody(request, 32_000)) as {
+          expectedHash: string;
+          pinned?: boolean;
+          statement?: string;
+          status?: "organized" | "archived" | "captured";
+        };
+        if (typeof input.expectedHash !== "string")
+          throw new HttpError(400, "expectedHash é obrigatório.");
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          memory: updateProfileMemory(database.client, parts[3], parts[5], input),
+        });
+        return;
+      }
+      if (
+        request.method === "DELETE" &&
+        /^\/v1\/profiles\/[^/]+\/memories\/[^/]+$/.test(pathname)
+      ) {
+        const input = (await requestBody(request, 8_000)) as {
+          expectedHash: string;
+          confirm?: boolean;
+        };
+        if (input.confirm !== true || typeof input.expectedHash !== "string")
+          throw new HttpError(400, "Confirme a exclusão definitiva com expectedHash.");
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          memory: deleteProfileMemory(database.client, parts[3], parts[5], input.expectedHash),
+        });
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/profiles\/[^/]+\/memory\/activity$/.test(pathname)) {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const { page, pageSize } = paging(url);
+        writeJson(
+          response,
+          200,
+          listMemoryActivity(database.client, pathname.split("/")[3], {
+            limit: pageSize,
+            offset: (page - 1) * pageSize,
+            status: url.searchParams.get("status") ?? undefined,
+          }),
+        );
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/profiles\/[^/]+\/memory\/candidates\/[^/]+\/approve$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          candidate: approveMemoryCandidate(database.client, parts[3], parts[6]),
+        });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/profiles\/[^/]+\/memory\/candidates\/[^/]+\/discard$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          candidate: discardMemoryCandidate(database.client, parts[3], parts[6]),
+        });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/profiles\/[^/]+\/memory\/jobs\/[^/]+\/retry$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const result = retryFailedMemoryJob(database.client, parts[3], parts[6]);
+        memoryWorker.wake();
+        writeJson(response, 200, { job: result });
         return;
       }
       if (request.method === "GET" && pathname === "/v1/usage/summary") {
@@ -1596,50 +1765,62 @@ export async function createSidecar(
       const status =
         error instanceof HttpError
           ? error.status
-          : error instanceof ProviderInputError
-            ? 400
-            : error instanceof McpInputError
-              ? 400
-              : error instanceof McpExportInputError
+          : error instanceof MemoryConflictError
+            ? 409
+            : error instanceof MemoryProfileNotFoundError
+              ? 404
+              : error instanceof ProviderInputError
                 ? 400
-                : error instanceof McpNotFoundError
-                  ? 404
-                  : error instanceof McpExportNotFoundError
-                    ? 404
-                    : error instanceof McpConnectionError
-                      ? 503
-                      : error instanceof ProviderNotFoundError
+                : error instanceof McpInputError
+                  ? 400
+                  : error instanceof McpExportInputError
+                    ? 400
+                    : error instanceof McpNotFoundError
+                      ? 404
+                      : error instanceof McpExportNotFoundError
                         ? 404
-                        : error instanceof ProviderConnectionError
+                        : error instanceof McpConnectionError
                           ? 503
-                          : error instanceof ProviderHttpError
-                            ? error.status
-                            : error instanceof EmbeddingAdapterError
-                              ? 400
-                              : error instanceof EmbeddingServiceError
+                          : error instanceof ProviderNotFoundError
+                            ? 404
+                            : error instanceof ProviderConnectionError
+                              ? 503
+                              : error instanceof ProviderHttpError
                                 ? error.status
-                                : error instanceof WorkspaceFilesError ||
-                                    error instanceof AttachmentPreviewError
-                                  ? error.status
-                                  : typeof error === "object" &&
-                                      error &&
-                                      "status" in error &&
-                                      typeof error.status === "number"
+                                : error instanceof EmbeddingAdapterError
+                                  ? 400
+                                  : error instanceof EmbeddingServiceError
                                     ? error.status
-                                    : 500;
-      const errorCode = error instanceof VaultEditorError ? error.code : undefined;
+                                    : error instanceof WorkspaceFilesError ||
+                                        error instanceof AttachmentPreviewError
+                                      ? error.status
+                                      : typeof error === "object" &&
+                                          error &&
+                                          "status" in error &&
+                                          typeof error.status === "number"
+                                        ? error.status
+                                        : 500;
+      const errorCode =
+        error instanceof VaultEditorError
+          ? error.code
+          : error instanceof MemoryConflictError
+            ? "memory_conflict"
+            : undefined;
       writeJson(response, status, {
         error: message,
         ...(errorCode ? { errorCode } : {}),
         ...(error instanceof VaultEditorError && error.details.currentHash
           ? { currentHash: error.details.currentHash }
-          : {}),
+          : error instanceof MemoryConflictError
+            ? { currentHash: error.currentHash }
+            : {}),
       });
     }
   });
   server.once("close", () => {
     stopAllVaultWatchers();
     void mcpClients.closeAll();
+    void memoryWorker.stop();
     void embeddings.close();
     database.close();
   });
@@ -1732,6 +1913,18 @@ export async function createSidecar(
     const currentUserMessage = [...input.messages]
       .reverse()
       .find((message) => message.role === "user")?.content;
+    const sourceUserMessage =
+      input.sessionId && currentUserMessage
+        ? (database.client
+            .prepare(
+              `SELECT id, content FROM messages
+               WHERE session_id = ? AND role = 'user' AND content = ?
+               ORDER BY sequence DESC LIMIT 1`,
+            )
+            .get(input.sessionId, currentUserMessage) as
+            | { id: string; content: string }
+            | undefined)
+        : undefined;
     const captureIntent = currentUserMessage
       ? detectExplicitCaptureIntent(currentUserMessage)
       : { kind: "none" as const, reason: "not_detected" as const };
@@ -1783,6 +1976,25 @@ export async function createSidecar(
     const systemMessages: ChatMessage[] = [];
     if (profile?.soul) systemMessages.push({ content: profile.soul, role: "system" });
     if (workspace?.soul) systemMessages.push({ content: workspace.soul, role: "system" });
+    if (profile) {
+      const memories = database.db
+        .select({
+          confidence: profileMemories.confidence,
+          evidenceCount: profileMemories.evidenceCount,
+          id: profileMemories.id,
+          kind: profileMemories.kind,
+          lastSeenAt: profileMemories.lastSeenAt,
+          pinned: profileMemories.pinned,
+          statement: profileMemories.statement,
+          status: profileMemories.status,
+          updatedAt: profileMemories.updatedAt,
+        })
+        .from(profileMemories)
+        .where(eq(profileMemories.profileId, profile.id))
+        .all();
+      const memoryContext = selectProfileMemoryContext(memories);
+      if (memoryContext) systemMessages.push({ content: memoryContext, role: "system" });
+    }
     const storedMessages = input.sessionId
       ? selectMessagesForContext(
           store.listMessages(input.sessionId).map((message) => ({
@@ -2023,6 +2235,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                       observedAt: Date.now(),
                       profileId: input.profileId,
                       providerId: summaryResult.provider.id,
+                      purpose: "compaction",
                       requestId: `${input.requestId}:compaction`,
                       sessionId: input.sessionId,
                       status: "completed",
@@ -2041,6 +2254,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                       observedAt: Date.now(),
                       profileId: input.profileId,
                       providerId: candidate.providerId,
+                      purpose: "compaction",
                       requestId: `${input.requestId}:compaction`,
                       sessionId: input.sessionId,
                       status: "failed",
@@ -2279,16 +2493,36 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                   }),
                 );
               }
-              persistStream(content, result.provider.id, candidate.model, "complete");
-              if (
-                runStore.finish(input.requestId, "completed", {
+              const terminal = runStore.finishWithAssistant({
+                assistantContent: content,
+                model: candidate.model,
+                payload: {
                   content,
                   provider: result.provider.id,
                   sessionId: input.sessionId,
                   tokens: result.tokens,
                   windows: result.windows,
-                })
-              )
+                },
+                profileId: input.profileId,
+                providerId: result.provider.id,
+                requestId: input.requestId,
+                sessionId: input.sessionId,
+                sourceUserMessageId: sourceUserMessage?.id,
+                workspaceId: input.workspaceId,
+              });
+              if (terminal.committed) {
+                if (terminal.jobId) {
+                  broadcast(
+                    JSON.stringify({
+                      eventId: randomUUID(),
+                      jobId: terminal.jobId,
+                      profileId: input.profileId,
+                      status: "pending",
+                      type: "memory.capture.queued",
+                    }),
+                  );
+                  memoryWorker.wake();
+                }
                 socket.send(
                   JSON.stringify({
                     content,
@@ -2301,6 +2535,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
                     windows: result.windows,
                   }),
                 );
+              }
               return;
             }
             for (const call of result.toolCalls) {
@@ -2938,6 +3173,7 @@ Respeite as autorizações do usuário, confirme o resultado de cada ferramenta 
   });
 
   await initializeVaultWorkspaces();
+  if (!isTestFixture) void memoryWorker.start();
 
   return new Promise((resolve, reject) => {
     let listening = false;

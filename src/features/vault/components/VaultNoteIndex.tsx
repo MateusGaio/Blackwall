@@ -122,10 +122,9 @@ export function VaultNoteIndex({
           {t("vault.newNote")}
         </Button>
       </div>
-      <div
-        className="flex flex-wrap gap-0.5 px-1 pb-1"
-        role="group"
+      <fieldset
         aria-label={t("vault.noteFilters")}
+        className="m-0 flex min-w-0 flex-wrap gap-0.5 border-0 px-1 pb-1"
       >
         {filters.map(([value, label]) => (
           <button
@@ -138,7 +137,7 @@ export function VaultNoteIndex({
             {label}
           </button>
         ))}
-      </div>
+      </fieldset>
       {loading && (
         <div className="grid gap-1 px-2">
           <Skeleton className="h-7" />

@@ -5,7 +5,14 @@ import { normalizeSettingsSection, settingsSections } from "./settings-sections"
 
 describe("settings sections", () => {
   it("keeps the direct Codex-like tab order", () => {
-    expect(settingsSections).toEqual(["usage", "profile", "workspaces", "providers", "mcp"]);
+    expect(settingsSections).toEqual([
+      "usage",
+      "profile",
+      "memory",
+      "workspaces",
+      "providers",
+      "mcp",
+    ]);
   });
 
   it("opens unknown or missing sections in Usage", () => {

@@ -790,4 +790,69 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const memoryV2 = client.prepare("SELECT id FROM _migrations WHERE id = 22").get();
+  if (!memoryV2) {
+    const transaction = client.transaction(() => {
+      const columns = (table: string) =>
+        new Set(
+          (client.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+            (column) => column.name,
+          ),
+        );
+      const addColumn = (table: string, name: string, definition: string) => {
+        if (!columns(table).has(name))
+          client.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      };
+
+      addColumn("memory_capture_jobs", "source_provider_id", "TEXT");
+      addColumn("memory_capture_jobs", "source_model_id", "TEXT");
+      addColumn("memory_capture_jobs", "lease_token", "TEXT");
+      addColumn("memory_capture_jobs", "finished_at", "INTEGER");
+      addColumn("memory_capture_jobs", "scrubbed_at", "INTEGER");
+      addColumn("profile_memory_settings", "disclosure_version", "TEXT");
+      addColumn("profile_memory_settings", "disclosure_accepted_at", "INTEGER");
+      addColumn("profile_memory_settings", "paused_reason", "TEXT");
+      addColumn("profile_memories", "reason_code", "TEXT NOT NULL DEFAULT 'user_preference'");
+      addColumn("profile_memories", "revision_hash", "TEXT NOT NULL DEFAULT ''");
+      addColumn("provider_usage_events", "purpose", "TEXT NOT NULL DEFAULT 'chat'");
+
+      // v1 was only scaffolding. It must never become a paid retroactive job.
+      const now = Date.now();
+      client
+        .prepare(
+          `UPDATE memory_capture_jobs
+             SET status = CASE WHEN status IN ('pending', 'running') THEN 'cancelled' ELSE status END,
+                 cancel_reason = CASE WHEN status IN ('pending', 'running') THEN 'legacy_unimplemented' ELSE cancel_reason END,
+                 input_json = '{}', finished_at = ?, scrubbed_at = ?, updated_at = ?
+           WHERE pipeline_version = 'v1'`,
+        )
+        .run(now, now, now);
+      client
+        .prepare(
+          "UPDATE provider_usage_events SET purpose = 'chat' WHERE purpose IS NULL OR purpose = ''",
+        )
+        .run();
+      client
+        .prepare(
+          `INSERT OR IGNORE INTO profile_memory_settings
+             (profile_id, automatic_enabled, extractor_mode, max_daily_jobs,
+              candidate_retention_days, revision_retention_days, disclosure_version,
+              disclosure_accepted_at, paused_reason, created_at, updated_at)
+           SELECT id, 0, 'same_session_model', 100, 30, 90, NULL, NULL, NULL, ?, ?
+             FROM profiles`,
+        )
+        .run(now, now);
+      client.exec(`
+        CREATE INDEX IF NOT EXISTS memory_capture_jobs_profile_trigger_created
+          ON memory_capture_jobs(profile_id, trigger, created_at DESC);
+        CREATE INDEX IF NOT EXISTS memory_capture_jobs_status_available_priority
+          ON memory_capture_jobs(status, available_at, priority DESC, created_at);
+        CREATE INDEX IF NOT EXISTS profile_memories_profile_status_pinned_updated
+          ON profile_memories(profile_id, status, pinned DESC, updated_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(22, now);
+    });
+    transaction();
+  }
 }
