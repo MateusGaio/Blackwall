@@ -416,7 +416,7 @@ export class VaultEmbeddingService {
     });
   }
 
-  async embedTexts(workspaceId: string, texts: string[]) {
+  async embedTexts(workspaceId: string, texts: string[], signal?: AbortSignal) {
     const config = readConfigRow(this.client, workspaceId);
     if (!config) {
       throw new EmbeddingServiceError(
@@ -426,7 +426,7 @@ export class VaultEmbeddingService {
       );
     }
     try {
-      return await (await this.adapter(config)).embed(texts);
+      return await (await this.adapter(config)).embed(texts, signal);
     } catch (error) {
       throw new EmbeddingServiceError(
         sanitizeEmbeddingErrorCode(error),

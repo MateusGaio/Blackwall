@@ -6,6 +6,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { localhostHostValidation, localhostOriginValidation } from "@modelcontextprotocol/node";
 import { and, asc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import { AttachmentEmbeddingService } from "./attachment-embeddings.js";
@@ -52,6 +53,7 @@ import {
   setMcpServerEnabled,
   setMcpToolsEnabled,
 } from "./mcp.js";
+import { McpExportInputError, McpExportNotFoundError, McpExportService } from "./mcp-server.js";
 import { detectExplicitCaptureIntent } from "./memory-intent.js";
 import { telemetryMode, withInstrumentation } from "./observability.js";
 import {
@@ -345,6 +347,16 @@ export async function createSidecar(
     revokeGrants({ workspaceId });
     broadcast(JSON.stringify({ count, serverId, type: "mcp.tools.updated", workspaceId }));
   });
+  const mcpExports = new McpExportService(
+    database,
+    storageDirectory,
+    async (workspaceId, query, limit, signal) => {
+      if (signal.aborted) throw new DOMException("Timed out", "TimeoutError");
+      return await searchWorkspace(database.client, embeddings, workspaceId, query, limit, signal);
+    },
+  );
+  const validateMcpHost = localhostHostValidation();
+  const validateMcpOrigin = localhostOriginValidation();
   const vaultWatchers = new Map<string, ReturnType<typeof createVaultWatcher>>();
   const vaultIndexQueues = new Map<string, Promise<unknown>>();
 
@@ -507,12 +519,32 @@ export async function createSidecar(
   }
 
   const server = createServer(async (request, response) => {
+    const pathname = new URL(request.url ?? "/", "http://blackwall.local").pathname;
+    if (/^\/mcp\/[^/]+$/.test(pathname)) {
+      if (!validateMcpHost(request, response) || !validateMcpOrigin(request, response)) return;
+      if (request.method !== "POST") {
+        writeJson(response, 405, { error: "Método MCP não permitido." });
+        return;
+      }
+      const contentType = request.headers["content-type"];
+      if (typeof contentType !== "string" || !/^application\/json(?:;|$)/i.test(contentType)) {
+        writeJson(response, 415, { error: "Content-Type MCP inválido." });
+        return;
+      }
+      try {
+        const body = await requestBody(request, 256 * 1024);
+        await mcpExports.handle(request, response, pathname.split("/")[2], body);
+      } catch (error) {
+        const status = error instanceof HttpError ? error.status : 400;
+        writeJson(response, status, { error: "Pedido MCP inválido." });
+      }
+      return;
+    }
     if (!allowOrigin(request, response)) {
       writeJson(response, 403, { error: "Origem não permitida." });
       return;
     }
     if (request.method === "OPTIONS") return response.writeHead(204).end();
-    const pathname = new URL(request.url ?? "/", "http://blackwall.local").pathname;
     if (pathname === "/health") {
       writeJson(response, 200, withInstrumentation("sidecar.health", healthPayload));
       return;
@@ -965,6 +997,15 @@ export async function createSidecar(
           .where(eq(workspaces.profileId, pathname.split("/")[3]))
           .all()
           .map((workspace) => workspace.id);
+        // Cascatas SQLite não alcançam secrets.enc: invalida tokens antes de
+        // remover os workspaces que lhes dão autoridade.
+        await Promise.all(
+          profileWorkspaceIds.map((workspaceId) =>
+            mcpExports.remove(workspaceId).catch((error) => {
+              if (!(error instanceof McpExportNotFoundError)) throw error;
+            }),
+          ),
+        );
         const state = await store.deleteProfile(pathname.split("/")[3]);
         for (const workspaceId of profileWorkspaceIds) stopVaultWorkspace(workspaceId);
         writeJson(response, 200, state);
@@ -1019,6 +1060,58 @@ export async function createSidecar(
         writeJson(response, 200, {
           workspace: store.setWorkspaceSoul(pathname.split("/")[3], input.soul),
         });
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/mcp\/export$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, { export: await mcpExports.get(workspaceId) });
+        return;
+      }
+      if (request.method === "PUT" && /^\/v1\/workspaces\/[^/]+\/mcp\/export$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        const exportView = await mcpExports.update(
+          workspaceId,
+          (await requestBody(request)) as { enabled?: unknown; tools?: unknown },
+        );
+        broadcast(
+          JSON.stringify({
+            enabled: exportView.enabled,
+            toolCount: exportView.tools.filter((tool) => tool.enabled).length,
+            type: "mcp.export.updated",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 200, { export: exportView });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/export\/token\/rotate$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const rotated = await mcpExports.rotateToken(workspaceId);
+        writeJson(response, 200, rotated);
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/mcp\/export\/calls$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const rawLimit = Number(url.searchParams.get("limit") ?? 50);
+        writeJson(response, 200, {
+          calls: mcpExports.listCalls(workspaceId, Number.isSafeInteger(rawLimit) ? rawLimit : 50),
+        });
+        return;
+      }
+      if (request.method === "DELETE" && /^\/v1\/workspaces\/[^/]+\/mcp\/export$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        await mcpExports.remove(workspaceId);
+        broadcast(
+          JSON.stringify({ enabled: false, toolCount: 0, type: "mcp.export.updated", workspaceId }),
+        );
+        writeJson(response, 200, { ok: true });
         return;
       }
       if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/mcp\/servers$/.test(pathname)) {
@@ -1354,29 +1447,33 @@ export async function createSidecar(
             ? 400
             : error instanceof McpInputError
               ? 400
-              : error instanceof McpNotFoundError
-                ? 404
-                : error instanceof McpConnectionError
-                  ? 503
-                  : error instanceof ProviderNotFoundError
+              : error instanceof McpExportInputError
+                ? 400
+                : error instanceof McpNotFoundError
+                  ? 404
+                  : error instanceof McpExportNotFoundError
                     ? 404
-                    : error instanceof ProviderConnectionError
+                    : error instanceof McpConnectionError
                       ? 503
-                      : error instanceof ProviderHttpError
-                        ? error.status
-                        : error instanceof EmbeddingAdapterError
-                          ? 400
-                          : error instanceof EmbeddingServiceError
+                      : error instanceof ProviderNotFoundError
+                        ? 404
+                        : error instanceof ProviderConnectionError
+                          ? 503
+                          : error instanceof ProviderHttpError
                             ? error.status
-                            : error instanceof WorkspaceFilesError ||
-                                error instanceof AttachmentPreviewError
-                              ? error.status
-                              : typeof error === "object" &&
-                                  error &&
-                                  "status" in error &&
-                                  typeof error.status === "number"
+                            : error instanceof EmbeddingAdapterError
+                              ? 400
+                              : error instanceof EmbeddingServiceError
                                 ? error.status
-                                : 500;
+                                : error instanceof WorkspaceFilesError ||
+                                    error instanceof AttachmentPreviewError
+                                  ? error.status
+                                  : typeof error === "object" &&
+                                      error &&
+                                      "status" in error &&
+                                      typeof error.status === "number"
+                                    ? error.status
+                                    : 500;
       writeJson(response, status, { error: message });
     }
   });

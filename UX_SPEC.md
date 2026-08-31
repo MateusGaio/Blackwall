@@ -154,3 +154,16 @@ Secundária: todo fluxo precisa funcionar de ponta a ponta com mouse sem nenhuma
 ## 13. Streaming interrompido
 
 Se a conexão cair no meio de uma resposta sendo exibida: o texto parcial permanece na tela, e aparece um aviso inline (não um modal bloqueante) tipo "Conexão perdida durante a resposta — [Tentar novamente]". Não tenta retomar sozinho, não descarta o que já foi exibido.
+
+---
+
+## 14. Exportação MCP local
+
+Na seção lazy `MCP` das configurações, “Conectar servidores ao Blackwall” e “Expor este
+workspace via MCP” são cards distintos. A exportação mostra que o endpoint é apenas local,
+avisa que qualquer processo com o token pode consultar excertos indexados e oferece somente
+`search_workspace`, desligada por padrão. O token é mostrado uma única vez após gerar ou
+rotacionar, pode ser copiado nessa resposta imediata e é limpo ao fechar/desmontar — nunca vai
+para localStorage. Rotação e exclusão pedem confirmação; carregamento usa skeleton, ações
+assíncronas mostram progresso e mudanças de estado usam transições funcionais de 120–180 ms
+(instantâneas para teclado e reduced motion).

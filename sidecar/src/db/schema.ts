@@ -130,6 +130,61 @@ export const mcpTools = sqliteTable(
   }),
 );
 
+/** Exportação MCP local por workspace; o token nunca é persistido no SQLite. */
+export const mcpExports = sqliteTable(
+  "mcp_exports",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    lastUsedAt: integer("last_used_at"),
+    ...timestamps,
+  },
+  (table) => ({
+    workspace: uniqueIndex("mcp_exports_workspace").on(table.workspaceId),
+  }),
+);
+
+/** Allowlist mínima do servidor MCP local. Nenhuma ferramenta nasce ativa. */
+export const mcpExportTools = sqliteTable(
+  "mcp_export_tools",
+  {
+    exportId: text("export_id")
+      .notNull()
+      .references(() => mcpExports.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    ...timestamps,
+  },
+  (table) => ({
+    primary: primaryKey({ columns: [table.exportId, table.toolName] }),
+  }),
+);
+
+/** Auditoria técnica limitada; nunca guarda argumentos, conteúdo ou segredos. */
+export const mcpExportCalls = sqliteTable(
+  "mcp_export_calls",
+  {
+    id: text("id").primaryKey(),
+    exportId: text("export_id")
+      .notNull()
+      .references(() => mcpExports.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    outcome: text("outcome").notNull(),
+    errorCode: text("error_code"),
+    durationMs: integer("duration_ms").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => ({
+    exportCreated: uniqueIndex("mcp_export_calls_export_created").on(
+      table.exportId,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const models = sqliteTable(
   "models",
   {
@@ -495,6 +550,9 @@ export const schema = {
   mcpServers,
   mcpServerSecrets,
   mcpTools,
+  mcpExports,
+  mcpExportTools,
+  mcpExportCalls,
   models,
   routerEntries,
   messages,

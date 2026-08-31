@@ -48,6 +48,15 @@ Conforme `PRODUCT.md`, a Fase 2 abre duas frentes:
 1. **RAG semântico (LanceDB)** sobre Vault + anexos — hoje a busca é só lexical (FTS5).
 2. **MCP** — conectar servidores/clientes MCP ao harness.
 
+### Entregas MCP da Fase 2
+
+- **F2.6 — cliente MCP e permissões por workspace:** entregue na PR #245. O Blackwall
+  consome apenas servidores explicitamente configurados e ferramentas habilitadas.
+- **F2.7 — servidor MCP local somente leitura:** exporta um workspace por endpoint Streamable
+  HTTP loopback, com token independente e `search_workspace` como única ferramenta. A
+  exportação permanece desligada até haver token e allowlist explícita; stdio, OAuth,
+  resources/prompts, escrita e proxy de ferramentas remotas seguem fora do escopo.
+
 **Pré-requisitos sugeridos antes de abrir a Fase 2:**
 
 - [ ] Fechar U4/U5 (base de UI estável para receber novas telas)

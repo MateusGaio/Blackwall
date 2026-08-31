@@ -124,6 +124,24 @@ export type McpServerInput = {
   transport: McpTransportKind;
 };
 
+export type McpExport = {
+  enabled: boolean;
+  endpointPath: string | null;
+  hasToken: boolean;
+  id: string | null;
+  lastUsedAt: number | null;
+  tools: Array<{ enabled: boolean; name: "search_workspace" }>;
+  workspaceId: string;
+};
+
+export type McpExportCall = {
+  createdAt: number;
+  durationMs: number;
+  errorCode: string | null;
+  outcome: "success" | "error" | "timeout" | "rate_limited";
+  toolName: "search_workspace";
+};
+
 export type VaultFile = {
   content: string;
   headings: string[];
@@ -667,6 +685,58 @@ export async function disconnectMcpServer(workspaceId: string, serverId: string)
       method: "POST",
     },
   );
+}
+
+export async function getMcpExport(workspaceId: string): Promise<McpExport> {
+  const response = await request<{ export: McpExport }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`,
+    { method: "GET" },
+  );
+  return response.export;
+}
+
+export async function updateMcpExport(
+  workspaceId: string,
+  input: { enabled?: boolean; tools?: Array<"search_workspace"> },
+): Promise<McpExport> {
+  const response = await request<{ export: McpExport }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.export;
+}
+
+export async function rotateMcpExportToken(
+  workspaceId: string,
+): Promise<{ export: McpExport; token: string }> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export/token/rotate`, {
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function listMcpExportCalls(workspaceId: string): Promise<McpExportCall[]> {
+  const response = await request<{ calls: McpExportCall[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export/calls`,
+    { method: "GET" },
+  );
+  return response.calls;
+}
+
+export async function deleteMcpExport(workspaceId: string): Promise<void> {
+  await request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`, {
+    method: "DELETE",
+  });
+}
+
+export async function mcpEndpointUrl(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  const config = await sidecarConfig();
+  return config.sidecar_url ? `${config.sidecar_url}${path}` : null;
 }
 
 export async function selectSession(sessionId: string): Promise<AppState> {

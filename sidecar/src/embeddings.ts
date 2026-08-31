@@ -33,7 +33,7 @@ type EmbeddingAdapterOptions = {
 type EmbeddingAdapterConfig = Pick<EmbeddingConfig, "dimension" | "model" | "provider" | "url">;
 
 export interface EmbeddingAdapter {
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], signal?: AbortSignal): Promise<number[][]>;
 }
 
 export class EmbeddingAdapterError extends Error {
@@ -222,7 +222,7 @@ export function createEmbeddingAdapter(
   const normalized = validateEmbeddingConfigInput(config);
 
   return {
-    async embed(texts) {
+    async embed(texts, signal) {
       if (!texts.length) return [];
       const body = {
         ...(normalized.dimension ? { dimensions: normalized.dimension } : {}),
@@ -236,6 +236,7 @@ export function createEmbeddingAdapter(
             body: JSON.stringify(body),
             headers: requestHeaders(options.apiKey),
             method: "POST",
+            signal,
           },
         );
         const parsed = await parseResponse(response);
