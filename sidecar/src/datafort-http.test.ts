@@ -154,4 +154,39 @@ describe("API do workspace Datafort", () => {
     });
     expect(restored.status).toBe(200);
   });
+
+  it("recebe um anexo do editor, resolve colisão e entrega preview binário sem root absoluto", async () => {
+    const { baseUrl, token, workspaceId } = await fixture();
+    const endpoint = `${baseUrl}/v1/workspaces/${workspaceId}/datafort`;
+    const payload = JSON.stringify({
+      contentBase64: Buffer.from("conteúdo", "utf8").toString("base64"),
+      filename: "fonte.txt",
+    });
+    const first = await fetch(`${endpoint}/attachments`, {
+      body: payload,
+      headers: jsonHeaders(token),
+      method: "POST",
+    });
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as {
+      attachment: { path: string; fileId: string; contentHash: string };
+    };
+    const second = await fetch(`${endpoint}/attachments`, {
+      body: payload,
+      headers: jsonHeaders(token),
+      method: "POST",
+    });
+    const secondBody = (await second.json()) as { attachment: { path: string } };
+    expect(second.status).toBe(201);
+    expect(secondBody.attachment.path).toContain("fonte (1).txt");
+    const content = await fetch(
+      `${endpoint}/attachments/content?path=${encodeURIComponent(firstBody.attachment.path)}`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    expect(content.status).toBe(200);
+    expect(content.headers.get("content-type")).toContain("text/plain");
+    expect(await content.text()).toBe("conteúdo");
+    expect(firstBody.attachment.fileId).not.toContain("/");
+    expect(firstBody.attachment.contentHash).toMatch(/^[a-f0-9]{64}$/);
+  });
 });

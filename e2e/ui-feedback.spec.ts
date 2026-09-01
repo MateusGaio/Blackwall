@@ -729,4 +729,53 @@ test.describe("Datafort — workspace local de conhecimento", () => {
     await datafort.getByRole("button", { name: /Voltar ao chat|Back to chat/ }).click();
     await expect(page.getByTestId("chat-composer")).toBeVisible();
   });
+
+  test("aceita anexo pelo seletor, paste e drop e mantém o link no editor", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Datafort Anexos");
+    await page.getByRole("button", { name: /^Datafort$/i }).click();
+    const datafort = page.getByRole("main", { name: "Datafort" });
+    await expect(datafort).toBeVisible({ timeout: 10_000 });
+
+    const title = datafort.getByLabel(/Título da nota|Note title/);
+    await title.fill("Nota com anexos");
+    await datafort.getByRole("button", { name: /Criar nota|Create note/ }).click();
+    await expect(datafort.getByRole("tab", { name: /Nota com anexos/ })).toBeVisible();
+
+    const fileInput = datafort.locator('input[aria-label="Escolher anexo"]');
+    await fileInput.setInputFiles({
+      buffer: Buffer.from("selecionado"),
+      mimeType: "text/plain",
+      name: "selecionado.txt",
+    });
+    await expect(datafort.getByText("selecionado.txt", { exact: true })).toBeVisible();
+
+    const editor = datafort.locator(".cm-content");
+    for (const [name, eventName] of [
+      ["colado.txt", "paste"],
+      ["solto.txt", "drop"],
+    ] as const) {
+      await editor.evaluate(
+        (element, details) => {
+          const file = new File([`conteúdo ${details.name}`], details.name, {
+            type: "text/plain",
+          });
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          const event = new Event(details.eventName, { bubbles: true, cancelable: true });
+          Object.defineProperty(
+            event,
+            details.eventName === "paste" ? "clipboardData" : "dataTransfer",
+            { configurable: true, value: transfer },
+          );
+          element.dispatchEvent(event);
+        },
+        { eventName, name },
+      );
+      await expect(datafort.getByText(name, { exact: true })).toBeVisible();
+    }
+
+    await expect(editor).toContainText("![[Blackwall Vault/Attachments/selecionado.txt]]");
+    await expect(editor).toContainText("![[Blackwall Vault/Attachments/colado.txt]]");
+    await expect(editor).toContainText("![[Blackwall Vault/Attachments/solto.txt]]");
+  });
 });

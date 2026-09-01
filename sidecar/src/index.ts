@@ -918,6 +918,43 @@ export async function createSidecar(
       }
       if (
         request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/attachments$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const attachment = await datafort.attachFile(
+          workspaceId,
+          (await requestBody(request, 16 * 1024 * 1024)) as Record<string, unknown>,
+        );
+        const synced = datafort.changeEvents(workspaceId, [attachment.attachment.path], "datafort");
+        void syncWorkspaceVault(workspaceId, [attachment.attachment.path]).catch((error) =>
+          publishVaultIndexFailure(workspaceId, error),
+        );
+        broadcast(
+          JSON.stringify({
+            attachment: attachment.attachment,
+            origin: "datafort",
+            type: "datafort.attachment.created",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 201, { ...(await attachment), events: await synced });
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/attachments\/content$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const preview = await datafort.readAttachment(
+          workspaceId,
+          url.searchParams.get("path") ?? "",
+        );
+        writeBytes(response, 200, preview.contentType, preview.bytes);
+        return;
+      }
+      if (
+        request.method === "POST" &&
         /^\/v1\/workspaces\/[^/]+\/datafort\/entries\/move$/.test(pathname)
       ) {
         const workspaceId = pathname.split("/")[3];

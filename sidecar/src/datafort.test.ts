@@ -140,4 +140,29 @@ describe("fundação do Datafort", () => {
     });
     database.close();
   });
+
+  it("copia anexos com nome seguro, resolve colisões e limita o preview à pasta configurada", async () => {
+    const { database, service, workspaceId } = await fixture();
+    const contentBase64 = Buffer.from("anexo de teste", "utf8").toString("base64");
+    const first = await service.attachFile(workspaceId, {
+      contentBase64,
+      filename: "referencia.txt",
+    });
+    const second = await service.attachFile(workspaceId, {
+      contentBase64,
+      filename: "referencia.txt",
+    });
+    expect(first.attachment.path).toBe("Blackwall Vault/Attachments/referencia.txt");
+    expect(second.attachment.path).toBe("Blackwall Vault/Attachments/referencia (1).txt");
+    await expect(
+      service.attachFile(workspaceId, { contentBase64, filename: "../fora.txt" }),
+    ).rejects.toMatchObject({ code: "datafort_attachment_invalid" });
+    const preview = await service.readAttachment(workspaceId, first.attachment.path);
+    expect(preview.contentType).toBe("text/plain");
+    expect(preview.bytes.toString("utf8")).toBe("anexo de teste");
+    await expect(service.readAttachment(workspaceId, "other.txt")).rejects.toMatchObject({
+      code: "datafort_path_unsafe",
+    });
+    database.close();
+  });
 });
