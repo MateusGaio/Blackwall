@@ -17,6 +17,7 @@ type SessionsSidebarProps = {
   newSession: () => void;
   newWorkspace: () => void;
   onDeleteRequest: (session: SessionSummary) => void;
+  onOpenDatafort?: () => void;
   onRenameRequest: (session: SessionSummary) => void;
   onTogglePalette: (event: React.MouseEvent<HTMLButtonElement>) => void;
   openSession: (sessionId: string) => void;
@@ -26,6 +27,8 @@ type SessionsSidebarProps = {
   settingsButtonRef: RefObject<HTMLButtonElement | null>;
   openSettings: () => void;
   setCursorAvoidanceEnabled: (enabled: boolean) => void;
+  datafortActive?: boolean;
+  datafortDisabled?: boolean;
   workspace: Workspace | undefined;
   workspaces: Workspace[];
 };
@@ -53,6 +56,7 @@ export function SessionsSidebar({
   newSession,
   newWorkspace,
   onDeleteRequest,
+  onOpenDatafort = () => undefined,
   onRenameRequest,
   onTogglePalette,
   openSession,
@@ -62,6 +66,8 @@ export function SessionsSidebar({
   settingsButtonRef,
   openSettings,
   setCursorAvoidanceEnabled,
+  datafortActive = false,
+  datafortDisabled = true,
   workspace,
   workspaces,
 }: SessionsSidebarProps) {
@@ -113,6 +119,28 @@ export function SessionsSidebar({
           <CompactIcon kind="new-thread" />
           <span>{isCreatingSession ? t("chat.creating") : t("sessions.new")}</span>
         </button>
+        <button
+          aria-describedby={datafortDisabled ? "datafort-workspace-help" : undefined}
+          aria-pressed={datafortActive}
+          className={`mt-1 flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm font-medium transition-colors duration-[120ms] hover:bg-neutral-800/50 focus-visible:bg-neutral-800/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${datafortActive ? "bg-neutral-800/60 text-foreground" : "text-muted-foreground"}`}
+          disabled={datafortDisabled}
+          onClick={onOpenDatafort}
+          title={datafortDisabled ? t("datafort.workspaceRequired") : t("datafort.title")}
+          type="button"
+        >
+          <span
+            aria-hidden="true"
+            className="flex size-4 items-center justify-center text-[0.9rem]"
+          >
+            ◈
+          </span>
+          <span>{t("datafort.title")}</span>
+        </button>
+        {datafortDisabled && (
+          <span className="sr-only" id="datafort-workspace-help">
+            {t("datafort.workspaceRequired")}
+          </span>
+        )}
         <div className="mt-1 flex items-center justify-between px-1">
           <span className={sectionLabel}>{t("sessions.projects")}</span>
           <button

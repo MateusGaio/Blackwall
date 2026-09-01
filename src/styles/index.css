@@ -786,3 +786,842 @@ button:disabled {
 .sidebar-collapsed .workspace-header-trigger svg {
   transform: scaleX(-1);
 }
+
+/* Datafort: interface OLED, densa e quieta. Entradas usam apenas opacity/
+   transform e respeitam o modo de movimento reduzido global. */
+.datafort-shell {
+  background: #09090b;
+  color: #e7e7ea;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.datafort-topbar {
+  align-items: center;
+  border-bottom: 1px solid #202024;
+  display: flex;
+  flex: 0 0 52px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 14px;
+}
+
+.datafort-brand-mark {
+  color: #f4f4f5;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.datafort-title {
+  color: #f5f5f6;
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.datafort-subtitle,
+.datafort-eyebrow,
+.datafort-column-label,
+.datafort-statusbar,
+.datafort-explorer-footer,
+.datafort-empty-copy {
+  color: #818188;
+  font-size: 0.7rem;
+}
+
+.datafort-subtitle {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+}
+
+.datafort-topbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.datafort-quiet-button,
+.datafort-icon-button,
+.datafort-tree-chevron,
+.datafort-tree-item,
+.datafort-tab button,
+.datafort-mode-switch button,
+.datafort-inspector-link,
+.datafort-inspector-heading,
+.datafort-conflict button {
+  transition:
+    background-color var(--motion-fast) var(--ease-out-quart),
+    color var(--motion-fast) var(--ease-out-quart),
+    opacity var(--motion-fast) var(--ease-out-quart),
+    transform var(--motion-fast) var(--ease-out-quart);
+}
+
+.datafort-quiet-button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #a0a0a7;
+  display: inline-flex;
+  font-size: 0.69rem;
+  gap: 5px;
+  height: 29px;
+  padding: 0 8px;
+}
+
+.datafort-quiet-button:hover:not(:disabled),
+.datafort-quiet-button:focus-visible,
+.datafort-icon-button:hover:not(:disabled),
+.datafort-icon-button:focus-visible {
+  background: #19191d;
+  color: #f1f1f2;
+  outline: none;
+}
+
+.datafort-quiet-button:disabled,
+.datafort-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.datafort-icon-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #898990;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.datafort-icon-button.is-active {
+  background: #25252b;
+  color: #f4f4f5;
+}
+
+.datafort-icon-button.danger:hover,
+.datafort-icon-button.danger:focus-visible {
+  color: #f28f8f;
+}
+
+.datafort-banner {
+  align-items: center;
+  background: #211717;
+  border-bottom: 1px solid #4a2828;
+  color: #e6b6b6;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 0.73rem;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 14px;
+}
+
+.datafort-banner-dot,
+.datafort-status-dot {
+  background: #e18a8a;
+  border-radius: 99px;
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+}
+
+.datafort-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.datafort-rail {
+  align-items: center;
+  background: #0d0d10;
+  border-right: 1px solid #202024;
+  display: flex;
+  flex: 0 0 48px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 7px;
+}
+
+.datafort-rail-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: #74747c;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.datafort-rail-button:hover,
+.datafort-rail-button:focus-visible {
+  background: #19191d;
+  color: #dedee2;
+  outline: none;
+}
+
+.datafort-rail-button.is-active {
+  background: #222228;
+  color: #f1f1f2;
+}
+
+.datafort-explorer-panel,
+.datafort-inspector-panel {
+  min-width: 0;
+}
+
+.datafort-explorer,
+.datafort-inspector,
+.datafort-center {
+  background: #0d0d10;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.datafort-explorer {
+  background: #101014;
+}
+
+.datafort-panel-heading,
+.datafort-inspector-header {
+  align-items: center;
+  border-bottom: 1px solid #202024;
+  display: flex;
+  flex: 0 0 43px;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: the generic app selectors precede this isolated panel rule. */
+.datafort-panel-heading > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.datafort-eyebrow {
+  color: #aaaab2;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.datafort-count {
+  color: #66666e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+}
+
+.datafort-explorer-content,
+.datafort-inspector {
+  min-height: 0;
+  overflow: auto;
+}
+
+.datafort-explorer-content {
+  flex: 1;
+  padding: 9px 7px;
+}
+
+.datafort-search-box,
+.datafort-create-note {
+  align-items: center;
+  background: #17171b;
+  border: 1px solid #29292f;
+  border-radius: 6px;
+  color: #777780;
+  display: flex;
+  gap: 6px;
+  margin: 0 2px 8px;
+  min-height: 29px;
+  padding: 0 8px;
+}
+
+.datafort-search-box input,
+.datafort-create-note input {
+  background: transparent;
+  border: 0;
+  color: #e5e5e8;
+  font-size: 0.71rem;
+  min-width: 0;
+  outline: none;
+  width: 100%;
+}
+
+.datafort-search-box input::placeholder,
+.datafort-create-note input::placeholder {
+  color: #62626a;
+}
+
+.datafort-create-note {
+  border-color: #222229;
+  margin-bottom: 9px;
+}
+
+.datafort-create-note button {
+  color: #a9a9b0;
+}
+
+.datafort-tree-row {
+  align-items: center;
+  display: flex;
+  min-height: 28px;
+}
+
+.datafort-tree-chevron {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #6d6d75;
+  display: flex;
+  height: 23px;
+  justify-content: center;
+  padding: 0;
+  width: 20px;
+}
+
+.datafort-tree-item {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #a3a3aa;
+  display: flex;
+  flex: 1;
+  font-size: 0.72rem;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 5px;
+  text-align: left;
+}
+
+.datafort-tree-item:hover,
+.datafort-tree-item:focus-visible {
+  background: #1a1a1f;
+  color: #eeeef0;
+  outline: none;
+}
+
+.datafort-tree-row:has(.datafort-tree-item:focus-visible) .datafort-tree-item,
+.datafort-tree-item[aria-current="true"] {
+  background: #222228;
+  color: #f2f2f3;
+}
+
+.datafort-readonly-mark {
+  color: #686870;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.55rem;
+  margin-left: auto;
+}
+
+.datafort-empty-copy {
+  line-height: 1.45;
+  margin: 16px 8px;
+}
+
+.datafort-explorer-footer {
+  border-top: 1px solid #202024;
+  padding: 8px 11px 10px;
+}
+
+.datafort-scope-toggle {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.datafort-scope-toggle select {
+  background: #17171b;
+  border: 1px solid #29292f;
+  border-radius: 5px;
+  color: #a5a5ad;
+  font-size: 0.61rem;
+  max-width: 100px;
+  padding: 3px;
+}
+
+.datafort-external-toggle {
+  align-items: flex-start;
+  display: flex;
+  gap: 6px;
+  line-height: 1.3;
+  margin-top: 8px;
+}
+
+.datafort-external-toggle input {
+  accent-color: #aeb5d5;
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+}
+
+.datafort-explorer-path {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  margin-top: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datafort-center {
+  background: #0a0a0c;
+}
+
+.datafort-tabs {
+  align-items: stretch;
+  background: #101014;
+  border-bottom: 1px solid #202024;
+  display: flex;
+  flex: 0 0 38px;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 6px 0;
+}
+
+.datafort-tab {
+  align-items: center;
+  background: #141418;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  max-width: 170px;
+  min-width: 90px;
+}
+
+.datafort-tab.is-active {
+  background: #0a0a0c;
+  border-color: #25252a;
+}
+
+.datafort-tab button:first-child {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #95959d;
+  display: flex;
+  flex: 1;
+  font-size: 0.69rem;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 5px 0 8px;
+  text-align: left;
+}
+
+.datafort-tab.is-active button:first-child,
+.datafort-tab button:first-child:hover {
+  color: #e8e8ea;
+}
+
+.datafort-tab-close {
+  background: transparent;
+  border: 0;
+  color: #6f6f77;
+  display: inline-flex;
+  padding: 4px 6px 4px 2px;
+}
+
+.datafort-tab-close:hover {
+  color: #ececef;
+}
+
+.datafort-mode-switch {
+  align-items: center;
+  border: 1px solid #29292f;
+  border-radius: 5px;
+  display: flex;
+  margin-left: 5px;
+  overflow: hidden;
+}
+
+.datafort-mode-switch button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #77777f;
+  display: inline-flex;
+  font-size: 0.6rem;
+  gap: 4px;
+  height: 25px;
+  padding: 0 7px;
+}
+
+.datafort-mode-switch button + button {
+  border-left: 1px solid #29292f;
+}
+
+.datafort-mode-switch button.is-active,
+.datafort-mode-switch button:hover {
+  background: #222228;
+  color: #e5e5e8;
+}
+
+.datafort-editor-stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+.datafort-editor-stage > [data-slot="motion-enter-exit"] {
+  inset: 0;
+  position: absolute;
+}
+
+.datafort-editor .cm-datafort-markup-hidden {
+  display: inline-block;
+  font-size: 0;
+  line-height: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  width: 0;
+}
+
+.datafort-editor-column {
+  background: #0a0a0c;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.datafort-column-label {
+  align-items: center;
+  border-bottom: 1px solid #17171b;
+  display: flex;
+  flex: 0 0 28px;
+  justify-content: space-between;
+  padding: 0 8px 0 14px;
+}
+
+.datafort-column-label button:first-child {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #8e8e96;
+  display: flex;
+  font-size: 0.63rem;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+}
+
+.datafort-empty-editor,
+.datafort-loading-shell {
+  align-items: center;
+  color: #6f6f77;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+  padding: 20px;
+}
+
+.datafort-empty-editor p {
+  font-size: 0.75rem;
+}
+
+.datafort-reading {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 30px clamp(24px, 8vw, 100px);
+}
+
+.datafort-reading .safe-markdown {
+  margin: 0 auto;
+  max-width: 720px;
+}
+
+.datafort-conflict {
+  align-items: center;
+  background: #251b15;
+  border-bottom: 1px solid #4c3524;
+  color: #e4c09a;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.69rem;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 7px 12px;
+}
+
+.datafort-conflict button {
+  background: transparent;
+  border: 1px solid #5b442a;
+  border-radius: 5px;
+  color: #ecc897;
+  font-size: 0.64rem;
+  padding: 3px 7px;
+}
+
+.datafort-conflict button:hover,
+.datafort-conflict button:focus-visible {
+  background: #3a281a;
+  outline: none;
+}
+
+.datafort-statusbar {
+  align-items: center;
+  background: #101014;
+  border-top: 1px solid #202024;
+  display: flex;
+  flex: 0 0 27px;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+}
+
+.datafort-save-status {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.datafort-save-status.is-saved .datafort-status-dot {
+  background: #82b89a;
+}
+
+.datafort-save-status.is-saving .datafort-status-dot {
+  background: #d0b77d;
+}
+
+.datafort-save-status.is-editing .datafort-status-dot {
+  background: #9aa7d6;
+}
+
+.datafort-trash-list {
+  display: grid;
+  gap: 5px;
+}
+
+.datafort-trash-row {
+  align-items: center;
+  border-bottom: 1px solid #202024;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  padding: 8px 4px;
+}
+
+.datafort-trash-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.datafort-trash-row strong {
+  color: #c5c5cb;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.datafort-trash-row span {
+  color: #686870;
+  font-size: 0.61rem;
+}
+
+.datafort-rail-placeholder {
+  align-items: center;
+  color: #6e6e76;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.69rem;
+  gap: 9px;
+  justify-content: center;
+  min-height: 180px;
+  text-align: center;
+}
+
+.datafort-rail-placeholder p {
+  line-height: 1.45;
+  max-width: 180px;
+}
+
+.datafort-inspector {
+  background: #101014;
+}
+
+.datafort-inspector-header {
+  padding-left: 14px;
+}
+
+.datafort-inspector-section {
+  border-bottom: 1px solid #202024;
+  padding: 10px 12px;
+}
+
+.datafort-inspector-heading {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #acacb3;
+  display: flex;
+  font-size: 0.68rem;
+  justify-content: space-between;
+  padding: 0;
+  width: 100%;
+}
+
+.datafort-inspector-heading span:first-child {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.datafort-property {
+  display: flex;
+  font-size: 0.64rem;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.datafort-property span {
+  color: #76767e;
+}
+
+.datafort-property strong {
+  color: #b7b7bf;
+  font-weight: 500;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datafort-inspector-link {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #9797a0;
+  display: flex;
+  font-size: 0.67rem;
+  gap: 6px;
+  margin-top: 7px;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.datafort-inspector-link:hover,
+.datafort-inspector-link:focus-visible {
+  color: #ededee;
+  outline: none;
+}
+
+.datafort-outline-row {
+  color: #8a8a92;
+  font-size: 0.65rem;
+  margin-top: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datafort-tag {
+  background: #1b1c23;
+  border: 1px solid #2b2d3a;
+  border-radius: 4px;
+  color: #a9afd2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6rem;
+  padding: 3px 5px;
+}
+
+.datafort-graph-mini {
+  align-items: center;
+  display: flex;
+  height: 130px;
+  justify-content: center;
+  margin-top: 5px;
+  position: relative;
+}
+
+.datafort-graph-node {
+  align-items: center;
+  background: #1d2029;
+  border: 1px solid #59617d;
+  border-radius: 99px;
+  color: #d3d7e9;
+  display: flex;
+  font-size: 0.58rem;
+  justify-content: center;
+  max-width: 100px;
+  min-height: 29px;
+  overflow: hidden;
+  padding: 0 8px;
+  position: relative;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.datafort-graph-link {
+  border-top: 1px solid #363b4e;
+  height: 1px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform-origin: 0 0;
+  width: 62px;
+}
+
+.datafort-graph-link span {
+  color: #82889e;
+  font-size: 0.55rem;
+  left: 35px;
+  position: absolute;
+  top: 4px;
+  transform: rotate(0deg);
+  white-space: nowrap;
+}
+
+.datafort-loading-shell {
+  align-items: stretch;
+  background: #09090b;
+  justify-content: flex-start;
+}
+
+.datafort-loading-shell > [data-slot="motion-skeleton"]:last-of-type {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .datafort-quiet-button,
+  .datafort-icon-button,
+  .datafort-tree-chevron,
+  .datafort-tree-item,
+  .datafort-tab button,
+  .datafort-mode-switch button,
+  .datafort-inspector-link,
+  .datafort-inspector-heading,
+  .datafort-conflict button {
+    transition: none;
+  }
+}

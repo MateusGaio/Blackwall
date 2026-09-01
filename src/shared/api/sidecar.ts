@@ -291,6 +291,54 @@ export type VaultDiagnosticPage = {
   total: number;
 };
 
+export type DatafortSettings = {
+  autoUpdateLinks: boolean;
+  attachmentDirectory: string;
+  dailyDirectory: string;
+  dailyTemplatePath: string | null;
+  explorerScope: "knowledge" | "all";
+  externalMarkdownWriteEnabled: boolean;
+  layout: Record<string, unknown>;
+  newNoteDirectory: string;
+  templateDirectory: string;
+};
+
+export type DatafortTreeEntry = {
+  fileId?: string;
+  kind: "directory" | "file";
+  managed: boolean;
+  name: string;
+  path: string;
+  writable: boolean;
+};
+
+export type DatafortTree = {
+  entries: DatafortTreeEntry[];
+  limited: boolean;
+  settings: DatafortSettings;
+};
+
+export type DatafortDocument = {
+  content: string;
+  contentHash: string;
+  fileId: string;
+  managed: boolean;
+  mtime: number;
+  path: string;
+  portentId?: string;
+  writable: boolean;
+};
+
+export type DatafortTrashEntry = {
+  contentHash: string;
+  deletedAt: number;
+  entryId: string;
+  fileId: string;
+  managed: boolean;
+  originalPath: string;
+  portentId?: string;
+};
+
 export class SidecarApiError extends Error {
   constructor(
     message: string,
@@ -1018,6 +1066,170 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
   return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault`, { method: "GET" });
+}
+
+export async function getDatafortSettings(workspaceId: string): Promise<DatafortSettings> {
+  const response = await request<{ settings: DatafortSettings }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/settings`,
+    { method: "GET" },
+  );
+  return response.settings;
+}
+
+export async function patchDatafortSettings(
+  workspaceId: string,
+  input: Partial<Omit<DatafortSettings, "layout">> & { layout?: Record<string, unknown> },
+): Promise<DatafortSettings> {
+  const response = await request<{ settings: DatafortSettings }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/settings`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return response.settings;
+}
+
+export async function getDatafortTree(workspaceId: string): Promise<DatafortTree> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/tree`, {
+    method: "GET",
+  });
+}
+
+export async function listDatafortDocuments(
+  workspaceId: string,
+  path?: string,
+): Promise<DatafortDocument[]> {
+  const suffix = path ? `?path=${encodeURIComponent(path)}` : "";
+  const response = await request<{ documents: DatafortDocument[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/documents${suffix}`,
+    { method: "GET" },
+  );
+  return response.documents;
+}
+
+export async function createDatafortDocument(
+  workspaceId: string,
+  input: { content?: string; directory?: string; path?: string; title: string },
+): Promise<DatafortDocument> {
+  const response = await request<{ document: DatafortDocument }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/documents`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.document;
+}
+
+export async function updateDatafortDocument(
+  workspaceId: string,
+  input: { content: string; expectedHash: string; fileId: string; path: string },
+): Promise<DatafortDocument> {
+  const response = await request<{ document: DatafortDocument }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/documents`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return response.document;
+}
+
+export async function moveDatafortEntry(
+  workspaceId: string,
+  input: { expectedHash: string; sourcePath: string; targetPath: string },
+) {
+  return request<{
+    filesUpdated: number;
+    linksUpdated: number;
+    sourcePath: string;
+    targetPath: string;
+  }>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/entries/move`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function deleteDatafortEntry(
+  workspaceId: string,
+  input: { expectedHash: string; path: string },
+) {
+  return request<{ entryId: string; path: string }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/entries`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function listDatafortTrash(workspaceId: string): Promise<DatafortTrashEntry[]> {
+  const response = await request<{ entries: DatafortTrashEntry[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/trash`,
+    { method: "GET" },
+  );
+  return response.entries;
+}
+
+export async function restoreDatafortTrash(workspaceId: string, entryId: string, path?: string) {
+  return request<{ path: string; restored: true }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/trash/restore`,
+    {
+      body: JSON.stringify({ entryId, ...(path ? { path } : {}) }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function permanentlyDeleteDatafortTrash(workspaceId: string, entryId: string) {
+  return request<{ deleted: true }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/trash/${encodeURIComponent(entryId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function saveDatafortDraft(
+  workspaceId: string,
+  input: { content: string; fileId: string; path: string },
+) {
+  return request<{ contentHash: string; fileId: string; path: string; updatedAt: number }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/drafts`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function getDatafortDraft(workspaceId: string, fileId: string) {
+  const response = await request<{
+    draft: {
+      content: string;
+      contentHash: string;
+      fileId: string;
+      path: string;
+      updatedAt: number;
+    } | null;
+  }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/drafts/${encodeURIComponent(fileId)}`,
+    { method: "GET" },
+  );
+  return response.draft;
+}
+
+export async function deleteDatafortDraft(workspaceId: string, fileId: string) {
+  return request<{ deleted: true }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/drafts/${encodeURIComponent(fileId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function listVaultNotes(

@@ -37,6 +37,7 @@ import {
   pruneHistoryForModel,
   selectMessagesForContext,
 } from "./context-budget.js";
+import { DatafortError, DatafortService } from "./datafort.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
 import {
   models,
@@ -380,6 +381,7 @@ export async function createSidecar(
   }
   terminateStaleApprovals(storageDirectory);
   const store = createStore(database, storageDirectory);
+  const datafort = new DatafortService(database.client);
   const embeddings = new VaultEmbeddingService(database.client, storageDirectory);
   const attachmentEmbeddings = new AttachmentEmbeddingService(database.client, embeddings);
   // Registro de sockets para eventos push globais (ex.: approval.resolved).
@@ -560,6 +562,12 @@ export async function createSidecar(
         publishVaultEmbeddingFailure(workspaceId, error);
       }
       broadcast(JSON.stringify({ type: "vault.graph.updated", workspaceId }));
+      for (const event of await datafort.changeEvents(
+        workspaceId,
+        result.syncedPaths,
+        "filesystem",
+      ))
+        broadcast(JSON.stringify(event));
     });
   }
 
@@ -825,6 +833,197 @@ export async function createSidecar(
         const state = await store.bootstrap(input);
         if (state.activeWorkspaceId) await ensureVaultWorkspace(state.activeWorkspaceId);
         writeJson(response, 200, state);
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/settings$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, { settings: await datafort.getSettings(workspaceId) });
+        return;
+      }
+      if (
+        request.method === "PATCH" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/settings$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, {
+          settings: await datafort.patchSettings(
+            workspaceId,
+            (await requestBody(request)) as Record<string, unknown>,
+          ),
+        });
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/datafort\/tree$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, await datafort.tree(workspaceId));
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/documents$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        writeJson(
+          response,
+          200,
+          await datafort.documents(workspaceId, url.searchParams.get("path") ?? undefined),
+        );
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/documents$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const document = await datafort.createDocument(
+          workspaceId,
+          (await requestBody(request, MAX_VAULT_FILE_SIZE + 512_000)) as Record<string, unknown>,
+        );
+        broadcast(
+          JSON.stringify({
+            fileId: document.fileId,
+            origin: "datafort",
+            revision: document.contentHash,
+            type: "datafort.document.changed",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 201, { document });
+        return;
+      }
+      if (
+        request.method === "PATCH" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/documents$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const document = await datafort.updateDocument(
+          workspaceId,
+          (await requestBody(request, MAX_VAULT_FILE_SIZE + 512_000)) as Record<string, unknown>,
+        );
+        broadcast(
+          JSON.stringify({
+            fileId: document.fileId,
+            origin: "datafort",
+            revision: document.contentHash,
+            type: "datafort.document.changed",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 200, { document });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/entries\/move$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const result = await datafort.moveEntry(
+          workspaceId,
+          (await requestBody(request)) as Record<string, unknown>,
+        );
+        broadcast(
+          JSON.stringify({
+            origin: "datafort",
+            revision: Date.now(),
+            type: "datafort.document.changed",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 200, result);
+        return;
+      }
+      if (
+        request.method === "DELETE" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/entries$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const result = await datafort.deleteEntry(
+          workspaceId,
+          (await requestBody(request)) as Record<string, unknown>,
+        );
+        broadcast(
+          JSON.stringify({
+            origin: "datafort",
+            revision: Date.now(),
+            type: "datafort.document.changed",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 200, result);
+        return;
+      }
+      if (request.method === "GET" && /^\/v1\/workspaces\/[^/]+\/datafort\/trash$/.test(pathname)) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, await datafort.listTrash(workspaceId));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/trash\/restore$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const input = (await requestBody(request)) as Record<string, unknown>;
+        if (typeof input.entryId !== "string") throw new HttpError(400, "entryId é obrigatório.");
+        writeJson(response, 200, await datafort.restoreTrash(workspaceId, input.entryId, input));
+        return;
+      }
+      if (
+        request.method === "DELETE" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/trash\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        writeJson(
+          response,
+          200,
+          await datafort.permanentlyDeleteTrash(parts[3], decodeURIComponent(parts[6] ?? "")),
+        );
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/metadata$/.test(pathname)
+      ) {
+        writeJson(response, 200, await datafort.metadata(pathname.split("/")[3]));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/drafts$/.test(pathname)
+      ) {
+        writeJson(
+          response,
+          200,
+          await datafort.saveDraft(
+            pathname.split("/")[3],
+            (await requestBody(request, MAX_VAULT_FILE_SIZE + 512_000)) as Record<string, unknown>,
+          ),
+        );
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/drafts\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        writeJson(response, 200, {
+          draft: await datafort.getDraft(parts[3], decodeURIComponent(parts[6] ?? "")),
+        });
+        return;
+      }
+      if (
+        request.method === "DELETE" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/drafts\/[^/]+$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        writeJson(
+          response,
+          200,
+          await datafort.deleteDraft(parts[3], decodeURIComponent(parts[6] ?? "")),
+        );
         return;
       }
       if (request.method === "POST" && pathname === "/v1/profile/select") {
@@ -1765,55 +1964,61 @@ export async function createSidecar(
       const status =
         error instanceof HttpError
           ? error.status
-          : error instanceof MemoryConflictError
-            ? 409
-            : error instanceof MemoryProfileNotFoundError
-              ? 404
-              : error instanceof ProviderInputError
-                ? 400
-                : error instanceof McpInputError
+          : error instanceof DatafortError
+            ? error.status
+            : error instanceof MemoryConflictError
+              ? 409
+              : error instanceof MemoryProfileNotFoundError
+                ? 404
+                : error instanceof ProviderInputError
                   ? 400
-                  : error instanceof McpExportInputError
+                  : error instanceof McpInputError
                     ? 400
-                    : error instanceof McpNotFoundError
-                      ? 404
-                      : error instanceof McpExportNotFoundError
+                    : error instanceof McpExportInputError
+                      ? 400
+                      : error instanceof McpNotFoundError
                         ? 404
-                        : error instanceof McpConnectionError
-                          ? 503
-                          : error instanceof ProviderNotFoundError
-                            ? 404
-                            : error instanceof ProviderConnectionError
-                              ? 503
-                              : error instanceof ProviderHttpError
-                                ? error.status
-                                : error instanceof EmbeddingAdapterError
-                                  ? 400
-                                  : error instanceof EmbeddingServiceError
-                                    ? error.status
-                                    : error instanceof WorkspaceFilesError ||
-                                        error instanceof AttachmentPreviewError
+                        : error instanceof McpExportNotFoundError
+                          ? 404
+                          : error instanceof McpConnectionError
+                            ? 503
+                            : error instanceof ProviderNotFoundError
+                              ? 404
+                              : error instanceof ProviderConnectionError
+                                ? 503
+                                : error instanceof ProviderHttpError
+                                  ? error.status
+                                  : error instanceof EmbeddingAdapterError
+                                    ? 400
+                                    : error instanceof EmbeddingServiceError
                                       ? error.status
-                                      : typeof error === "object" &&
-                                          error &&
-                                          "status" in error &&
-                                          typeof error.status === "number"
+                                      : error instanceof WorkspaceFilesError ||
+                                          error instanceof AttachmentPreviewError
                                         ? error.status
-                                        : 500;
+                                        : typeof error === "object" &&
+                                            error &&
+                                            "status" in error &&
+                                            typeof error.status === "number"
+                                          ? error.status
+                                          : 500;
       const errorCode =
         error instanceof VaultEditorError
           ? error.code
-          : error instanceof MemoryConflictError
-            ? "memory_conflict"
-            : undefined;
+          : error instanceof DatafortError
+            ? error.code
+            : error instanceof MemoryConflictError
+              ? "memory_conflict"
+              : undefined;
       writeJson(response, status, {
         error: message,
         ...(errorCode ? { errorCode } : {}),
         ...(error instanceof VaultEditorError && error.details.currentHash
           ? { currentHash: error.details.currentHash }
-          : error instanceof MemoryConflictError
-            ? { currentHash: error.currentHash }
-            : {}),
+          : error instanceof DatafortError && error.details.currentHash
+            ? { currentHash: error.details.currentHash }
+            : error instanceof MemoryConflictError
+              ? { currentHash: error.currentHash }
+              : {}),
       });
     }
   });

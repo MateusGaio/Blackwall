@@ -587,6 +587,65 @@ export const profileMemorySettings = sqliteTable("profile_memory_settings", {
   ...timestamps,
 });
 
+export const datafortSettings = sqliteTable("datafort_settings", {
+  workspaceId: text("workspace_id").primaryKey(),
+  externalMarkdownWriteEnabled: integer("external_markdown_write_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  newNoteDirectory: text("new_note_directory").notNull().default("Blackwall Vault/Notes"),
+  attachmentDirectory: text("attachment_directory")
+    .notNull()
+    .default("Blackwall Vault/Attachments"),
+  templateDirectory: text("template_directory").notNull().default("Blackwall Vault/Templates"),
+  dailyDirectory: text("daily_directory").notNull().default("Blackwall Vault/Daily"),
+  dailyTemplatePath: text("daily_template_path"),
+  autoUpdateLinks: integer("auto_update_links", { mode: "boolean" }).notNull().default(true),
+  explorerScope: text("explorer_scope").notNull().default("knowledge"),
+  layoutJson: text("layout_json").notNull().default("{}"),
+  ...timestamps,
+});
+
+export const datafortFileIdentities = sqliteTable("datafort_file_identities", {
+  fileId: text("file_id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  path: text("path").notNull(),
+  managed: integer("managed", { mode: "boolean" }).notNull().default(false),
+  portentId: text("portent_id"),
+  lastSeenAt: integer("last_seen_at").notNull(),
+});
+
+export const datafortTrashEntries = sqliteTable("datafort_trash_entries", {
+  entryId: text("entry_id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  fileId: text("file_id").notNull(),
+  originalPath: text("original_path").notNull(),
+  trashPath: text("trash_path").notNull(),
+  contentHash: text("content_hash").notNull(),
+  managed: integer("managed", { mode: "boolean" }).notNull().default(false),
+  portentId: text("portent_id"),
+  deletedAt: integer("deleted_at").notNull(),
+});
+
+export const datafortDrafts = sqliteTable("datafort_drafts", {
+  fileId: text("file_id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  path: text("path").notNull(),
+  content: text("content").notNull(),
+  contentHash: text("content_hash").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const datafortWriteJournal = sqliteTable("datafort_write_journal", {
+  operationId: text("operation_id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  operation: text("operation").notNull(),
+  sourcePath: text("source_path"),
+  targetPath: text("target_path"),
+  expectedHash: text("expected_hash"),
+  state: text("state").notNull(),
+  ...timestamps,
+});
+
 export const schema = {
   profiles,
   workspaces,
@@ -622,4 +681,9 @@ export const schema = {
   memoryCandidates,
   profileMemories,
   profileMemorySettings,
+  datafortSettings,
+  datafortFileIdentities,
+  datafortTrashEntries,
+  datafortDrafts,
+  datafortWriteJournal,
 };

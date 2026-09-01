@@ -30,5 +30,7 @@ describe("FileWorkbench", () => {
     expect(html).toContain("Gerados pelo agente");
     expect(html).toContain("Preview do arquivo");
     expect(html).toContain('type="search"');
+    expect(html).not.toContain("Nova nota");
+    expect(html).not.toContain("Editar");
   });
 });
