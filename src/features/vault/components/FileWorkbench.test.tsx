@@ -33,4 +33,22 @@ describe("FileWorkbench", () => {
     expect(html).not.toContain("Nova nota");
     expect(html).not.toContain("Editar");
   });
+
+  it("oferece abrir o Markdown selecionado no Datafort", () => {
+    const html = renderToStaticMarkup(
+      <FileWorkbench
+        cursorAvoidanceEnabled={false}
+        graph={{ edges: [], files: [], nodes: [] }}
+        memory={{ fileListScrollTop: 0, noteScrollTop: 0, noteScrollTops: {} }}
+        onMemoryChange={() => undefined}
+        onOpenDatafort={() => undefined}
+        onSelectPath={() => undefined}
+        refreshKey={0}
+        selectedPath="Blackwall Vault/Notes/alpha.md"
+        sessionId={null}
+        workspaceId="workspace-1"
+      />,
+    );
+    expect(html).toContain("Abrir/editar no Datafort");
+  });
 });
