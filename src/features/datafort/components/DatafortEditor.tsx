@@ -1,5 +1,5 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
-import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
+import { autocompletion, type CompletionSource, completionKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
@@ -24,6 +24,8 @@ type DatafortEditorProps = {
   mode: "live" | "source";
   onChange: (content: string) => void;
   onSave: () => void;
+  onAttachment?: (file: File) => Promise<string | null>;
+  completionSource?: CompletionSource;
   readOnly?: boolean;
 };
 
@@ -71,20 +73,57 @@ export function DatafortEditor({
   mode,
   onChange,
   onSave,
+  onAttachment,
+  completionSource,
   readOnly = false,
 }: DatafortEditorProps) {
   const hostRef = useRef<HTMLElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const callbacksRef = useRef({ onChange, onSave });
+  const callbacksRef = useRef({ onAttachment, onChange, onSave, completionSource });
   const configRef = useRef({ initialContent, mode, readOnly });
   const livePreviewRef = useRef(new Compartment());
-  callbacksRef.current = { onChange, onSave };
+  callbacksRef.current = { onAttachment, onChange, onSave, completionSource };
   configRef.current = { initialContent, mode, readOnly };
 
   useEffect(() => {
     if (!hostRef.current) return;
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) callbacksRef.current.onChange(update.state.doc.toString());
+    });
+    const fileFromEvent = (event: ClipboardEvent | DragEvent) => {
+      const files =
+        "clipboardData" in event ? event.clipboardData?.files : event.dataTransfer?.files;
+      const file = files?.[0];
+      if (!file) return null;
+      const extension = file.name.slice(file.name.lastIndexOf(".")).toLocaleLowerCase();
+      return file.type.startsWith("image/") ||
+        file.type.startsWith("audio/") ||
+        file.type.startsWith("video/") ||
+        extension === ".pdf" ||
+        extension === ".md" ||
+        file.type.startsWith("text/")
+        ? file
+        : null;
+    };
+    const attachmentHandlers = EditorView.domEventHandlers({
+      drop: (event, view) => {
+        const file = fileFromEvent(event);
+        if (!file || !callbacksRef.current.onAttachment) return false;
+        event.preventDefault();
+        void callbacksRef.current.onAttachment(file).then((link) => {
+          if (link) view.dispatch(view.state.replaceSelection(link));
+        });
+        return true;
+      },
+      paste: (event, view) => {
+        const file = fileFromEvent(event);
+        if (!file || !callbacksRef.current.onAttachment) return false;
+        event.preventDefault();
+        void callbacksRef.current.onAttachment(file).then((link) => {
+          if (link) view.dispatch(view.state.replaceSelection(link));
+        });
+        return true;
+      },
     });
     const saveKeymap = keymap.of([
       {
@@ -111,7 +150,13 @@ export function DatafortEditor({
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         markdown(),
         livePreviewRef.current.of(configRef.current.mode === "live" ? livePreviewPlugin : []),
-        autocompletion({ activateOnTyping: true }),
+        autocompletion({
+          activateOnTyping: true,
+          override: callbacksRef.current.completionSource
+            ? [callbacksRef.current.completionSource]
+            : undefined,
+        }),
+        attachmentHandlers,
         saveKeymap,
         updateListener,
         EditorView.editable.of(!configRef.current.readOnly),
