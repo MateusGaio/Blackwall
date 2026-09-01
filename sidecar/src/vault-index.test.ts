@@ -48,6 +48,9 @@ describe("índice persistente do Vault", () => {
     expect(first).toHaveLength(1);
     expect(firstRelations).toEqual([]);
     expect(searchVault(database.client, workspaceId, "local-first")[0]?.title).toBe("Decisão");
+    expect(searchVault(database.client, workspaceId, "Decisão")[0]?.title).toBe("Decisão");
+    expect(searchVault(database.client, workspaceId, "nota.md")[0]?.title).toBe("Decisão");
+    expect(searchVault(database.client, workspaceId, "organized")[0]?.title).toBe("Decisão");
 
     await rebuildVaultIndex(database.client, { rootPath: root, workspaceId });
     expect(
