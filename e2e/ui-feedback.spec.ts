@@ -709,3 +709,24 @@ test.describe("feedback de UI — visibilidade no tema OLED", () => {
     expect(await auditOledVisibility(page)).toEqual([]);
   });
 });
+
+test.describe("Datafort — workspace local de conhecimento", () => {
+  test("abre entre Novo e Projetos, cria uma nota e retorna ao chat", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Datafort");
+    const datafortButton = page.getByRole("button", { name: /^Datafort$/i });
+    await expect(datafortButton).toBeEnabled();
+    await datafortButton.click();
+
+    const datafort = page.getByRole("main", { name: "Datafort" });
+    await expect(datafort).toBeVisible({ timeout: 10_000 });
+    await expect(datafort.getByRole("button", { name: "Live Preview" })).toBeVisible();
+    const title = datafort.getByLabel(/Título da nota|Note title/);
+    await title.fill("Nota E2E Datafort");
+    await datafort.getByRole("button", { name: /Criar nota|Create note/ }).click();
+    await expect(datafort.getByRole("tab", { name: /Nota E2E Datafort/ })).toBeVisible();
+    await expect(datafort.getByText(/Blackwall Vault\/Notes\/Nota E2E Datafort\.md/)).toBeVisible();
+
+    await datafort.getByRole("button", { name: /Voltar ao chat|Back to chat/ }).click();
+    await expect(page.getByTestId("chat-composer")).toBeVisible();
+  });
+});

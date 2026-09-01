@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { type BetterSQLite3Database, drizzle } from "drizzle-orm/better-sqlite3";
-import { applyMigrations } from "./migrations.js";
+import { applyMigrations, assertVaultSchema } from "./migrations.js";
 import { schema } from "./schema.js";
 
 export type BlackwallDatabase = BetterSQLite3Database<typeof schema>;
@@ -26,6 +26,7 @@ export function openDatabase(directory = dataDirectory()): DatabaseHandle {
   const client = new Database(path);
   client.defaultSafeIntegers(false);
   applyMigrations(client);
+  assertVaultSchema(client);
   migrateLegacyDevSouls(client);
   migrateLegacyProviders(client, directory);
   return {

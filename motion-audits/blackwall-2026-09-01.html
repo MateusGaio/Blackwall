@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blackwall — motion audit — 2026-09-01</title>
+  <style>
+    :root { --bg:#111114; --surface:#19191e; --surface2:#222229; --fg:#ededf0; --muted:#9b9ba5; --line:#34343b; --crit:#ef8b8b; --imp:#e1ba75; --opp:#8fc5a1; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; --sans:Inter,ui-sans-serif,system-ui,sans-serif; }
+    * { box-sizing:border-box; }
+    body { background:var(--bg); color:var(--fg); font-family:var(--sans); line-height:1.5; margin:0; }
+    .wrap { margin:auto; max-width:1080px; padding:42px 24px 70px; }
+    .eyebrow,.label,.meta,code,.timing { color:var(--muted); font-family:var(--mono); font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; }
+    h1 { font-size:clamp(2rem,5vw,4.3rem); letter-spacing:-.06em; line-height:.98; margin:18px 0; max-width:850px; }
+    h2 { border-top:1px solid var(--line); font-size:1.05rem; margin:54px 0 18px; padding-top:14px; }
+    h3 { font-size:1.1rem; margin:0; }
+    h4 { font-size:.95rem; margin:8px 0; }
+    p { color:#c3c3ca; max-width:760px; }
+    .lede { font-size:1.12rem; max-width:730px; }
+    .meta-row { display:flex; flex-wrap:wrap; gap:12px 20px; margin:22px 0; }
+    .stats { display:flex; flex-wrap:wrap; gap:8px; }
+    .stat,.chip { border:1px solid var(--line); border-radius:6px; color:var(--muted); display:inline-flex; gap:7px; padding:5px 8px; text-decoration:none; }
+    .stat strong { color:var(--fg); font-family:var(--mono); }
+    .stat.important strong,.important { color:var(--imp); }
+    .stat.opportunity strong,.opportunity { color:var(--opp); }
+    .assessment { background:var(--surface); border:1px solid var(--line); border-radius:10px; font-size:1.25rem; padding:18px 20px; }
+    .lens-table,.recommendations { border-collapse:collapse; width:100%; }
+    th,td { border-bottom:1px solid var(--line); padding:12px 10px; text-align:left; vertical-align:top; }
+    th { color:var(--muted); font:600 .67rem var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+    .verdict { white-space:nowrap; }
+    .dot { border-radius:50%; display:inline-block; height:7px; margin-right:6px; width:7px; }
+    .dot.good { background:var(--opp); }.dot.mixed { background:var(--imp); }
+    .timing-grid { display:grid; gap:16px; grid-template-columns:1fr 1fr; }
+    .timing-card,.lens,.finding { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:16px; }
+    .timing-card svg { max-width:100%; }
+    .timing-list { list-style:none; margin:10px 0 0; padding:0; }
+    .timing-list li { border-top:1px solid var(--line); display:flex; justify-content:space-between; padding:8px 0; }
+    .lens { margin:14px 0; }.lens-head { align-items:baseline; display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; }
+    .weight { border:1px solid var(--line); border-radius:999px; color:var(--muted); font: .66rem var(--mono); padding:3px 7px; text-transform:uppercase; }
+    .lens-block { border-top:1px solid var(--line); margin-top:18px; padding-top:12px; }.lens-block h4 { color:var(--muted); font: .7rem var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+    ul { padding-left:20px; }.good li::marker { color:var(--opp); }.opp li::marker { color:var(--imp); }
+    .finding { display:grid; gap:18px; grid-template-columns:1fr 350px; margin:12px 0; }
+    .finding .fix { border:1px solid #5b492a; border-radius:7px; padding:9px 11px; }.find-tags { display:flex; gap:6px; }.chip { font-size:.62rem; padding:3px 6px; }.chip.important { border-color:#66532e; }
+    .demo { background:#0e0e11; border:1px solid var(--line); border-radius:8px; overflow:hidden; }.demo-bar { align-items:center; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; padding:9px 10px; }.demo-title { font-size:.72rem; }.demo-stage { align-items:center; display:flex; height:120px; justify-content:center; padding:20px; }.demo-target { background:var(--surface2); border:1px solid #555565; border-radius:7px; color:var(--fg); padding:12px 16px; }
+    @media (prefers-reduced-motion:no-preference) { .demo-target.one { animation:motion-1 3s var(--ease, cubic-bezier(.25,1,.5,1)) infinite; }.demo-target.two { animation:motion-2 3s var(--ease, cubic-bezier(.25,1,.5,1)) infinite; } }
+    @keyframes motion-1 { 0% { opacity:0; transform:translateY(4px); } 60%,100% { opacity:1; transform:translateY(0); } }
+    @keyframes motion-2 { 0% { opacity:0; transform:translateY(4px); } 60%,100% { opacity:1; transform:translateY(0); } }
+    .ref { color:var(--muted); font: .68rem var(--mono); }.take { color:var(--fg); font-size:.95rem; }
+    .footer { border-top:1px solid var(--line); color:var(--muted); font: .68rem var(--mono); margin-top:48px; padding-top:14px; }
+    @media (max-width:860px) { .finding,.timing-grid { grid-template-columns:1fr; } }
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="eyebrow">MOTION AUDIT · DESIGN-MOTION-PRINCIPLES</div>
+    <h1>Blackwall — movimento que desaparece quando o trabalho começa.</h1>
+    <p class="lede">Auditoria do novo workspace local Datafort, um app de produtividade Tauri + React/Vite. A lente principal é Emil Kowalski: ações frequentes devem ser rápidas, calmas e úteis.</p>
+    <div class="meta-row"><span class="meta">Projeto: blackwall</span><span class="meta">Data: 2026-09-01</span><span class="meta">Stack: React · CSS · CodeMirror 6</span></div>
+    <div class="stats"><a class="stat" href="#rec-crit"><strong>0</strong> Critical</a><a class="stat important" href="#rec-imp"><strong>2</strong> Important</a><a class="stat opportunity" href="#rec-opp"><strong>4</strong> Opportunities</a></div>
+
+    <h2>Overall assessment</h2>
+    <div class="assessment">A base está bem calibrada para uma ferramenta de conhecimento: 120–180ms, transições só em opacity/transform/filter, skeletons e suporte global a reduced motion. O principal risco restante é a troca de conteúdo em estados de carregamento e coleções do rail, que ainda pode parecer um salto durante uso contínuo.</div>
+
+    <h2>01 · Lens summary</h2>
+    <table class="lens-table"><thead><tr><th>Lens</th><th>Verdict</th><th>Read</th></tr></thead><tbody>
+      <tr><td>Emil Kowalski <span class="weight">Primary</span></td><td class="verdict"><span class="dot good"></span>Strong</td><td>Ações frequentes e teclado permanecem instantâneos; o editor usa transições curtas e interruptíveis.</td></tr>
+      <tr><td>Jakub Krehel <span class="weight">Secondary</span></td><td class="verdict"><span class="dot mixed"></span>Mixed</td><td>Há entrada/saída consistente em shell, split e inspector, mas duas trocas de conteúdo ainda são abruptas.</td></tr>
+      <tr><td>Jhey Tompkins <span class="weight">Selective</span></td><td class="verdict"><span class="dot good"></span>Strong</td><td>O pequeno grafo e o rail comunicam estrutura sem transformar produtividade em decoração.</td></tr>
+    </tbody></table>
+
+    <h2>02 · Where the timings land</h2>
+    <div class="timing-grid"><div class="timing-card"><svg viewBox="0 0 660 160" role="img" aria-label="Distribuição de timings do Datafort"><line x1="30" y1="95" x2="630" y2="95" stroke="#555565"/><line x1="30" y1="80" x2="30" y2="110" stroke="#8fc5a1"/><line x1="130" y1="80" x2="130" y2="110" stroke="#8fc5a1"/><line x1="330" y1="80" x2="330" y2="110" stroke="#e1ba75"/><circle cx="150" cy="95" r="8" fill="#8fc5a1"/><circle cx="210" cy="95" r="8" fill="#8fc5a1"/><circle cx="30" cy="95" r="8" fill="none" stroke="#e1ba75" stroke-dasharray="3 2"/><text x="23" y="135" fill="#9b9ba5" font-size="12">0ms</text><text x="112" y="135" fill="#9b9ba5" font-size="12">100</text><text x="310" y="135" fill="#9b9ba5" font-size="12">300</text><text x="590" y="135" fill="#9b9ba5" font-size="12">600</text></svg><p class="ref">Instant/responsive: keyboard · hover · press. Deliberate: enter/exit ≤280ms. Hollow: missing transition.</p></div><div class="timing-card"><div class="label">Budget observed</div><ul class="timing-list"><li><span>Rail e tabs</span><span class="timing">120ms</span></li><li><span>EnterExit Datafort</span><span class="timing">180ms</span></li><li><span>Inspector/split</span><span class="timing">180ms</span></li><li><span>Loading → content</span><span class="timing">gap</span></li></ul></div></div>
+
+    <h2>03 · Emil Kowalski — Restraint &amp; Speed</h2>
+    <section class="lens"><div class="lens-head"><h3>Verdict: Strong</h3><span class="weight">Primary</span></div><div class="lens-block"><h4>What's working well</h4><ul class="good"><li>Hover e foco usam 120ms; não há spring com bounce ou pulse de status.</li><li>O editor mantém o documento no EditorState e não espelha texto completo no React a cada tecla.</li><li>O autosave de 800ms comunica estado sem bloquear o fluxo.</li></ul></div><div class="lens-block"><h4>Issues to address</h4><div class="finding"><div><div class="find-tags"><span class="chip important">Important</span><span class="chip">Emil</span></div><h4>Estados de carregamento precisam preservar continuidade</h4><p><span class="label">What</span> A troca inicial de loading para o shell retorna por ramos condicionais em <code>DatafortShell.tsx:655</code>.</p><p><span class="label">Why it matters</span> Em uma ferramenta aberta muitas vezes ao dia, o salto visual pode parecer perda de estado.</p><div class="fix"><p><span class="label">Recommended motion</span> Manter o skeleton por um frame de saída e entrar com opacity/translateY de 120–180ms; para atalhos, manter instantâneo.</p></div><div class="ref">src/features/datafort/components/DatafortShell.tsx:655</div></div><div class="demo"><div class="demo-bar"><span class="demo-title">Loading handoff</span><span class="timing">180ms · quart</span></div><div class="demo-stage"><div class="demo-target two">Datafort pronto</div></div></div></div></div><div class="lens-block"><h4>Opportunities</h4><ul class="opp"><li>Manter o press feedback apenas em ações primárias; o rail não precisa de escala.</li><li>Adicionar retorno de foco ao fechar split/inspector sem movimento extra.</li></ul></div><p class="take">Through Emil's lens: o sistema já respeita o ritmo de produtividade; a próxima melhoria deve reduzir saltos percebidos, não adicionar mais efeitos.</p></section>
+
+    <h2>04 · Jakub Krehel — Production Polish</h2>
+    <section class="lens"><div class="lens-head"><h3>Verdict: Mixed</h3><span class="weight">Secondary</span></div><div class="lens-block"><h4>What's working well</h4><ul class="good"><li>EnterExit padroniza opacity, translateY e blur com saída mais sutil.</li><li>O split e inspector têm transições funcionais, com skeleton e progresso acessíveis.</li><li>A superfície OLED usa hierarquia de contraste em vez de brilho ou gradientes.</li></ul></div><div class="lens-block"><h4>Issues to address</h4><div class="finding"><div><div class="find-tags"><span class="chip important">Important</span><span class="chip">Jakub</span></div><h4>Trocas de rail precisam de continuidade</h4><p><span class="label">What</span> Files/Search/Tags/Templates/Trash substituem o conteúdo do explorer diretamente em <code>DatafortShell.tsx:765</code>.</p><p><span class="label">Why it matters</span> A mudança de coleção é espacial; um crossfade curto ajuda a manter orientação sem atrasar a leitura.</p><div class="fix"><p><span class="label">Recommended motion</span> Envolver apenas o conteúdo interno em EnterExit de 120ms; não animar a largura do painel nem a navegação em teclado.</p></div><div class="ref">src/features/datafort/components/DatafortShell.tsx:765</div></div><div class="demo"><div class="demo-bar"><span class="demo-title">Rail collection crossfade</span><span class="timing">120ms · quart</span></div><div class="demo-stage"><div class="demo-target one">Arquivos → Tags</div></div></div></div></div><div class="lens-block"><h4>Opportunities</h4><ul class="opp"><li>Animar o ícone do chevron do explorer por 120ms, mantendo a transformação pequena.</li><li>Adicionar um estado de foco visual persistente ao documento ativo em split.</li></ul></div><p class="take">Through Jakub's lens: o acabamento é consistente no caminho principal; a polidez restante está nas trocas de contexto, não nos controles individuais.</p></section>
+
+    <h2>05 · Jhey Tompkins — Experimentation &amp; Delight</h2>
+    <section class="lens"><div class="lens-head"><h3>Verdict: Strong</h3><span class="weight">Selective</span></div><div class="lens-block"><h4>What's working well</h4><ul class="good"><li>O mini-grafo transforma relações em uma leitura visual compacta e útil.</li><li>O Datafort brand mark cria identidade sem loop, glow ou gradiente textual.</li></ul></div><div class="lens-block"><h4>Issues to address</h4><p class="ref">Nenhum Critical/Important específico desta lente.</p></div><div class="lens-block"><h4>Opportunities</h4><ul class="opp"><li>Usar uma microanimação única no primeiro vínculo criado, se houver telemetria visual local opt-in; nunca como notificação contínua.</li><li>Explorar preview de wikilink no hover apenas depois que o caminho de teclado estiver completo.</li></ul></div><p class="take">Through Jhey's lens: há espaço para personalidade no grafo e nas relações, mas o produto deve escolher momentos de descoberta, não adornar cada ação.</p></section>
+
+    <h2>06 · Combined recommendations</h2>
+    <h3 id="rec-crit" class="eyebrow" style="color:var(--crit)">Critical · must fix · 0</h3><table class="recommendations"><tbody><tr><td class="ref">—</td><td>Nenhum Critical encontrado.</td></tr></tbody></table>
+    <h3 id="rec-imp" class="eyebrow" style="color:var(--imp);margin-top:25px">Important · should fix · 2</h3><table class="recommendations"><tbody><tr><td>Loading handoff</td><td class="ref">DatafortShell.tsx:655</td><td>Preservar continuidade entre skeleton e conteúdo.</td></tr><tr><td>Rail collection crossfade</td><td class="ref">DatafortShell.tsx:765</td><td>Transicionar apenas o conteúdo interno do explorer.</td></tr></tbody></table>
+    <h3 id="rec-opp" class="eyebrow" style="color:var(--opp);margin-top:25px">Opportunities · could enhance · 4</h3><table class="recommendations"><tbody><tr><td>Chevron feedback</td><td class="ref">ExplorerTree</td><td>Orientação discreta na expansão.</td></tr><tr><td>Split focus</td><td class="ref">DatafortShell.tsx</td><td>Deixar o grupo ativo evidente sem escala.</td></tr><tr><td>First-link discovery</td><td class="ref">Graph mini</td><td>Uma única celebração contextual.</td></tr><tr><td>Wikilink preview</td><td class="ref">Inspector</td><td>Descoberta posterior, com teclado prioritário.</td></tr></tbody></table>
+
+    <h2>07 · Lens reference summary</h2>
+    <p><strong>Emil Kowalski</strong> foi a referência dominante porque Datafort é uma ferramenta de produtividade de alta frequência: preservar velocidade e não animar atalhos foi a regra principal.</p>
+    <p><strong>Jakub Krehel</strong> guiou a consistência de entrada/saída, skeletons e acabamento do OLED; a recomendação é aplicar polish só em mudanças de contexto.</p>
+    <p><strong>Jhey Tompkins</strong> foi usado seletivamente para o grafo e relações de conhecimento; personalidade deve aparecer em momentos de descoberta, não em cada controle.</p>
+    <div class="footer">blackwall · motion audit · 0 Critical · 2 Important · 4 Opportunities · prefers-reduced-motion verificado</div>
+  </main>
+</body>
+</html>

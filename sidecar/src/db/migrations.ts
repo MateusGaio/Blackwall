@@ -855,4 +855,107 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  // 23 is intentionally additive. Migration 15 was used by two historical
+  // development lines: a database can therefore have the migration marker
+  // without the source_content column. Repair the schema by post-condition,
+  // without changing or replaying migration 15.
+  const datafortFoundation = client.prepare("SELECT id FROM _migrations WHERE id = 23").get();
+  if (!datafortFoundation) {
+    const transaction = client.transaction(() => {
+      const columns = new Set(
+        (client.prepare("PRAGMA table_info(vault_objects)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+      if (!columns.has("source_content")) {
+        client.exec("ALTER TABLE vault_objects ADD COLUMN source_content TEXT NOT NULL DEFAULT ''");
+      }
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS datafort_settings (
+          workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          external_markdown_write_enabled INTEGER NOT NULL DEFAULT 0,
+          new_note_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Notes',
+          attachment_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Attachments',
+          template_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Templates',
+          daily_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Daily',
+          daily_template_path TEXT,
+          auto_update_links INTEGER NOT NULL DEFAULT 1,
+          explorer_scope TEXT NOT NULL DEFAULT 'knowledge',
+          layout_json TEXT NOT NULL DEFAULT '{}',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS datafort_file_identities (
+          file_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          managed INTEGER NOT NULL DEFAULT 0,
+          portent_id TEXT,
+          last_seen_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, path)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS datafort_file_identities_workspace_portent
+          ON datafort_file_identities(workspace_id, portent_id) WHERE portent_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS datafort_file_identities_workspace_path
+          ON datafort_file_identities(workspace_id, path);
+        CREATE TABLE IF NOT EXISTS datafort_trash_entries (
+          entry_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          file_id TEXT NOT NULL,
+          original_path TEXT NOT NULL,
+          trash_path TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          managed INTEGER NOT NULL DEFAULT 0,
+          portent_id TEXT,
+          deleted_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS datafort_trash_entries_workspace_deleted
+          ON datafort_trash_entries(workspace_id, deleted_at DESC);
+        CREATE TABLE IF NOT EXISTS datafort_drafts (
+          file_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS datafort_write_journal (
+          operation_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          operation TEXT NOT NULL,
+          source_path TEXT,
+          target_path TEXT,
+          expected_hash TEXT,
+          state TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS datafort_write_journal_workspace_state
+          ON datafort_write_journal(workspace_id, state, created_at);
+      `);
+      const now = Date.now();
+      client
+        .prepare(
+          `INSERT OR IGNORE INTO datafort_settings
+             (workspace_id, created_at, updated_at)
+           SELECT id, ?, ? FROM workspaces`,
+        )
+        .run(now, now);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(23, now);
+    });
+    transaction();
+  }
+}
+
+/** Startup invariant used before any Vault watcher or indexer is started. */
+export function assertVaultSchema(client: Database.Database) {
+  const columns = new Set(
+    (client.prepare("PRAGMA table_info(vault_objects)").all() as Array<{ name: string }>).map(
+      (column) => column.name,
+    ),
+  );
+  if (!columns.has("source_content")) {
+    throw new Error("Schema do Vault incompleto: vault_objects.source_content ausente.");
+  }
 }

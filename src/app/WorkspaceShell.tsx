@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LayoutChangedMeta, PanelImperativeHandle } from "react-resizable-panels";
 import {
@@ -76,6 +76,8 @@ import {
   vaultModePreference as vaultModePreferenceKey,
 } from "./vault-view";
 
+const DatafortShell = lazy(() => import("../features/datafort/components/DatafortShell"));
+
 const defaultVaultWidth = 360;
 function readStoredVaultMode(): VaultViewState["mode"] {
   try {
@@ -106,6 +108,7 @@ export default function WorkspaceShell({
   const [providers, setProviders] = useState<ConnectedProvider[]>(provider ? [provider] : []);
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<"chat" | "datafort">("chat");
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage");
   const [cursorAvoidanceEnabled, setCursorAvoidanceEnabled] = useState(() =>
     readBooleanPreference(cursorTextAvoidancePreference),
@@ -640,6 +643,7 @@ export default function WorkspaceShell({
 
   async function newSession() {
     if (!state?.activeProfileId || isCreatingSession) return;
+    setWorkspaceMode("chat");
     setNewChatDraft(false);
     setIsCreatingSession(true);
     setError("");
@@ -654,6 +658,7 @@ export default function WorkspaceShell({
   }
 
   function openNewChatDraft() {
+    setWorkspaceMode("chat");
     pendingDraftRef.current = null;
     pendingDraftSessionRef.current = null;
     setNewChatDraft(true);
@@ -696,17 +701,20 @@ export default function WorkspaceShell({
   newSessionRef.current = openNewChatDraft;
 
   function newWorkspace() {
+    setWorkspaceMode("chat");
     setResourceNotice("");
     setSettingsSection("workspaces");
     setShowSettings(true);
   }
 
   function openProvidersCenter() {
+    setWorkspaceMode("chat");
     setSettingsSection("providers");
     setShowSettings(true);
   }
 
   function openSettings() {
+    setWorkspaceMode("chat");
     setSettingsSection("usage");
     setShowSettings(true);
   }
@@ -1121,23 +1129,25 @@ export default function WorkspaceShell({
       <main
         className={`flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
       >
-        <ChatHeader
-          onToggleSidebar={toggleSidebar}
-          onToggleVault={() => {
-            if (!workspace) {
-              // Sem workspace o botão permanece visível e explica o bloqueio.
-              setResourceNotice(t("chat.selectAFolderToConfigure"));
-              return;
-            }
-            setResourceNotice("");
-            if (vaultView.mode === "expanded") captureVaultMemory();
-            dispatchVaultView({ type: "toggle-requested", hasWorkspace: true });
-          }}
-          sessionTitle={newChatDraft ? t("chat.newConversation") : activeSession?.title}
-          sidebarCollapsed={sidebarCollapsed}
-          vaultBlocked={!workspace}
-          vaultMode={workspace ? vaultView.mode : "rail"}
-        />
+        {workspaceMode === "chat" && (
+          <ChatHeader
+            onToggleSidebar={toggleSidebar}
+            onToggleVault={() => {
+              if (!workspace) {
+                // Sem workspace o botão permanece visível e explica o bloqueio.
+                setResourceNotice(t("chat.selectAFolderToConfigure"));
+                return;
+              }
+              setResourceNotice("");
+              if (vaultView.mode === "expanded") captureVaultMemory();
+              dispatchVaultView({ type: "toggle-requested", hasWorkspace: true });
+            }}
+            sessionTitle={newChatDraft ? t("chat.newConversation") : activeSession?.title}
+            sidebarCollapsed={sidebarCollapsed}
+            vaultBlocked={!workspace}
+            vaultMode={workspace ? vaultView.mode : "rail"}
+          />
+        )}
 
         <div className="flex min-h-0 w-full flex-1">
           <ResizablePanelGroup
@@ -1167,6 +1177,7 @@ export default function WorkspaceShell({
                 newSession={() => void newSession()}
                 newWorkspace={() => void newWorkspace()}
                 onDeleteRequest={requestDelete}
+                onOpenDatafort={() => setWorkspaceMode("datafort")}
                 onRenameRequest={(session) => {
                   setRenameDraft(session.title);
                   setSessionToRename({ id: session.id, title: session.title });
@@ -1180,12 +1191,15 @@ export default function WorkspaceShell({
                 openWorkspace={(workspaceId) => void openWorkspace(workspaceId)}
                 openSettings={() => {
                   setSettingsSection("usage");
+                  setWorkspaceMode("chat");
                   setShowSettings(true);
                 }}
                 recentSessions={recentSessions}
                 recentSessionsRef={recentSessionsRef}
                 settingsButtonRef={settingsButtonRef}
                 setCursorAvoidanceEnabled={setCursorAvoidanceEnabled}
+                datafortActive={workspaceMode === "datafort"}
+                datafortDisabled={!workspace}
                 workspace={workspace}
                 workspaces={state?.workspaces ?? []}
               />
@@ -1259,6 +1273,23 @@ export default function WorkspaceShell({
                 {!showSettings && (
                   <div className="h-full min-h-0">
                     {(() => {
+                      if (workspaceMode === "datafort" && workspace) {
+                        return (
+                          <Suspense
+                            fallback={
+                              <div aria-busy="true" className="datafort-loading-shell">
+                                <Skeleton className="h-10 w-48" />
+                                <Skeleton className="h-full w-full" />
+                              </div>
+                            }
+                          >
+                            <DatafortShell
+                              onExitToChat={() => setWorkspaceMode("chat")}
+                              workspaceId={workspace.id}
+                            />
+                          </Suspense>
+                        );
+                      }
                       if (!workspace) {
                         return chatArea;
                       }
@@ -1392,7 +1423,7 @@ export default function WorkspaceShell({
           onOpenNote={
             workspace
               ? () => {
-                  dispatchVaultView({ type: "shortcut-activated", tab: "files" });
+                  setWorkspaceMode("datafort");
                 }
               : undefined
           }
@@ -1402,6 +1433,7 @@ export default function WorkspaceShell({
           onOpenSettings={openSettings}
           onOpenSoulSection={() => {
             setSettingsSection("profile");
+            setWorkspaceMode("chat");
             setShowSettings(true);
           }}
           open={paletteOpen}
