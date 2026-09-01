@@ -1,10 +1,14 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
+
+import type { Completion, CompletionContext, CompletionSource } from "@codemirror/autocomplete";
 import {
   ArrowLeft,
   CalendarDays,
   ChevronDown,
   ChevronRight,
   Eye,
+  FileAudio,
+  FileImage,
   Files,
   FileText,
   Folder,
@@ -14,6 +18,7 @@ import {
   ListTree,
   Network,
   PanelRight,
+  Paperclip,
   Plus,
   RotateCcw,
   Save,
@@ -45,9 +50,11 @@ import {
   type DatafortTreeEntry,
   deleteDatafortDraft,
   deleteDatafortEntry,
+  getDatafortAttachmentContent,
   getDatafortDraft,
   getDatafortSettings,
   getDatafortTree,
+  getVault,
   listDatafortDocuments,
   listDatafortTrash,
   moveDatafortEntry,
@@ -56,7 +63,9 @@ import {
   restoreDatafortTrash,
   SidecarApiError,
   saveDatafortDraft,
+  searchWorkspace,
   updateDatafortDocument,
+  uploadDatafortAttachment,
 } from "@/shared/api/sidecar";
 import { EnterExit } from "@/shared/components/motion/EnterExit";
 import { ProgressIndicator } from "@/shared/components/motion/ProgressIndicator";
@@ -67,9 +76,14 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/shared/components/ui/resizable";
+import { DatafortGraph } from "./DatafortGraph";
+import { DatafortProperties, parseDatafortProperties } from "./DatafortProperties";
 
 const DatafortEditor = lazy(() =>
   import("./DatafortEditor").then((module) => ({ default: module.DatafortEditor })),
+);
+const PdfPreview = lazy(() =>
+  import("../../vault/components/PdfPreview").then((module) => ({ default: module.PdfPreview })),
 );
 
 type DatafortShellProps = {
@@ -78,9 +92,18 @@ type DatafortShellProps = {
   workspaceId: string;
 };
 
-type RailSection = "files" | "search" | "tags" | "favorites" | "templates" | "daily" | "trash";
+type RailSection =
+  | "files"
+  | "search"
+  | "tags"
+  | "favorites"
+  | "templates"
+  | "daily"
+  | "trash"
+  | "graph";
 type EditorMode = "live" | "source" | "reading";
 type SaveState = "saved" | "saving" | "editing" | "conflict";
+type GraphFilter = "all" | "attachments" | "folders" | "orphans" | "tags" | "unresolved";
 
 const railItems: Array<{ icon: typeof Files; id: RailSection; label: string }> = [
   { icon: Files, id: "files", label: "files" },
@@ -90,6 +113,7 @@ const railItems: Array<{ icon: typeof Files; id: RailSection; label: string }> =
   { icon: LayoutTemplate, id: "templates", label: "templates" },
   { icon: CalendarDays, id: "daily", label: "daily" },
   { icon: Trash2, id: "trash", label: "trash" },
+  { icon: Network, id: "graph", label: "graph" },
 ];
 
 function baseName(path: string) {
@@ -120,16 +144,6 @@ function headings(content: string) {
 
 function tagsFrom(content: string) {
   return [...new Set([...content.matchAll(/(^|\s)#([\w/-]+)/gm)].map((match) => `#${match[2]}`))];
-}
-
-function frontmatter(content: string) {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match?.[1]) return [];
-  return match[1]
-    .split(/\r?\n/)
-    .map((line) => line.match(/^([\w-]+):\s*(.*)$/))
-    .filter((entry): entry is RegExpMatchArray => Boolean(entry))
-    .map((entry) => ({ key: entry[1] ?? "", value: entry[2] ?? "" }));
 }
 
 function displayPath(path: string) {
@@ -224,6 +238,12 @@ function ExplorerTree({
                 ) : (
                   <FolderOpen size={14} />
                 )
+              ) : entry.kind === "attachment" ? (
+                entry.name.match(/\.(png|jpe?g|gif|svg)$/i) ? (
+                  <FileImage size={14} />
+                ) : (
+                  <FileAudio size={14} />
+                )
               ) : (
                 <FileText size={14} />
               )}
@@ -250,19 +270,280 @@ function EditorPlaceholder() {
   );
 }
 
+function AttachmentPreview({ path, workspaceId }: { path: string; workspaceId: string }) {
+  const [preview, setPreview] = useState<{
+    bytes?: Uint8Array;
+    contentType: string;
+    url?: string;
+  } | null>(null);
+  const [text, setText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let objectUrl = "";
+    let cancelled = false;
+    setLoading(true);
+    setPreview(null);
+    setText(null);
+    void getDatafortAttachmentContent(workspaceId, path)
+      .then(({ bytes, contentType }) => {
+        if (cancelled) return;
+        if (contentType.startsWith("text/") || contentType === "application/json") {
+          setText(new TextDecoder().decode(bytes));
+        } else if (contentType === "application/pdf") {
+          setPreview({ bytes, contentType });
+        } else {
+          const blobBytes = new Uint8Array(bytes.byteLength);
+          blobBytes.set(bytes);
+          objectUrl = URL.createObjectURL(new Blob([blobBytes.buffer], { type: contentType }));
+          setPreview({ contentType, url: objectUrl });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setText("Não foi possível carregar o preview deste anexo.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path, workspaceId]);
+
+  if (loading)
+    return (
+      <div aria-busy="true" className="datafort-attachment-preview-loading">
+        <Skeleton className="h-8 w-56" />
+        <ProgressIndicator label="Carregando preview" />
+      </div>
+    );
+  if (text !== null) return <pre className="datafort-attachment-text">{text}</pre>;
+  if (!preview) return <p className="datafort-empty-copy">Preview indisponível.</p>;
+  if (preview.contentType === "application/pdf" && preview.bytes)
+    return (
+      <Suspense fallback={<ProgressIndicator label="Carregando PDF" />}>
+        <PdfPreview bytes={preview.bytes} />
+      </Suspense>
+    );
+  if (preview.contentType.startsWith("image/") && preview.url)
+    return <img alt={baseName(path)} className="datafort-attachment-image" src={preview.url} />;
+  if (preview.contentType.startsWith("audio/") && preview.url)
+    return (
+      <audio className="datafort-attachment-media" controls src={preview.url}>
+        <track kind="captions" />
+      </audio>
+    );
+  if (preview.contentType.startsWith("video/") && preview.url)
+    return (
+      <video className="datafort-attachment-media" controls src={preview.url}>
+        <track kind="captions" />
+      </video>
+    );
+  if (!preview.url) return <p className="datafort-empty-copy">Preview indisponível.</p>;
+  return (
+    <a href={preview.url} rel="noreferrer" target="_blank">
+      Abrir anexo
+    </a>
+  );
+}
+
+function SearchResults({
+  onOpen,
+  response,
+}: {
+  onOpen: (path: string) => void;
+  response: import("@/shared/api/sidecar").WorkspaceSearchResponse | null;
+}) {
+  if (!response) return <p className="datafort-empty-copy">Digite para buscar no conhecimento.</p>;
+  if (response.results.length === 0)
+    return <p className="datafort-empty-copy">Nenhum resultado encontrado.</p>;
+  return (
+    <div className="datafort-search-results" aria-live="polite">
+      <div className="datafort-search-meta">
+        {response.mode === "hybrid" ? "Busca híbrida" : "Busca local"}
+        {response.semanticUnavailable ? " · sem semântica" : ""}
+      </div>
+      {response.results.map(({ citation }) =>
+        citation.source === "vault" ? (
+          <button
+            className="datafort-search-result"
+            key={`${citation.source}-${citation.objectId}-${citation.chunkIndex}`}
+            onClick={() => onOpen(citation.path)}
+            type="button"
+          >
+            <strong>{citation.title || baseName(citation.path)}</strong>
+            <span>{citation.path}</span>
+            <small>{citation.excerpt}</small>
+          </button>
+        ) : (
+          <div
+            className="datafort-search-result"
+            key={`${citation.source}-${citation.attachmentId}-${citation.chunkIndex}`}
+          >
+            <strong>{citation.filename}</strong>
+            <span>Anexo indexado</span>
+            <small>{citation.excerpt}</small>
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+function datafortCompletionSource(
+  getCatalog: () => DatafortDocument[],
+  getContent: () => string,
+  onCreateMissingLink: (title: string) => void,
+): CompletionSource {
+  const inFenceOrComment = (context: CompletionContext) => {
+    const before = context.state.sliceDoc(0, context.pos);
+    if ((before.match(/^```/gm)?.length ?? 0) % 2 === 1) return true;
+    const line = context.state.doc.lineAt(context.pos).text;
+    const lineBeforeCursor = line.slice(
+      0,
+      context.pos - context.state.doc.lineAt(context.pos).from,
+    );
+    return (
+      /^\s*%%/.test(lineBeforeCursor) ||
+      lineBeforeCursor.lastIndexOf("%%") > lineBeforeCursor.lastIndexOf("\n")
+    );
+  };
+  return (context) => {
+    const catalog = getCatalog();
+    const content = getContent();
+    const notes = catalog.map((item) => ({
+      aliases: parseDatafortProperties(item.content)
+        .filter((property) => property.key.toLocaleLowerCase() === "aliases")
+        .flatMap((property) => (Array.isArray(property.value) ? property.value : [])),
+      label: baseName(item.path),
+      path: item.path.replace(/\.(md|markdown)$/i, ""),
+    }));
+    const labels = new Map<string, number>();
+    for (const note of notes) labels.set(note.label, (labels.get(note.label) ?? 0) + 1);
+    if (inFenceOrComment(context)) return null;
+    const aliasMatch = context.matchBefore(/\[\[[^\]\n|]*\|[^\]\n]*/);
+    if (aliasMatch) {
+      const query = aliasMatch.text.split("|").at(-1)?.toLocaleLowerCase() ?? "";
+      return {
+        from: aliasMatch.from + aliasMatch.text.lastIndexOf("|") + 1,
+        options: notes
+          .flatMap((note) =>
+            note.aliases.map((alias) => ({
+              detail: note.path,
+              label: alias,
+              type: "text" as const,
+            })),
+          )
+          .filter((option) => option.label.toLocaleLowerCase().includes(query)),
+      };
+    }
+    const headingMatch = context.matchBefore(/\[\[[^\]\n#|]+#[^\]\n|]*/);
+    if (headingMatch) {
+      const query = headingMatch.text.split("#").at(-1)?.toLocaleLowerCase() ?? "";
+      const current = headings(content);
+      return {
+        from: headingMatch.from + headingMatch.text.lastIndexOf("#") + 1,
+        options: current
+          .filter((heading) => heading.title.toLocaleLowerCase().includes(query))
+          .map((heading) => ({
+            label: heading.title,
+            detail: `H${heading.depth}`,
+            type: "text" as const,
+          })),
+      };
+    }
+    const wikilinkMatch = context.matchBefore(/\[\[[^\]\n|#]*/);
+    if (wikilinkMatch) {
+      const query = wikilinkMatch.text.slice(2).toLocaleLowerCase();
+      const options: Completion[] = notes
+        .filter(
+          (note) =>
+            note.path.toLocaleLowerCase().includes(query) ||
+            note.label.toLocaleLowerCase().includes(query),
+        )
+        .map((note) => ({
+          detail: note.path,
+          label: (labels.get(note.label) ?? 0) > 1 ? note.path : note.label,
+          type: "text",
+        }));
+      if (query && options.length === 0)
+        options.push({
+          apply: () => {
+            if (window.confirm(`Criar a nota "${wikilinkMatch.text.slice(2)}"?`))
+              onCreateMissingLink(wikilinkMatch.text.slice(2));
+          },
+          detail: "novo documento",
+          label: `Criar "${wikilinkMatch.text.slice(2)}"`,
+          type: "keyword",
+        });
+      return { from: wikilinkMatch.from + 2, options };
+    }
+    const blockMatch = context.matchBefore(/\^[\w-]*/);
+    if (blockMatch) {
+      const query = blockMatch.text.slice(1).toLocaleLowerCase();
+      const blockIds = [...content.matchAll(/^\^([\w-]+)\s*$/gm)].map((match) => match[1] ?? "");
+      return {
+        from: blockMatch.from + 1,
+        options: blockIds
+          .filter((id) => id.toLocaleLowerCase().includes(query))
+          .map((id) => ({ label: id, type: "keyword" as const })),
+      };
+    }
+    const tagMatch = context.matchBefore(/(?:^|\s)#[-\w/]*/);
+    if (!tagMatch || (!context.explicit && tagMatch.from === tagMatch.to)) return null;
+    const query = tagMatch.text.slice(tagMatch.text.lastIndexOf("#") + 1).toLocaleLowerCase();
+    const tags = [
+      ...new Set(
+        catalog.flatMap((item) => [
+          ...tagsFrom(item.content),
+          ...parseDatafortProperties(item.content)
+            .filter((property) => property.key.toLocaleLowerCase() === "tags")
+            .flatMap((property) =>
+              Array.isArray(property.value) ? property.value.map((value) => `#${value}`) : [],
+            ),
+        ]),
+      ),
+    ];
+    return {
+      from: tagMatch.from + tagMatch.text.lastIndexOf("#") + 1,
+      options: tags
+        .filter((tag) => tag.slice(1).toLocaleLowerCase().includes(query))
+        .map((tag) => ({ label: tag.slice(1), type: "keyword" as const })),
+    };
+  };
+}
+
 function CenterEditor({
+  attachmentPath,
   document,
   content,
   mode,
   onChange,
   onSave,
+  onAttachment,
+  completionSource,
+  workspaceId,
 }: {
+  attachmentPath?: string | null;
   content: string;
   document: DatafortDocument | null;
   mode: EditorMode;
   onChange: (content: string) => void;
   onSave: () => void;
+  onAttachment?: (file: File) => Promise<string | null>;
+  completionSource?: CompletionSource;
+  workspaceId: string;
 }) {
+  if (attachmentPath)
+    return (
+      <div className="datafort-attachment-preview">
+        <div className="datafort-attachment-heading">
+          <FileText size={14} />
+          <span className="truncate">{attachmentPath}</span>
+        </div>
+        <AttachmentPreview path={attachmentPath} workspaceId={workspaceId} />
+      </div>
+    );
   if (!document) {
     return (
       <div className="datafort-empty-editor">
@@ -286,6 +567,8 @@ function CenterEditor({
         mode={mode}
         onChange={onChange}
         onSave={onSave}
+        onAttachment={onAttachment}
+        completionSource={completionSource}
         readOnly={!document.writable}
       />
     </Suspense>
@@ -350,6 +633,19 @@ export default function DatafortShell({
   const [loadingDocument, setLoadingDocument] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [searchResponse, setSearchResponse] = useState<
+    import("@/shared/api/sidecar").WorkspaceSearchResponse | null
+  >(null);
+  const [searching, setSearching] = useState(false);
+  const [globalGraph, setGlobalGraph] = useState<import("@/shared/api/sidecar").VaultGraph | null>(
+    null,
+  );
+  const [localDepth, setLocalDepth] = useState<1 | 2 | 3>(1);
+  const [graphFilter, setGraphFilter] = useState<GraphFilter>("all");
+  const [attachmentUpload, setAttachmentUpload] = useState<{
+    name: string;
+    percent: number;
+  } | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [creating, setCreating] = useState(false);
   const [showProperties, setShowProperties] = useState(true);
@@ -357,11 +653,18 @@ export default function DatafortShell({
   const [documentReloadToken, setDocumentReloadToken] = useState(0);
   const [editorMountKey, setEditorMountKey] = useState(0);
   const saveInFlightRef = useRef(false);
+  const attachmentAbortRef = useRef<AbortController | null>(null);
+  const attachmentFileInputRef = useRef<HTMLInputElement | null>(null);
+  const treeRef = useRef<DatafortTreeEntry[]>([]);
+  const catalogCompletionRef = useRef<DatafortDocument[]>([]);
+  const contentCompletionRef = useRef("");
   const inspectorPanelRef = useRef<PanelImperativeHandle | null>(null);
 
   useEffect(() => {
     selectedPathRef.current = selectedPath;
   }, [selectedPath]);
+
+  treeRef.current = tree;
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -384,7 +687,9 @@ export default function DatafortShell({
       const nextCatalog = await listDatafortDocuments(workspaceId);
       setCatalog(nextCatalog);
       const validPaths = new Set(
-        nextTree.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path),
+        nextTree.entries
+          .filter((entry) => entry.kind === "file" || entry.kind === "attachment")
+          .map((entry) => entry.path),
       );
       if (!layoutHydratedRef.current) {
         const layout = nextSettings.layout;
@@ -447,16 +752,41 @@ export default function DatafortShell({
     [tree],
   );
 
+  const createMissingLink = useCallback(
+    (title: string) => {
+      const normalized = title.trim();
+      if (!normalized) return;
+      void createDatafortDocument(workspaceId, { title: normalized })
+        .then(async (created) => {
+          await reloadWorkspace();
+          openPath(created.path);
+        })
+        .catch((reason) =>
+          setError(reason instanceof Error ? reason.message : t("datafort.loadFailed")),
+        );
+    },
+    [openPath, reloadWorkspace, t, workspaceId],
+  );
+
   useEffect(() => {
     if (!selectedPath || documentReloadToken < 0) return;
+    const selectedEntry = treeRef.current.find((entry) => entry.path === selectedPath);
+    if (selectedEntry?.kind === "attachment") {
+      draftRef.current = "";
+      setDocument(null);
+      setConflictHash(null);
+      setSaveState("saved");
+      setLoadingDocument(false);
+      return;
+    }
     let cancelled = false;
     setLoadingDocument(true);
     void Promise.all([
       listDatafortDocuments(workspaceId, selectedPath),
-      tree.find((entry) => entry.path === selectedPath)?.fileId
+      treeRef.current.find((entry) => entry.path === selectedPath)?.fileId
         ? getDatafortDraft(
             workspaceId,
-            tree.find((entry) => entry.path === selectedPath)?.fileId ?? "",
+            treeRef.current.find((entry) => entry.path === selectedPath)?.fileId ?? "",
           )
         : Promise.resolve(null),
     ])
@@ -481,7 +811,7 @@ export default function DatafortShell({
     return () => {
       cancelled = true;
     };
-  }, [documentReloadToken, selectedPath, t, tree, workspaceId]);
+  }, [documentReloadToken, selectedPath, t, workspaceId]);
 
   const saveDocument = useCallback(async () => {
     if (!document?.writable || saveInFlightRef.current) return null;
@@ -579,6 +909,54 @@ export default function DatafortShell({
     }
   }
 
+  async function attachFile(file: File) {
+    if (!document?.writable || attachmentUpload) return null;
+    const controller = new AbortController();
+    attachmentAbortRef.current = controller;
+    setAttachmentUpload({ name: file.name, percent: 20 });
+    try {
+      const attachment = await uploadDatafortAttachment(file, workspaceId, controller.signal);
+      setAttachmentUpload({ name: file.name, percent: 100 });
+      setTree((current) =>
+        current.some((entry) => entry.path === attachment.path)
+          ? current
+          : [
+              ...current,
+              {
+                fileId: attachment.fileId,
+                kind: "attachment" as const,
+                managed: false,
+                name: attachment.filename,
+                path: attachment.path,
+                size: attachment.byteSize,
+                writable: false,
+              },
+            ],
+      );
+      return `![[${attachment.path}]]`;
+    } catch (reason) {
+      if (!(reason instanceof Error && reason.name === "AbortError"))
+        setError(reason instanceof Error ? reason.message : "Não foi possível anexar o arquivo.");
+      return null;
+    } finally {
+      attachmentAbortRef.current = null;
+      setAttachmentUpload(null);
+    }
+  }
+
+  function insertAttachmentLink(link: string) {
+    const separator = draftRef.current.endsWith("\n") ? "" : "\n";
+    draftRef.current = `${draftRef.current}${separator}${link}\n`;
+    setSaveState("editing");
+    setDraftVersion((current) => current + 1);
+    setEditorMountKey((current) => current + 1);
+  }
+
+  function cancelAttachmentUpload() {
+    attachmentAbortRef.current?.abort();
+    setAttachmentUpload(null);
+  }
+
   async function moveSelected() {
     if (!document) return;
     const destination = window.prompt(t("datafort.movePrompt"), document.path);
@@ -641,10 +1019,177 @@ export default function DatafortShell({
   }, [loadTrash, section]);
 
   const currentContent = document ? draftRef.current : "";
+  const selectedAttachmentPath =
+    tree.find((entry) => entry.path === selectedPath && entry.kind === "attachment")?.path ?? null;
+  catalogCompletionRef.current = catalog;
+  contentCompletionRef.current = currentContent;
   const links = useMemo(() => outgoingLinks(currentContent), [currentContent]);
   const currentHeadings = useMemo(() => headings(currentContent), [currentContent]);
   const currentTags = useMemo(() => tagsFrom(currentContent), [currentContent]);
-  const currentProperties = useMemo(() => frontmatter(currentContent), [currentContent]);
+  const completionSource = useMemo(
+    () =>
+      datafortCompletionSource(
+        () => catalogCompletionRef.current,
+        () => contentCompletionRef.current,
+        createMissingLink,
+      ),
+    [createMissingLink],
+  );
+  const localGraph = useMemo(() => {
+    if (!document) return { edges: [], files: [], nodes: [] };
+    const all = catalog.some((item) => item.fileId === document.fileId)
+      ? catalog
+      : [...catalog, document];
+    const docsByName = new Map(all.map((item) => [baseName(item.path).toLocaleLowerCase(), item]));
+    const related = new Map<string, DatafortDocument>([[document.fileId, document]]);
+    let frontier = [document];
+    for (let depth = 0; depth < localDepth; depth += 1) {
+      frontier = frontier
+        .flatMap((item) =>
+          outgoingLinks(item.content)
+            .map((link) => docsByName.get(baseName(link).toLocaleLowerCase()))
+            .filter((item): item is DatafortDocument => Boolean(item)),
+        )
+        .filter((item) => !related.has(item.fileId));
+      for (const item of frontier) related.set(item.fileId, item);
+    }
+    const unique = [...related.values()];
+    const nodeIds = new Set(unique.map((item) => item.fileId));
+    return {
+      edges: unique.flatMap((item) =>
+        outgoingLinks(item.content).flatMap((link) => {
+          const target = docsByName.get(baseName(link).toLocaleLowerCase());
+          return target && nodeIds.has(target.fileId)
+            ? [{ source: item.fileId, target: target.fileId }]
+            : [];
+        }),
+      ),
+      files: unique.map((item) => ({
+        content: item.content,
+        headings: headings(item.content).map((heading) => heading.title),
+        path: item.path,
+        title: baseName(item.path),
+      })),
+      nodes: unique.map((item) => ({
+        id: item.fileId,
+        label: baseName(item.path),
+        path: item.path,
+      })),
+    };
+  }, [catalog, document, localDepth]);
+  const filteredGlobalGraph = useMemo(() => {
+    if (!globalGraph) return null;
+    const files = [...globalGraph.files];
+    const nodes = [...globalGraph.nodes];
+    const edges = [...globalGraph.edges];
+    const knownTargets = new Set(
+      files.flatMap((file) => [file.path, baseName(file.path), file.path.replace(/\.md$/i, "")]),
+    );
+    const nodesByPath = new Map(nodes.map((node) => [node.path, node]));
+    for (const file of files) {
+      const source = nodesByPath.get(file.path);
+      if (!source) continue;
+      for (const link of outgoingLinks(file.content)) {
+        if (knownTargets.has(link) || knownTargets.has(baseName(link))) continue;
+        const unresolvedId = `unresolved:${file.path}:${link}`;
+        if (!nodes.some((node) => node.id === unresolvedId)) {
+          nodes.push({ id: unresolvedId, label: `? ${link}`, path: "" });
+          edges.push({ source: source.id, target: unresolvedId });
+        }
+      }
+    }
+    for (const entry of tree.filter((item) => item.kind === "attachment")) {
+      const id = `attachment:${entry.path}`;
+      if (!nodes.some((node) => node.id === id)) {
+        nodes.push({ id, label: entry.name, path: entry.path });
+        files.push({ content: "", headings: [], path: entry.path, title: entry.name });
+      }
+      for (const file of globalGraph.files) {
+        const source = nodesByPath.get(file.path);
+        if (
+          source &&
+          new RegExp(
+            `!\\[\\[${entry.path.replace(/[.*+?^${}()|[\\]\\]/g, "\\\\$&")}(?:\\|[^\\]]+)?\\]\\]`,
+          ).test(file.content)
+        )
+          edges.push({ source: source.id, target: id });
+      }
+    }
+    if (graphFilter === "all") return { edges, files, nodes };
+    const edgeCount = new Map<string, number>();
+    for (const edge of edges) {
+      edgeCount.set(edge.source, (edgeCount.get(edge.source) ?? 0) + 1);
+      edgeCount.set(edge.target, (edgeCount.get(edge.target) ?? 0) + 1);
+    }
+    const visible = new Set(
+      nodes
+        .filter((node) => {
+          if (graphFilter === "attachments") return node.id.startsWith("attachment:");
+          if (graphFilter === "unresolved") return node.id.startsWith("unresolved:");
+          if (graphFilter === "orphans") return !edgeCount.has(node.id);
+          if (graphFilter === "folders") return Boolean(node.path?.includes("/"));
+          const file = files.find((item) => item.path === node.path);
+          return Boolean(
+            file &&
+              (tagsFrom(file.content).length ||
+                parseDatafortProperties(file.content).some(
+                  (property) => property.key.toLocaleLowerCase() === "tags",
+                )),
+          );
+        })
+        .map((node) => node.id),
+    );
+    return {
+      edges: edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
+      files: files.filter((file) =>
+        visible.has(nodes.find((node) => node.path === file.path)?.id ?? ""),
+      ),
+      nodes: nodes.filter((node) => visible.has(node.id)),
+    };
+  }, [globalGraph, graphFilter, tree]);
+
+  useEffect(() => {
+    if (section !== "search" || !query.trim()) {
+      setSearchResponse(null);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      void searchWorkspace(workspaceId, query.trim(), 20)
+        .then((response) => {
+          if (!cancelled) setSearchResponse(response);
+        })
+        .catch((reason) => {
+          if (!cancelled)
+            setError(reason instanceof Error ? reason.message : "Não foi possível pesquisar.");
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query, section, workspaceId]);
+
+  useEffect(() => {
+    if (section !== "graph") return;
+    let cancelled = false;
+    void getVault(workspaceId)
+      .then((nextGraph) => {
+        if (!cancelled) setGlobalGraph(nextGraph);
+      })
+      .catch((reason) => {
+        if (!cancelled)
+          setError(reason instanceof Error ? reason.message : "Não foi possível carregar o grafo.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section, workspaceId]);
   const favoritePaths = useMemo(() => {
     const value = settings?.layout.favoritePaths;
     return new Set(
@@ -752,6 +1297,7 @@ export default function DatafortShell({
           <ModeTransition mode={mode}>
             {(visibleMode) => (
               <CenterEditor
+                attachmentPath={isActive ? selectedAttachmentPath : null}
                 content={currentContent}
                 document={document}
                 mode={visibleMode}
@@ -761,6 +1307,9 @@ export default function DatafortShell({
                   setDraftVersion((current) => current + 1);
                 }}
                 onSave={() => void saveDocument()}
+                onAttachment={isActive ? attachFile : undefined}
+                completionSource={isActive ? completionSource : undefined}
+                workspaceId={workspaceId}
               />
             )}
           </ModeTransition>
@@ -807,6 +1356,29 @@ export default function DatafortShell({
             </div>
           </div>
           <div className="datafort-topbar-actions">
+            <button
+              className="datafort-quiet-button"
+              disabled={!document?.writable || Boolean(attachmentUpload)}
+              onClick={() => attachmentFileInputRef.current?.click()}
+              type="button"
+            >
+              <Paperclip size={14} /> Anexar
+            </button>
+            <input
+              accept="image/*,audio/*,video/*,.pdf,.md,.txt,.json,.yaml,.yml"
+              aria-label="Escolher anexo"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file)
+                  void attachFile(file).then((link) => {
+                    if (link) insertAttachmentLink(link);
+                  });
+              }}
+              ref={attachmentFileInputRef}
+              type="file"
+            />
             <button
               className="datafort-quiet-button"
               onClick={() => void moveSelected()}
@@ -856,6 +1428,19 @@ export default function DatafortShell({
         </header>
 
         {error && <ErrorBanner message={error} onDismiss={() => setError("")} />}
+        {attachmentUpload && (
+          <div className="datafort-upload-banner" role="status">
+            <span className="truncate">Anexando {attachmentUpload.name}</span>
+            <ProgressIndicator label="Progresso do anexo" value={attachmentUpload.percent} />
+            <button
+              className="datafort-quiet-button"
+              onClick={cancelAttachmentUpload}
+              type="button"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
 
         <div className="datafort-body">
           <nav aria-label="Datafort sections" className="datafort-rail">
@@ -944,7 +1529,19 @@ export default function DatafortShell({
                           </button>
                         </div>
                       )}
-                      <ExplorerTree entries={visibleEntries} onOpen={openPath} query={query} />
+                      {section === "search" ? (
+                        searching ? (
+                          <div aria-busy="true" className="space-y-2 p-2">
+                            <Skeleton className="h-12" />
+                            <Skeleton className="h-12" />
+                            <ProgressIndicator label="Pesquisando no workspace" />
+                          </div>
+                        ) : (
+                          <SearchResults onOpen={openPath} response={searchResponse} />
+                        )
+                      ) : (
+                        <ExplorerTree entries={visibleEntries} onOpen={openPath} query={query} />
+                      )}
                     </>
                   ) : section === "trash" ? (
                     <div className="datafort-trash-list">
@@ -1139,24 +1736,61 @@ export default function DatafortShell({
                   </div>
                 )}
                 <div className="datafort-editor-stage" key={editorMountKey}>
-                  <EnterExit className="h-full min-h-0 w-full" duration="fast" show={split}>
-                    <ResizablePanelGroup
-                      className="h-full"
-                      orientation="horizontal"
-                      onLayoutChanged={(layout) => void persistLayout({ splitLayout: layout })}
-                    >
-                      <ResizablePanel defaultSize={50} minSize={25}>
-                        {renderEditorColumn(groupPaths[0], 0)}
-                      </ResizablePanel>
-                      <ResizableHandle withHandle aria-label="Resize editor group" />
-                      <ResizablePanel defaultSize={50} minSize={25}>
-                        {renderEditorColumn(groupPaths[1], 1)}
-                      </ResizablePanel>
-                    </ResizablePanelGroup>
-                  </EnterExit>
-                  <EnterExit className="h-full min-h-0 w-full" duration="fast" show={!split}>
-                    {renderEditorColumn(selectedPath, 0)}
-                  </EnterExit>
+                  {section === "graph" ? (
+                    <div className="datafort-global-graph">
+                      <div className="datafort-global-graph-heading">
+                        <div>
+                          <strong>Grafo global</strong>
+                          <span>Links entre todas as notas indexadas</span>
+                        </div>
+                        <label className="datafort-graph-filter">
+                          <span className="sr-only">Filtro do grafo</span>
+                          <select
+                            aria-label="Filtrar grafo global"
+                            onChange={(event) => setGraphFilter(event.target.value as GraphFilter)}
+                            value={graphFilter}
+                          >
+                            <option value="all">Todos</option>
+                            <option value="tags">Com tags</option>
+                            <option value="folders">Em pastas</option>
+                            <option value="attachments">Anexos</option>
+                            <option value="orphans">Órfãos</option>
+                            <option value="unresolved">Links não resolvidos</option>
+                          </select>
+                        </label>
+                        <Network size={17} />
+                      </div>
+                      {filteredGlobalGraph ? (
+                        <DatafortGraph graph={filteredGlobalGraph} onOpenPath={openPath} />
+                      ) : (
+                        <div aria-busy="true" className="datafort-graph-loading">
+                          <Skeleton className="h-full w-full" />
+                          <ProgressIndicator label="Carregando grafo global" />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <EnterExit className="h-full min-h-0 w-full" duration="fast" show={split}>
+                        <ResizablePanelGroup
+                          className="h-full"
+                          orientation="horizontal"
+                          onLayoutChanged={(layout) => void persistLayout({ splitLayout: layout })}
+                        >
+                          <ResizablePanel defaultSize={50} minSize={25}>
+                            {renderEditorColumn(groupPaths[0], 0)}
+                          </ResizablePanel>
+                          <ResizableHandle withHandle aria-label="Resize editor group" />
+                          <ResizablePanel defaultSize={50} minSize={25}>
+                            {renderEditorColumn(groupPaths[1], 1)}
+                          </ResizablePanel>
+                        </ResizablePanelGroup>
+                      </EnterExit>
+                      <EnterExit className="h-full min-h-0 w-full" duration="fast" show={!split}>
+                        {renderEditorColumn(selectedPath, 0)}
+                      </EnterExit>
+                    </>
+                  )}
                 </div>
                 <footer className="datafort-statusbar">
                   <span className={`datafort-save-status is-${saveState}`}>
@@ -1198,22 +1832,15 @@ export default function DatafortShell({
                     </button>
                   </div>
                   <div className="datafort-inspector-section">
-                    <div className="datafort-inspector-heading">
-                      <span>
-                        <Settings2 size={14} /> {t("datafort.properties")}
-                      </span>
-                      <ChevronDown size={13} />
-                    </div>
-                    {currentProperties.length === 0 ? (
-                      <p className="datafort-empty-copy">Sem propriedades.</p>
-                    ) : (
-                      currentProperties.map((property) => (
-                        <div className="datafort-property" key={property.key}>
-                          <span>{property.key}</span>
-                          <strong>{property.value}</strong>
-                        </div>
-                      ))
-                    )}
+                    <DatafortProperties
+                      content={currentContent}
+                      onChange={(next) => {
+                        draftRef.current = next;
+                        setSaveState("editing");
+                        setDraftVersion((current) => current + 1);
+                      }}
+                      readOnly={!document?.writable}
+                    />
                   </div>
                   <div className="datafort-inspector-section">
                     <div className="datafort-inspector-heading">
@@ -1292,21 +1919,28 @@ export default function DatafortShell({
                       <span>
                         <Network size={14} /> {t("datafort.graph")}
                       </span>
-                    </div>
-                    <div className="datafort-graph-mini">
-                      <div className="datafort-graph-node active">
-                        {documentTitle(document, selectedPath)}
-                      </div>
-                      {links.slice(0, 4).map((link, index) => (
-                        <div
-                          className="datafort-graph-link"
-                          key={link}
-                          style={{ transform: `rotate(${index * 72 - 36}deg)` }}
+                      <label className="datafort-graph-depth">
+                        <span className="sr-only">Profundidade local</span>
+                        <select
+                          aria-label="Profundidade do grafo local"
+                          onChange={(event) =>
+                            setLocalDepth(Number(event.target.value) as 1 | 2 | 3)
+                          }
+                          value={localDepth}
                         >
-                          <span>{link}</span>
-                        </div>
-                      ))}
+                          <option value="1">1 nível</option>
+                          <option value="2">2 níveis</option>
+                          <option value="3">3 níveis</option>
+                        </select>
+                      </label>
                     </div>
+                    {localGraph.nodes.length > 1 ? (
+                      <DatafortGraph compact graph={localGraph} onOpenPath={openPath} />
+                    ) : (
+                      <p className="datafort-empty-copy">
+                        Adicione links para formar o grafo local.
+                      </p>
+                    )}
                   </div>
                   <div className="datafort-inspector-section">
                     <div className="datafort-inspector-heading">

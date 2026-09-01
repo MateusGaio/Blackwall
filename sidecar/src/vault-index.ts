@@ -185,7 +185,7 @@ export async function rebuildVaultIndex(client: Database.Database, input: Rebuil
         type: file.object.type ?? null,
         workspaceId: input.workspaceId,
       });
-      insertFts.run(id, input.workspaceId, file.title, file.object.body);
+      insertFts.run(id, input.workspaceId, file.title, `${file.path}\n${file.content}`);
     }
     const insertRelation = client.prepare(`
       INSERT INTO vault_relations
@@ -327,7 +327,15 @@ export async function syncVaultIndexChanges(
         workspaceId: input.workspaceId,
       });
       deleteFts.run(input.workspaceId, id);
-      insertFts.run(id, input.workspaceId, parsed.object.title, parsed.object.body);
+      // O corpo do objeto continua sem frontmatter para renderização, mas o
+      // índice lexical inclui metadados (aliases, tags e propriedades) para o
+      // Quick Search sem criar um segundo mecanismo de busca.
+      insertFts.run(
+        id,
+        input.workspaceId,
+        parsed.object.title,
+        `${change.path}\n${change.content}`,
+      );
     }
     relationGraph = rebuildRelations(client, input.workspaceId);
   });
@@ -436,9 +444,7 @@ export function searchVaultDetailed(
     title: string;
   }>;
   return rows.map((row, index) => {
-    const body = row.sourceContent
-      ? parseMarkdownObject(row.sourceContent, row.path).body
-      : row.body;
+    const body = row.sourceContent ?? row.body;
     const chunks = chunkVaultObject(row.title, body);
     const chunkIndex = matchingChunkIndex(query, chunks);
     return {

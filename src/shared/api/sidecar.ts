@@ -305,10 +305,11 @@ export type DatafortSettings = {
 
 export type DatafortTreeEntry = {
   fileId?: string;
-  kind: "directory" | "file";
+  kind: "directory" | "file" | "attachment";
   managed: boolean;
   name: string;
   path: string;
+  size?: number;
   writable: boolean;
 };
 
@@ -337,6 +338,16 @@ export type DatafortTrashEntry = {
   managed: boolean;
   originalPath: string;
   portentId?: string;
+};
+
+export type DatafortAttachment = {
+  byteSize: number;
+  contentHash: string;
+  fileId: string;
+  filename: string;
+  kind: "attachment";
+  mimeType: string;
+  path: string;
 };
 
 export class SidecarApiError extends Error {
@@ -1137,6 +1148,38 @@ export async function updateDatafortDocument(
     },
   );
   return response.document;
+}
+
+export async function uploadDatafortAttachment(
+  file: File,
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<DatafortAttachment> {
+  const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+  const response = await request<{ attachment: DatafortAttachment }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/attachments`,
+    {
+      body: JSON.stringify({
+        contentBase64,
+        filename: file.name,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      signal,
+    },
+  );
+  return response.attachment;
+}
+
+export async function getDatafortAttachmentContent(
+  workspaceId: string,
+  path: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/attachments/content?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+  return { bytes: result.bytes, contentType: result.response.headers.get("content-type") ?? "" };
 }
 
 export async function moveDatafortEntry(
