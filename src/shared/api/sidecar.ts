@@ -456,6 +456,7 @@ export type WorkspaceSearchCitation =
       contentHash: string;
       excerpt: string;
       filename: string;
+      path?: string;
       source: "attachment";
     };
 

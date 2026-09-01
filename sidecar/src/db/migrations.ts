@@ -946,6 +946,36 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const datafortAttachmentIndex = client.prepare("SELECT id FROM _migrations WHERE id = 24").get();
+  if (!datafortAttachmentIndex) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS datafort_attachments (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          filename TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          byte_size INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, path)
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS datafort_attachments_fts USING fts5(
+          attachment_id UNINDEXED,
+          workspace_id UNINDEXED,
+          content,
+          tokenize = 'unicode61'
+        );
+        CREATE INDEX IF NOT EXISTS datafort_attachments_workspace_updated
+          ON datafort_attachments(workspace_id, updated_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(24, Date.now());
+    });
+    transaction();
+  }
 }
 
 /** Startup invariant used before any Vault watcher or indexer is started. */

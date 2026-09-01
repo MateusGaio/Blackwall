@@ -62,6 +62,29 @@ describe("watcher do Vault", () => {
     await rm(root, { force: true, recursive: true });
   });
 
+  it("pode encaminhar eventos de anexos para o índice do Datafort", async () => {
+    const root = await mkdtemp(join(tmpdir(), "blackwall-watcher-attachments-"));
+    const events = new Map<string, (event: string, filename?: string) => void>();
+    const changes: string[][] = [];
+    const watcher = createVaultWatcher({
+      debounceMs: 5,
+      includeAttachments: true,
+      onChange: (paths) => changes.push(paths),
+      reconcileMs: 0,
+      rootPath: root,
+      watchFactory: (directory, listener) => {
+        events.set(directory, listener);
+        return { close: vi.fn() };
+      },
+    });
+    await watcher.start();
+    events.get(root)?.("rename", "anexo.txt");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(changes).toEqual([[join(root, "anexo.txt")]]);
+    watcher.stop();
+    await rm(root, { force: true, recursive: true });
+  });
+
   it("suprime todos os eventos nativos de uma escrita interna e para duas vezes", async () => {
     const root = await mkdtemp(join(tmpdir(), "blackwall-watcher-internal-"));
     const events = new Map<string, (event: string, filename?: string) => void>();
