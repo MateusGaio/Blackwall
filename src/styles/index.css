@@ -1459,6 +1459,271 @@ button:disabled {
   max-width: 180px;
 }
 
+.datafort-upload-banner {
+  align-items: center;
+  background: #17171b;
+  border-bottom: 1px solid #2d2d35;
+  color: #c7c7ce;
+  display: flex;
+  font-size: 0.68rem;
+  gap: 10px;
+  min-height: 35px;
+  padding: 4px 12px;
+}
+
+.datafort-upload-banner > [data-slot="progress"] {
+  flex: 1;
+  max-width: 300px;
+}
+
+.datafort-search-results {
+  display: grid;
+  gap: 4px;
+}
+
+.datafort-search-meta {
+  color: #73737c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.58rem;
+  padding: 4px 5px 7px;
+  text-transform: uppercase;
+}
+
+.datafort-search-result {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #aaaab2;
+  display: grid;
+  gap: 2px;
+  padding: 7px 6px;
+  text-align: left;
+  transition:
+    background-color var(--motion-fast) var(--ease-out-quart),
+    border-color var(--motion-fast) var(--ease-out-quart);
+  width: 100%;
+}
+
+.datafort-search-result:hover,
+.datafort-search-result:focus-visible {
+  background: #1a1a1f;
+  border-color: #2d2d35;
+  outline: none;
+}
+
+.datafort-search-result strong {
+  color: #dfdfe3;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.datafort-search-result span,
+.datafort-search-result small {
+  color: #777780;
+  font-size: 0.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.datafort-search-result small {
+  color: #9a9aa2;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.datafort-attachment-preview,
+.datafort-global-graph {
+  background: #0a0a0c;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.datafort-attachment-heading,
+.datafort-global-graph-heading {
+  align-items: center;
+  border-bottom: 1px solid #202024;
+  color: #aaaab2;
+  display: flex;
+  flex: 0 0 38px;
+  gap: 7px;
+  padding: 0 14px;
+}
+
+.datafort-global-graph-heading {
+  justify-content: space-between;
+}
+
+/* biome-ignore lint/style/noDescendingSpecificity: isolated Datafort heading follows legacy Vault selectors. */
+.datafort-global-graph-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.datafort-global-graph-heading strong {
+  color: #e3e3e7;
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.datafort-global-graph-heading span {
+  color: #74747c;
+  font-size: 0.62rem;
+}
+
+.datafort-graph-filter select {
+  background: #17171b;
+  border: 1px solid #29292f;
+  border-radius: 4px;
+  color: #8d8d96;
+  font-size: 0.58rem;
+  padding: 3px 5px;
+}
+
+.datafort-attachment-preview > :not(.datafort-attachment-heading) {
+  margin: auto;
+  max-height: calc(100% - 38px);
+  max-width: 100%;
+}
+
+.datafort-attachment-preview > .datafort-attachment-heading + * {
+  align-self: stretch;
+  flex: 1;
+  min-height: 0;
+  padding: 18px;
+}
+
+.datafort-attachment-image {
+  object-fit: contain;
+}
+
+.datafort-attachment-preview > .datafort-attachment-media {
+  align-self: center;
+  flex: 0 0 auto;
+  max-width: calc(100% - 36px);
+  padding: 0;
+}
+
+.datafort-attachment-preview > .datafort-attachment-pdf {
+  border: 0;
+  height: 100%;
+  padding: 0;
+  width: 100%;
+}
+
+.datafort-attachment-text {
+  color: #c5c5cb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  line-height: 1.55;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.datafort-attachment-preview-loading,
+.datafort-graph-loading {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  padding: 24px;
+}
+
+.datafort-graph-loading > [data-slot="motion-skeleton"] {
+  align-self: stretch;
+  flex: 1;
+}
+
+.datafort-graph-canvas {
+  cursor: pointer;
+  display: block;
+  flex: 1;
+  height: 100%;
+  margin: auto;
+  max-height: calc(100% - 38px);
+  max-width: 100%;
+  min-height: 0;
+  width: 100%;
+}
+
+.datafort-graph-canvas.is-compact {
+  flex: 0 0 130px;
+  height: 130px;
+  margin-top: 5px;
+}
+
+.datafort-properties-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.datafort-properties-editor > .datafort-inspector-heading {
+  margin-bottom: 2px;
+}
+
+.datafort-property-field {
+  display: grid;
+  gap: 4px;
+  position: relative;
+}
+
+.datafort-property-label {
+  align-items: baseline;
+  color: #85858e;
+  display: flex;
+  font-size: 0.64rem;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.datafort-property-label small,
+.datafort-property-field em {
+  color: #5f5f68;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.52rem;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.datafort-property-field input:not([type="checkbox"]) {
+  background: #17171b;
+  border: 1px solid #29292f;
+  border-radius: 5px;
+  color: #d2d2d7;
+  font-size: 0.66rem;
+  min-width: 0;
+  outline: none;
+  padding: 5px 6px;
+  width: 100%;
+}
+
+.datafort-property-field input:focus-visible {
+  border-color: #5a617d;
+}
+
+.datafort-property-field input:disabled {
+  color: #71717a;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.datafort-property-field em {
+  position: absolute;
+  right: 6px;
+  top: 26px;
+}
+
+.datafort-property-error {
+  color: #e18a8a;
+  font-size: 0.58rem;
+}
+
 .datafort-inspector {
   background: #101014;
 }
@@ -1488,6 +1753,15 @@ button:disabled {
   align-items: center;
   display: inline-flex;
   gap: 6px;
+}
+
+.datafort-graph-depth select {
+  background: #17171b;
+  border: 1px solid #29292f;
+  border-radius: 4px;
+  color: #8d8d96;
+  font-size: 0.56rem;
+  padding: 2px 3px;
 }
 
 .datafort-property {

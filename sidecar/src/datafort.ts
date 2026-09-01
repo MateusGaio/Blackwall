@@ -39,6 +39,45 @@ const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);
 type DatafortExplorerScope = "knowledge" | "all";
 type DatafortFileKind = "markdown" | "text" | "attachment" | "unknown";
 
+const MAX_DATAFORT_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_DATAFORT_ATTACHMENT_PREVIEW_BYTES = 25 * 1024 * 1024;
+const DATAFORT_ATTACHMENT_EXTENSIONS = new Set([
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".m4a",
+  ".mp3",
+  ".mp4",
+  ".ogg",
+  ".pdf",
+  ".png",
+  ".svg",
+  ".wav",
+  ".webm",
+  ".c",
+  ".cpp",
+  ".css",
+  ".csv",
+  ".go",
+  ".h",
+  ".html",
+  ".java",
+  ".js",
+  ".json",
+  ".md",
+  ".py",
+  ".rb",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".yaml",
+  ".yml",
+]);
+
 type DatafortSettings = {
   autoUpdateLinks: boolean;
   attachmentDirectory: string;
@@ -53,10 +92,11 @@ type DatafortSettings = {
 
 type DatafortTreeEntry = {
   fileId?: string;
-  kind: "directory" | "file";
+  kind: "directory" | "file" | "attachment";
   managed: boolean;
   name: string;
   path: string;
+  size?: number;
   writable: boolean;
 };
 
@@ -96,7 +136,9 @@ export class DatafortError extends Error {
       | "datafort_file_too_large"
       | "datafort_unsupported"
       | "datafort_already_exists"
-      | "datafort_invalid_input",
+      | "datafort_invalid_input"
+      | "datafort_attachment_invalid"
+      | "datafort_attachment_too_large",
     message: string,
     readonly details: { currentHash?: string } = {},
   ) {
@@ -111,6 +153,7 @@ export class DatafortError extends Error {
       return 403;
     if (this.code === "datafort_conflict") return 409;
     if (this.code === "datafort_file_too_large") return 413;
+    if (this.code === "datafort_attachment_too_large") return 413;
     if (this.code === "datafort_unsupported") return 415;
     if (this.code === "datafort_not_writable") return 403;
     if (this.code === "datafort_already_exists") return 409;
@@ -163,6 +206,35 @@ function fileKind(path: string): DatafortFileKind {
   )
     return "attachment";
   return "unknown";
+}
+
+function attachmentMimeType(path: string) {
+  const extension = extname(path).toLocaleLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".css": "text/css",
+    ".csv": "text/csv",
+    ".gif": "image/gif",
+    ".html": "text/html",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".js": "text/javascript",
+    ".json": "application/json",
+    ".m4a": "audio/mp4",
+    ".md": "text/markdown",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".ogg": "audio/ogg",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain",
+    ".wav": "audio/wav",
+    ".webm": "video/webm",
+    ".xml": "application/xml",
+    ".yaml": "text/yaml",
+    ".yml": "text/yaml",
+  };
+  return mimeTypes[extension] ?? "application/octet-stream";
 }
 
 function pathFor(root: string, candidate: string) {
@@ -269,6 +341,57 @@ async function atomicWrite(root: string, path: string, content: string) {
     await rm(temporary, { force: true }).catch(() => undefined);
     throw error;
   });
+}
+
+async function atomicWriteBytes(root: string, path: string, bytes: Uint8Array) {
+  const target = await safePath(root, path, true);
+  const parent = dirname(target);
+  const parentInfo = await lstat(parent).catch(() => null);
+  if (!parentInfo?.isDirectory() || parentInfo.isSymbolicLink())
+    throw new DatafortError("datafort_path_unsafe", "A pasta de destino não é segura.");
+  const temporary = join(parent, `.blackwall-datafort-${randomUUID()}.tmp`);
+  const handle = await open(temporary, "wx", 0o600);
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temporary, target).catch(async (error) => {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  });
+}
+
+function attachmentInput(input: Record<string, unknown>) {
+  const rawFilename = typeof input.filename === "string" ? input.filename.trim() : "";
+  const filename = rawFilename ? basename(rawFilename) : "";
+  const contentBase64 = typeof input.contentBase64 === "string" ? input.contentBase64 : "";
+  if (
+    !rawFilename ||
+    rawFilename !== filename ||
+    rawFilename.includes("/") ||
+    rawFilename.includes("\\") ||
+    !filename ||
+    filename === "." ||
+    filename === ".." ||
+    !contentBase64 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(contentBase64) ||
+    contentBase64.length % 4 !== 0
+  )
+    throw new DatafortError("datafort_attachment_invalid", "O anexo informado é inválido.");
+  const extension = extname(filename).toLocaleLowerCase();
+  if (!DATAFORT_ATTACHMENT_EXTENSIONS.has(extension))
+    throw new DatafortError(
+      "datafort_unsupported",
+      "Este tipo de arquivo não pode ser anexado ao workspace.",
+    );
+  const bytes = Buffer.from(contentBase64, "base64");
+  if (!bytes.byteLength)
+    throw new DatafortError("datafort_attachment_invalid", "O anexo está vazio.");
+  if (bytes.byteLength > MAX_DATAFORT_ATTACHMENT_BYTES)
+    throw new DatafortError("datafort_attachment_too_large", "O anexo excede o limite de 10 MiB.");
+  return { bytes, filename };
 }
 
 async function ensureDirectory(root: string, path: string, allowIgnored = false) {
@@ -646,7 +769,11 @@ export class DatafortService {
         }
         if (!entry.isFile()) continue;
         const kind = fileKind(path);
-        if (settings.explorerScope === "knowledge" && kind !== "markdown") continue;
+        const inAttachmentDirectory =
+          path === settings.attachmentDirectory ||
+          path.startsWith(`${settings.attachmentDirectory}/`);
+        if (settings.explorerScope === "knowledge" && kind !== "markdown" && !inAttachmentDirectory)
+          continue;
         if (kind === "unknown" && settings.explorerScope !== "all") continue;
         let managed = false;
         let portentId: string | undefined;
@@ -664,10 +791,11 @@ export class DatafortService {
         const fileId = await this.identity(workspaceId, path, managed, portentId);
         entries.push({
           fileId,
-          kind: "file",
+          kind: kind === "attachment" || inAttachmentDirectory ? "attachment" : "file",
           managed,
           name: entry.name,
           path,
+          size: (await stat(absolute)).size,
           writable: kind === "markdown" && (managed || settings.externalMarkdownWriteEnabled),
         });
       }
@@ -701,6 +829,88 @@ export class DatafortService {
     for (const documentPath of paths)
       documents.push(await this.documentAt(workspaceId, root, documentPath, settings));
     return { documents };
+  }
+
+  async attachFile(workspaceId: string, input: Record<string, unknown>) {
+    return this.mutate(workspaceId, async () => {
+      const workspace = await this.workspace(workspaceId);
+      if (workspace.permissionMode === "read-only")
+        throw new DatafortError(
+          "datafort_not_writable",
+          "O workspace está em modo somente leitura.",
+        );
+      const settings = settingsFromRow(this.settingsRow(workspaceId));
+      const { bytes, filename } = attachmentInput(input);
+      await ensureDirectory(workspace.root, settings.attachmentDirectory);
+      const extension = extname(filename);
+      const stem = filename.slice(0, filename.length - extension.length);
+      let path = `${settings.attachmentDirectory}/${filename}`;
+      let suffix = 1;
+      while (await lstat(await safePath(workspace.root, path, true)).catch(() => null)) {
+        path = `${settings.attachmentDirectory}/${stem} (${suffix})${extension}`;
+        suffix += 1;
+        if (suffix > 10_000)
+          throw new DatafortError(
+            "datafort_already_exists",
+            "Não foi possível encontrar um nome livre para o anexo.",
+          );
+      }
+      const operationId = journal(this.client, {
+        operation: "attach",
+        targetPath: path,
+        workspaceId,
+      });
+      try {
+        await atomicWriteBytes(workspace.root, path, bytes);
+        journalState(this.client, operationId, "committed");
+      } catch (error) {
+        journalState(this.client, operationId, "aborted");
+        throw error;
+      }
+      const fileId = await this.identity(workspaceId, path, false);
+      const contentHashValue = createHash("sha256").update(bytes).digest("hex");
+      return {
+        attachment: {
+          byteSize: bytes.byteLength,
+          contentHash: contentHashValue,
+          fileId,
+          filename: basename(path),
+          kind: "attachment" as const,
+          mimeType: attachmentMimeType(path),
+          path,
+        },
+      };
+    });
+  }
+
+  async readAttachment(workspaceId: string, requestedPath: string) {
+    const workspace = await this.workspace(workspaceId);
+    const settings = settingsFromRow(this.settingsRow(workspaceId));
+    const path = normalizeRelativePath(requestedPath);
+    if (
+      path !== settings.attachmentDirectory &&
+      !path.startsWith(`${settings.attachmentDirectory}/`)
+    )
+      throw new DatafortError(
+        "datafort_path_unsafe",
+        "O preview só pode acessar arquivos da pasta de anexos.",
+      );
+    const target = await safePath(workspace.root, path);
+    const info = await stat(target).catch(() => null);
+    if (!info?.isFile()) throw new DatafortError("datafort_not_found", "O anexo não existe.");
+    if (info.size > MAX_DATAFORT_ATTACHMENT_PREVIEW_BYTES)
+      throw new DatafortError(
+        "datafort_attachment_too_large",
+        "O anexo excede o limite de preview.",
+      );
+    const bytes = await readFile(target);
+    return {
+      bytes,
+      contentHash: createHash("sha256").update(bytes).digest("hex"),
+      contentType: attachmentMimeType(path),
+      path,
+      size: bytes.byteLength,
+    };
   }
 
   async createDocument(workspaceId: string, input: Record<string, unknown>) {

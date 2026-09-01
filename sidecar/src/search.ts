@@ -2,6 +2,10 @@
 
 import type Database from "better-sqlite3";
 import { type AttachmentLexicalSearchResult, searchAttachmentsDetailed } from "./attachments.js";
+import {
+  type DatafortAttachmentSearchResult,
+  searchDatafortAttachmentsDetailed,
+} from "./datafort-attachments.js";
 import { chunkVaultObject } from "./embedding-chunks.js";
 import { getEmbeddingSourceState } from "./embedding-state.js";
 import { sanitizeEmbeddingErrorCode } from "./embeddings.js";
@@ -31,6 +35,7 @@ type AttachmentCitation = {
   contentHash: string;
   excerpt: string;
   filename: string;
+  path?: string;
   source: "attachment";
 };
 
@@ -240,6 +245,12 @@ export async function searchWorkspace(
 ): Promise<WorkspaceSearchResponse> {
   const vaultLexical = searchVaultDetailed(client, workspaceId, query, 20, options);
   const attachmentLexical = searchAttachmentsDetailed(client, workspaceId, query, 20);
+  const datafortAttachmentLexical = searchDatafortAttachmentsDetailed(
+    client,
+    workspaceId,
+    query,
+    20,
+  );
   const lexicalLists = [
     lexicalRanked(
       vaultLexical.map((candidate: VaultLexicalSearchResult) => ({
@@ -255,6 +266,20 @@ export async function searchWorkspace(
           contentHash: candidate.contentHash,
           excerpt: candidate.excerpt,
           filename: candidate.filename,
+          source: "attachment",
+        } satisfies AttachmentCitation,
+        rank: candidate.lexicalRank,
+      })),
+    ),
+    lexicalRanked(
+      datafortAttachmentLexical.map((candidate: DatafortAttachmentSearchResult) => ({
+        citation: {
+          attachmentId: candidate.attachmentId,
+          chunkIndex: candidate.chunkIndex,
+          contentHash: candidate.contentHash,
+          excerpt: candidate.excerpt,
+          filename: candidate.filename,
+          path: candidate.path,
           source: "attachment",
         } satisfies AttachmentCitation,
         rank: candidate.lexicalRank,

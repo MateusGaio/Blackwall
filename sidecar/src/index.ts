@@ -38,6 +38,7 @@ import {
   selectMessagesForContext,
 } from "./context-budget.js";
 import { DatafortError, DatafortService } from "./datafort.js";
+import { syncDatafortAttachmentIndex } from "./datafort-attachments.js";
 import { dataDirectory, openDatabase } from "./db/database.js";
 import {
   models,
@@ -543,12 +544,23 @@ export async function createSidecar(
         rootPath: workspace.rootPath,
         workspaceId,
       });
+      const currentTree = await datafort.tree(workspaceId);
+      const attachmentResult = await syncDatafortAttachmentIndex(database.client, {
+        attachmentDirectory: currentTree.settings.attachmentDirectory,
+        paths,
+        rootPath: workspace.rootPath,
+        workspaceId,
+      });
       if (result.failures.length) {
         publishVaultIndexFailure(workspaceId, result.failures[0]);
         return;
       }
       try {
-        const embeddingResult = await embeddings.syncPaths(workspaceId, result.syncedPaths);
+        const embeddingResult = await embeddings.syncPaths(workspaceId, [
+          ...result.syncedPaths,
+          ...attachmentResult.indexedPaths,
+          ...attachmentResult.removedPaths,
+        ]);
         broadcast(
           JSON.stringify({
             state: embeddingResult.state,
@@ -564,7 +576,7 @@ export async function createSidecar(
       broadcast(JSON.stringify({ type: "vault.graph.updated", workspaceId }));
       for (const event of await datafort.changeEvents(
         workspaceId,
-        result.syncedPaths,
+        [...result.syncedPaths, ...attachmentResult.indexedPaths, ...attachmentResult.removedPaths],
         "filesystem",
       ))
         broadcast(JSON.stringify(event));
@@ -590,6 +602,7 @@ export async function createSidecar(
       return;
     }
     const watcher = createVaultWatcher({
+      includeAttachments: true,
       onChange: (paths) =>
         syncWorkspaceVault(workspaceId, paths).catch((error) =>
           publishVaultIndexFailure(workspaceId, error),
@@ -601,6 +614,13 @@ export async function createSidecar(
     try {
       await recoverVaultWriteOperations(database.client, workspaceId, workspace.rootPath);
       await rebuildVaultIndex(database.client, {
+        rootPath: workspace.rootPath,
+        workspaceId,
+      });
+      const currentTree = await datafort.tree(workspaceId);
+      await syncDatafortAttachmentIndex(database.client, {
+        attachmentDirectory: currentTree.settings.attachmentDirectory,
+        paths: currentTree.entries.map((entry) => entry.path),
         rootPath: workspace.rootPath,
         workspaceId,
       });
@@ -914,6 +934,57 @@ export async function createSidecar(
           }),
         );
         writeJson(response, 200, { document });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/attachments$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const attachment = await datafort.attachFile(
+          workspaceId,
+          (await requestBody(request, 16 * 1024 * 1024)) as Record<string, unknown>,
+        );
+        const workspace = database.db
+          .select()
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .get();
+        const currentTree = await datafort.tree(workspaceId);
+        if (workspace) {
+          await syncDatafortAttachmentIndex(database.client, {
+            attachmentDirectory: currentTree.settings.attachmentDirectory,
+            paths: [attachment.attachment.path],
+            rootPath: workspace.rootPath,
+            workspaceId,
+          });
+        }
+        const synced = datafort.changeEvents(workspaceId, [attachment.attachment.path], "datafort");
+        void syncWorkspaceVault(workspaceId, [attachment.attachment.path]).catch((error) =>
+          publishVaultIndexFailure(workspaceId, error),
+        );
+        broadcast(
+          JSON.stringify({
+            attachment: attachment.attachment,
+            origin: "datafort",
+            type: "datafort.attachment.created",
+            workspaceId,
+          }),
+        );
+        writeJson(response, 201, { ...(await attachment), events: await synced });
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/datafort\/attachments\/content$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const preview = await datafort.readAttachment(
+          workspaceId,
+          url.searchParams.get("path") ?? "",
+        );
+        writeBytes(response, 200, preview.contentType, preview.bytes);
         return;
       }
       if (

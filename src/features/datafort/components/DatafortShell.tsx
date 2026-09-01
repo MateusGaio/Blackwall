@@ -375,6 +375,17 @@ function SearchResults({
             <span>{citation.path}</span>
             <small>{citation.excerpt}</small>
           </button>
+        ) : citation.path ? (
+          <button
+            className="datafort-search-result"
+            key={`${citation.source}-${citation.attachmentId}-${citation.chunkIndex}`}
+            onClick={() => onOpen(citation.path ?? citation.filename)}
+            type="button"
+          >
+            <strong>{citation.filename}</strong>
+            <span>{citation.path}</span>
+            <small>{citation.excerpt}</small>
+          </button>
         ) : (
           <div
             className="datafort-search-result"

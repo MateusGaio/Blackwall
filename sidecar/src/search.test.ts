@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AttachmentEmbeddingService } from "./attachment-embeddings.js";
 import { saveAttachment } from "./attachments.js";
+import { DatafortService } from "./datafort.js";
+import { syncDatafortAttachmentIndex } from "./datafort-attachments.js";
 import { openDatabase } from "./db/database.js";
 import { createStore } from "./db/store.js";
 import type { FetchLike } from "./embeddings.js";
@@ -67,6 +69,32 @@ async function fixture() {
 }
 
 describe("busca híbrida e citações", () => {
+  it("inclui anexos copiados para o Vault no mesmo resultado lexical", async () => {
+    const { database, root, runtime, workspaceId } = await fixture();
+    const attachment = await new DatafortService(database.client).attachFile(workspaceId, {
+      contentBase64: Buffer.from("material confidencial do workspace").toString("base64"),
+      filename: "material.txt",
+    });
+    await syncDatafortAttachmentIndex(database.client, {
+      attachmentDirectory: "Blackwall Vault/Attachments",
+      paths: [attachment.attachment.path],
+      rootPath: root,
+      workspaceId,
+    });
+    const result = await searchWorkspace(database.client, runtime, workspaceId, "confidencial", 10);
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        {
+          citation: expect.objectContaining({
+            filename: "material.txt",
+            path: "Blackwall Vault/Attachments/material.txt",
+            source: "attachment",
+          }),
+        },
+      ]),
+    );
+  });
+
   it("usa somente FTS5 sem configuração e devolve citações dos chunks reais", async () => {
     const { calls, database, directory, root, runtime, workspaceId } = await fixture();
     await writeFile(join(root, "nota.md"), "# Nota\n\nSQLite local verificável.", "utf8");

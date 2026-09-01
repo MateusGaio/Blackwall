@@ -30,6 +30,7 @@ type WatchFactory = (
 
 type VaultWatcherOptions = {
   debounceMs?: number;
+  includeAttachments?: boolean;
   onChange: (paths: string[]) => void | Promise<void>;
   onError?: (error: unknown) => void;
   reconcileMs?: number;
@@ -49,8 +50,8 @@ async function directoriesUnder(rootPath: string, currentPath = rootPath, result
   return result;
 }
 
-function markdownPath(path: string) {
-  return /\.(md|markdown)$/i.test(path);
+function watchedPath(path: string, includeAttachments: boolean) {
+  return includeAttachments || /\.(md|markdown)$/i.test(path);
 }
 
 export function createVaultWatcher(options: VaultWatcherOptions) {
@@ -74,7 +75,7 @@ export function createVaultWatcher(options: VaultWatcherOptions) {
   let installing: Promise<void> | undefined;
 
   const schedule = (path: string) => {
-    if (stopped || !markdownPath(path)) return;
+    if (stopped || !watchedPath(path, options.includeAttachments === true)) return;
     pending.add(path);
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
