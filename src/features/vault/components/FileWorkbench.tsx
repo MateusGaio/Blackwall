@@ -40,6 +40,7 @@ type FileWorkbenchProps = {
   graph: VaultGraph;
   memory: VaultMemory;
   onMemoryChange: (memory: VaultMemory) => void;
+  onOpenDatafort?: (path: string) => void;
   onSelectPath: (path: string | null) => void;
   refreshKey: number;
   selectedPath: string | null;
@@ -159,6 +160,7 @@ export function FileWorkbench({
   graph,
   memory,
   onMemoryChange,
+  onOpenDatafort,
   onSelectPath,
   refreshKey,
   selectedPath,
@@ -803,6 +805,17 @@ export function FileWorkbench({
                 <p className="mt-1 text-[0.68rem] text-muted-foreground">
                   {t("vault.externalFileReadOnly")}
                 </p>
+              )}
+              {selectedPath && isTextPath(selectedPath) && onOpenDatafort && (
+                <Button
+                  className="mt-2"
+                  onClick={() => onOpenDatafort(selectedPath)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {t("vault.openInDatafort")}
+                </Button>
               )}
             </header>
             <div

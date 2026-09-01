@@ -43,6 +43,7 @@ type VaultPanelProps = {
   memory: VaultMemory;
   /** Posição de leitura (lista + nota) preservada entre recolher/reabrir. */
   onMemoryChange: (memory: VaultMemory) => void;
+  onOpenDatafort?: (path: string) => void;
   onSelectPath: (path: string | null) => void;
   onTabChange: (tab: VaultTab) => void;
   refreshKey?: number;
@@ -573,6 +574,7 @@ export function VaultPanel({
   currentSessionId,
   memory,
   onMemoryChange,
+  onOpenDatafort,
   onSelectPath,
   onTabChange,
   refreshKey = 0,
@@ -640,6 +642,7 @@ export function VaultPanel({
           graph={graph ?? { edges: [], files: [], nodes: [] }}
           memory={memory}
           onMemoryChange={onMemoryChange}
+          onOpenDatafort={onOpenDatafort}
           onSelectPath={onSelectPath}
           refreshKey={refreshKey}
           selectedPath={selectedPath}

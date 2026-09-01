@@ -73,6 +73,7 @@ const DatafortEditor = lazy(() =>
 );
 
 type DatafortShellProps = {
+  initialPath?: string | null;
   onExitToChat: () => void;
   workspaceId: string;
 };
@@ -320,7 +321,11 @@ function ModeTransition({
   );
 }
 
-export default function DatafortShell({ onExitToChat, workspaceId }: DatafortShellProps) {
+export default function DatafortShell({
+  initialPath,
+  onExitToChat,
+  workspaceId,
+}: DatafortShellProps) {
   const { t } = useTranslation();
   const [section, setSection] = useState<RailSection>("files");
   const [tree, setTree] = useState<DatafortTreeEntry[]>([]);
@@ -394,11 +399,13 @@ export default function DatafortShell({ onExitToChat, workspaceId }: DatafortShe
             )
           : [null, null];
         const storedSelected =
-          typeof layout.selectedPath === "string" && validPaths.has(layout.selectedPath)
-            ? layout.selectedPath
-            : (storedTabs[0] ??
-              nextTree.entries.find((entry) => entry.kind === "file")?.path ??
-              null);
+          initialPath && validPaths.has(initialPath)
+            ? initialPath
+            : typeof layout.selectedPath === "string" && validPaths.has(layout.selectedPath)
+              ? layout.selectedPath
+              : (storedTabs[0] ??
+                nextTree.entries.find((entry) => entry.kind === "file")?.path ??
+                null);
         setTabs(storedTabs.length > 0 ? storedTabs : storedSelected ? [storedSelected] : []);
         setGroupPaths([storedGroups[0] ?? null, storedGroups[1] ?? null]);
         setSplit(layout.split === true);
@@ -417,7 +424,7 @@ export default function DatafortShell({ onExitToChat, workspaceId }: DatafortShe
     } finally {
       setLoading(false);
     }
-  }, [t, workspaceId]);
+  }, [initialPath, t, workspaceId]);
 
   useEffect(() => {
     void reloadWorkspace();

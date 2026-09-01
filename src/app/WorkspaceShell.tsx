@@ -109,6 +109,7 @@ export default function WorkspaceShell({
   const [activeProvider, setActiveProvider] = useState<ConnectedProvider | null>(provider);
   const [showSettings, setShowSettings] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<"chat" | "datafort">("chat");
+  const [datafortInitialPath, setDatafortInitialPath] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage");
   const [cursorAvoidanceEnabled, setCursorAvoidanceEnabled] = useState(() =>
     readBooleanPreference(cursorTextAvoidancePreference),
@@ -1177,7 +1178,10 @@ export default function WorkspaceShell({
                 newSession={() => void newSession()}
                 newWorkspace={() => void newWorkspace()}
                 onDeleteRequest={requestDelete}
-                onOpenDatafort={() => setWorkspaceMode("datafort")}
+                onOpenDatafort={() => {
+                  setDatafortInitialPath(null);
+                  setWorkspaceMode("datafort");
+                }}
                 onRenameRequest={(session) => {
                   setRenameDraft(session.title);
                   setSessionToRename({ id: session.id, title: session.title });
@@ -1284,6 +1288,7 @@ export default function WorkspaceShell({
                             }
                           >
                             <DatafortShell
+                              initialPath={datafortInitialPath}
                               onExitToChat={() => setWorkspaceMode("chat")}
                               workspaceId={workspace.id}
                             />
@@ -1317,6 +1322,10 @@ export default function WorkspaceShell({
                                   currentSessionId={activeSession?.id ?? null}
                                   memory={vaultMemory}
                                   onMemoryChange={setVaultMemory}
+                                  onOpenDatafort={(path) => {
+                                    setDatafortInitialPath(path);
+                                    setWorkspaceMode("datafort");
+                                  }}
                                   onSelectPath={setSelectedNotePath}
                                   onTabChange={(tab) => {
                                     dispatchVaultView({ type: "tab-changed", tab });

@@ -87,6 +87,7 @@ type VaultSlotProps = {
   currentSessionId: string | null;
   memory: VaultMemory;
   onMemoryChange: (memory: VaultMemory) => void;
+  onOpenDatafort?: (path: string) => void;
   onSelectPath: (path: string | null) => void;
   onTabChange: (tab: VaultTab) => void;
   refreshKey: number;
@@ -101,6 +102,7 @@ export function VaultSlot({
   currentSessionId,
   memory,
   onMemoryChange,
+  onOpenDatafort,
   onSelectPath,
   onTabChange,
   refreshKey,
@@ -122,6 +124,7 @@ export function VaultSlot({
           currentSessionId={currentSessionId}
           memory={memory}
           onMemoryChange={onMemoryChange}
+          onOpenDatafort={onOpenDatafort}
           onSelectPath={onSelectPath}
           onTabChange={onTabChange}
           refreshKey={refreshKey}
