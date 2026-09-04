@@ -23,8 +23,16 @@ function emptyArtifactCounts(): ArtifactCounts {
 }
 
 function validRelativePath(path: string) {
-  const normalized = path.replaceAll("\\", "/").trim();
-  if (!normalized || normalized.startsWith("/") || normalized.split("/").includes(".."))
+  const normalized = path.trim();
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    normalized.includes("\\") ||
+    [...normalized].some(
+      (character) => (character.codePointAt(0) ?? 0) < 0x20 || character === "\u007f",
+    ) ||
+    normalized.split("/").includes("..")
+  )
     return null;
   return normalized;
 }

@@ -112,6 +112,7 @@ export class SidecarChatStore {
   private runLocked = false;
   private runningTool: string | null = null;
   private sessionEpoch = 0;
+  private scopeKey = "";
   private snapshot: SidecarChatSnapshot = {
     error: "",
     isRunning: false,
@@ -167,6 +168,25 @@ export class SidecarChatStore {
   };
 
   configure = (runConfig: SidecarChatRunConfig, labels?: Partial<SidecarChatLabels>): void => {
+    const nextScopeKey = `${runConfig.profileId ?? ""}:${runConfig.workspaceId ?? ""}`;
+    if (this.scopeKey && this.scopeKey !== nextScopeKey) {
+      this.sessionEpoch += 1;
+      this.streamHandle?.stop();
+      this.streamHandle = null;
+      this.approvalResolver?.("deny");
+      this.approvalResolver = null;
+      this.toolApproval = null;
+      this.queue = [];
+      this.error = "";
+      this.status = "";
+      this.runningTool = null;
+      this.streamingBuffer = "";
+      this.streamingId = null;
+      this.isRunning = false;
+      this.runLocked = false;
+      this.notify();
+    }
+    this.scopeKey = nextScopeKey;
     this.runConfig = runConfig;
     if (labels) this.labels = { ...FALLBACK_LABELS, ...labels };
   };
@@ -194,6 +214,10 @@ export class SidecarChatStore {
       // Aprovação pendente da sessão anterior é negada para o socket não
       // ficar aguardando decisão que nunca chegará.
       pendingResolver?.("deny");
+      this.streamHandle?.stop();
+      this.streamHandle = null;
+      this.runLocked = false;
+      this.isRunning = false;
       this.streamingId = null;
       this.runningTool = null;
       this.status = "";
@@ -506,6 +530,7 @@ export class SidecarChatStore {
           status: result.stopped ? "stopped" : "complete",
         });
       }
+      if (!this.matchesRun(sessionId, runEpoch)) return;
       this.finishStreamingPlaceholder(finalContent);
       this.isRunning = false;
       this.streamHandle = null;
@@ -525,6 +550,7 @@ export class SidecarChatStore {
           })
           .catch(() => undefined);
       }
+      if (!this.matchesRun(sessionId, runEpoch)) return;
       this.finishStreamingPlaceholder(partial);
       this.isRunning = false;
       this.streamHandle = null;
@@ -537,12 +563,14 @@ export class SidecarChatStore {
         console.error(reason);
       }
     } finally {
-      this.streamingBuffer = "";
-      this.status = "";
-      this.runningTool = null;
-      this.isRunning = false;
-      this.streamingId = null;
-      this.notify();
+      if (this.matchesRun(sessionId, runEpoch)) {
+        this.streamingBuffer = "";
+        this.status = "";
+        this.runningTool = null;
+        this.isRunning = false;
+        this.streamingId = null;
+        this.notify();
+      }
     }
   }
 

@@ -104,7 +104,7 @@ describe("índice vetorial de anexos", () => {
     table.close();
     connection.close();
 
-    await removeAttachment(saved.id, directory, {
+    await removeAttachment(saved.id, { sessionId: null, workspaceId }, directory, {
       onRemoved: ({ attachmentId, workspaceId: removedWorkspaceId }) =>
         attachments.syncAttachment(removedWorkspaceId, attachmentId).then(() => undefined),
     });

@@ -108,7 +108,7 @@ function hasWindowsAbsolutePrefix(path: string) {
 }
 
 function requestedSegments(requested: string) {
-  return requested.replaceAll("\\", "/").split("/").filter(Boolean);
+  return requested.split("/").filter(Boolean);
 }
 
 async function assertNoSymlinkPath(root: string, candidate: string, allowMissing: boolean) {
@@ -159,7 +159,13 @@ export async function workspaceRoot(rootPath: string) {
 
 export async function safeWorkspacePath(root: string, requested: string, allowMissing = false) {
   const value = typeof requested === "string" ? requested.trim() : "";
-  if (!value || isAbsolute(value) || hasWindowsAbsolutePrefix(value)) {
+  if (
+    !value ||
+    isAbsolute(value) ||
+    hasWindowsAbsolutePrefix(value) ||
+    value.includes("\\") ||
+    [...value].some((character) => (character.codePointAt(0) ?? 0) < 0x20 || character === "\u007f")
+  ) {
     throw new WorkspaceFilesError(
       "WORKSPACE_PATH_INVALID",
       "Informe um caminho relativo dentro do workspace.",

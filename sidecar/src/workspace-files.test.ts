@@ -45,6 +45,12 @@ describe("workbench seguro de arquivos", () => {
     await expect(safeWorkspacePath(safeRoot, "/etc/passwd")).rejects.toMatchObject({
       code: "WORKSPACE_PATH_INVALID",
     });
+    await expect(safeWorkspacePath(safeRoot, "nested\\outside.txt")).rejects.toMatchObject({
+      code: "WORKSPACE_PATH_INVALID",
+    });
+    await expect(safeWorkspacePath(safeRoot, "nested/\u0000outside.txt")).rejects.toMatchObject({
+      code: "WORKSPACE_PATH_INVALID",
+    });
   });
 
   it("recusa symlink, binário, texto acima de 1 MiB e PDF acima de 25 MiB", async () => {

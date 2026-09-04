@@ -246,6 +246,16 @@ describe("ferramentas locais e permissões", () => {
         directory,
       ),
     ).rejects.toThrow("fora da pasta");
+    await expect(
+      executeTool(
+        {
+          args: { path: "nested\\secret.txt" },
+          tool: "read_file",
+          workspaceId: state.activeWorkspaceId as string,
+        },
+        directory,
+      ),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_WORKSPACE" });
   });
 
   it("registra writes estruturados e diferenças do Bash sem conteúdo", async () => {
