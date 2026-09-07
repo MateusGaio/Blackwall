@@ -182,6 +182,7 @@ export default function WorkspaceShell({
   const [editingMessageDraft, setEditingMessageDraft] = useState("");
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [attachmentToRemove, setAttachmentToRemove] = useState<Attachment | null>(null);
+  const attachmentScopeEpochRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const paletteOpenerRef = useRef<HTMLElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
@@ -200,6 +201,12 @@ export default function WorkspaceShell({
   const greeting = greetingForTime(new Date(), "mixed");
   const workspace = state?.workspaces.find((item) => item.id === state.activeWorkspaceId);
   const activeSession = state?.sessions.find((item) => item.id === state.activeSessionId);
+  const activeProfileId = state?.activeProfileId ?? "";
+  const activeWorkspaceId = workspace?.id ?? null;
+  const activeSessionId = activeSession?.id ?? null;
+  const attachmentScopeKey = [activeProfileId, activeWorkspaceId ?? "", activeSessionId ?? ""].join(
+    "\u0000",
+  );
   const recentSessions = [...(state?.recentSessions ?? [])].sort(
     (left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt,
   );
@@ -414,20 +421,28 @@ export default function WorkspaceShell({
     };
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: dispatchVaultView só envolve setState (identidade estável); reagir a workspace evita re-disparos.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dispatchVaultView é uma função local instável; a chave explícita cobre somente mudanças de escopo.
   useEffect(() => {
-    if (!workspace) {
+    attachmentScopeEpochRef.current += 1;
+    setAttachments([]);
+    setAttachmentStatus("");
+    if (!attachmentScopeKey.split("\u0000")[1])
       dispatchVaultView({ type: "workspace-changed", hasWorkspace: false });
-      setAttachments([]);
-    }
-  }, [workspace]);
+  }, [attachmentScopeKey]);
 
   useEffect(() => {
-    if (!workspace || !activeSession) return;
-    void listAttachments(workspace.id, activeSession.id)
-      .then(setAttachments)
+    if (!activeWorkspaceId || !activeSessionId) return;
+    const scopeEpoch = attachmentScopeEpochRef.current;
+    let cancelled = false;
+    void listAttachments(activeWorkspaceId, activeSessionId)
+      .then((next) => {
+        if (!cancelled && attachmentScopeEpochRef.current === scopeEpoch) setAttachments(next);
+      })
       .catch(() => undefined);
-  }, [workspace, activeSession]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, activeSessionId]);
 
   useEffect(() => {
     // React can reuse the textarea while switching sessions. Remove the
@@ -873,21 +888,31 @@ export default function WorkspaceShell({
 
   async function attachFile(file: File) {
     if (!workspace || !activeSession) return;
+    const scopeEpoch = attachmentScopeEpochRef.current;
+    const workspaceId = workspace.id;
+    const sessionId = activeSession.id;
     setAttachmentStatus(t("chat.indexingAttachment", { name: file.name }));
     setError("");
     try {
-      const attachment = await uploadAttachment(file, workspace.id, activeSession.id);
+      const attachment = await uploadAttachment(file, workspaceId, sessionId);
+      if (attachmentScopeEpochRef.current !== scopeEpoch) return;
       setAttachments((current) => [...current, attachment]);
       setAttachmentStatus(t("chat.attachmentIndexed", { name: attachment.filename }));
     } catch (reason) {
+      if (attachmentScopeEpochRef.current !== scopeEpoch) return;
       setAttachmentStatus("");
       setError(reason instanceof Error ? reason.message : t("errors.indexAttachment"));
     }
   }
 
   async function detachFile(attachment: Attachment) {
+    if (!workspace || !activeSession) return;
+    const scopeEpoch = attachmentScopeEpochRef.current;
+    const workspaceId = workspace.id;
+    const sessionId = activeSession.id;
     try {
-      await removeAttachment(attachment.id);
+      await removeAttachment(attachment.id, workspaceId, sessionId);
+      if (attachmentScopeEpochRef.current !== scopeEpoch) return;
       setAttachments((current) => current.filter((item) => item.id !== attachment.id));
       setAttachmentStatus(t("chat.attachmentRemoved", { name: attachment.filename }));
     } catch (reason) {

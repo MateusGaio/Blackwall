@@ -100,7 +100,20 @@ export async function saveAttachment(
   storageDirectory = dataDirectory(),
   hooks: AttachmentLifecycleHooks = {},
 ) {
-  const filename = basename(input.filename);
+  const requestedFilename = typeof input.filename === "string" ? input.filename.trim() : "";
+  if (
+    !requestedFilename ||
+    requestedFilename !== basename(requestedFilename) ||
+    requestedFilename.includes("\\") ||
+    requestedFilename.includes("\0") ||
+    [...requestedFilename].some(
+      (character) => (character.codePointAt(0) ?? 0) < 0x20 || character === "\u007f",
+    ) ||
+    requestedFilename.split("/").some((segment) => segment === "..")
+  ) {
+    throw new Error("O nome do anexo deve ser um nome de arquivo relativo e seguro.");
+  }
+  const filename = requestedFilename;
   const extension = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   if (!filename || !allowedExtensions.has(extension)) {
     throw new Error("Este tipo de arquivo não pode ser indexado localmente.");
@@ -223,9 +236,9 @@ export async function listAttachments(
   try {
     const rows = database.client
       .prepare(
-        "SELECT id, filename, mime_type AS mimeType, byte_size AS byteSize, status, created_at AS createdAt FROM attachments WHERE workspace_id = ? AND (? IS NULL OR session_id = ? OR session_id IS NULL) ORDER BY created_at DESC",
+        "SELECT id, filename, mime_type AS mimeType, byte_size AS byteSize, status, created_at AS createdAt FROM attachments WHERE workspace_id = ? AND session_id IS ? ORDER BY created_at DESC",
       )
-      .all(workspaceId, sessionId ?? null, sessionId ?? null) as Array<{
+      .all(workspaceId, sessionId ?? null) as Array<{
       byteSize: number;
       createdAt: number;
       filename: string;
@@ -241,15 +254,24 @@ export async function listAttachments(
 
 export async function removeAttachment(
   id: string,
+  scope: { sessionId?: string | null; workspaceId: string },
   storageDirectory = dataDirectory(),
   hooks: AttachmentLifecycleHooks = {},
 ) {
   const database = openSharedDatabase(storageDirectory);
   try {
-    const attachment = database.db.select().from(attachments).where(eq(attachments.id, id)).get();
+    const attachment = database.client
+      .prepare(
+        "SELECT id, workspace_id AS workspaceId, session_id AS sessionId, stored_path AS storedPath FROM attachments WHERE id = ? AND workspace_id = ? AND session_id IS ?",
+      )
+      .get(id, scope.workspaceId, scope.sessionId ?? null) as
+      | { id: string; sessionId: string | null; storedPath: string; workspaceId: string }
+      | undefined;
     if (!attachment) throw new Error("O anexo selecionado não existe.");
     database.client.prepare("DELETE FROM attachments_fts WHERE attachment_id = ?").run(id);
-    database.db.delete(attachments).where(eq(attachments.id, id)).run();
+    database.client
+      .prepare("DELETE FROM attachments WHERE id = ? AND workspace_id = ? AND session_id IS ?")
+      .run(id, scope.workspaceId, scope.sessionId ?? null);
     await unlink(attachment.storedPath).catch(() => undefined);
     await Promise.resolve(
       hooks.onRemoved?.({ attachmentId: id, workspaceId: attachment.workspaceId }),

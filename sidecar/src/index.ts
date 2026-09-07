@@ -1562,11 +1562,21 @@ export async function createSidecar(
         return;
       }
       if (request.method === "DELETE" && /^\/v1\/attachments\/[^/]+$/.test(pathname)) {
+        const url = new URL(request.url ?? "/", "http://blackwall.local");
+        const workspaceId = url.searchParams.get("workspaceId");
+        const sessionId = url.searchParams.get("sessionId");
+        if (!workspaceId || !url.searchParams.has("sessionId"))
+          throw new HttpError(400, "O workspace e o escopo da sessão do anexo são obrigatórios.");
         writeJson(response, 200, {
-          attachment: await removeAttachment(pathname.split("/")[3], storageDirectory, {
-            onRemoved: ({ attachmentId, workspaceId }) =>
-              syncAttachmentEmbeddings(workspaceId, attachmentId),
-          }),
+          attachment: await removeAttachment(
+            pathname.split("/")[3],
+            { sessionId, workspaceId },
+            storageDirectory,
+            {
+              onRemoved: ({ attachmentId, workspaceId }) =>
+                syncAttachmentEmbeddings(workspaceId, attachmentId),
+            },
+          ),
         });
         return;
       }

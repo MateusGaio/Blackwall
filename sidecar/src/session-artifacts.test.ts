@@ -38,6 +38,8 @@ describe("artefatos por sessão", () => {
         { operation: "created", path: "src/new.ts" },
         { operation: "modified", path: "docs/guide.md" },
         { operation: "created", path: "../outside.txt" },
+        { operation: "created", path: "nested\\outside.txt" },
+        { operation: "created", path: "nested/\u0000outside.txt" },
       ],
       sessionId,
       workspaceId,

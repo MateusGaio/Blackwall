@@ -226,6 +226,37 @@ describe("SidecarChatStore", () => {
     expect(harness.store.getSnapshot().messages.at(-1)?.content).toBe("novo ");
   });
 
+  it("troca de perfil ou workspace cancela o run e limpa estado transitório", async () => {
+    const harness = createHarness({ workspaceId: "workspace-1" });
+    harness.store.setActiveSession("s1", []);
+    harness.store.send("pergunta antiga");
+    await until(() => harness.streams.length === 1);
+    harness.streams[0].delta("parcial");
+    harness.streams[0].handlers.onToolStarted?.("read_file", {}, "call-1");
+
+    harness.store.configure({
+      model: "mock-model",
+      profileId: "profile-2",
+      providerId: "provider-1",
+      workspaceId: "workspace-2",
+    });
+
+    expect(harness.streams[0].stopped).toBe(true);
+    expect(harness.store.getSnapshot()).toMatchObject({
+      error: "",
+      isRunning: false,
+      queuedCount: 0,
+      runningTool: null,
+      status: "",
+      streamingId: null,
+      toolApproval: null,
+    });
+
+    const messagesAfterSwitch = harness.store.getSnapshot().messages;
+    harness.streams[0].delta(" não deve vazar");
+    expect(harness.store.getSnapshot().messages).toEqual(messagesAfterSwitch);
+  });
+
   it("tool.failed limpa o status de execução e mostra a falha", async () => {
     const harness = createHarness();
     harness.store.setActiveSession("s1", []);

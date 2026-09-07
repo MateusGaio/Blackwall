@@ -1543,8 +1543,15 @@ export async function searchAttachments(
   return response.results;
 }
 
-export async function removeAttachment(attachmentId: string): Promise<void> {
-  await request(`/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+export async function removeAttachment(
+  attachmentId: string,
+  workspaceId: string,
+  sessionId: string | null,
+): Promise<void> {
+  await request(
+    `/v1/attachments/${encodeURIComponent(attachmentId)}?workspaceId=${encodeURIComponent(workspaceId)}&sessionId=${encodeURIComponent(sessionId ?? "")}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function getUsageSummary(
