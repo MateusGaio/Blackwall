@@ -356,12 +356,13 @@ function lastConversationExchange(messages: ChatMessage[]) {
 export async function createSidecar(
   port = 0,
   storageDirectory = dataDirectory(),
-  options: { token?: string | null } = {},
+  options: { token?: string | null; watchVault?: boolean } = {},
 ): Promise<{ port: number; server: Server; token: string | null }> {
   // Direct createSidecar calls without a token are kept auth-free only for the
   // existing in-process Vitest fixtures. Every real process path gets a fresh
   // token, either from its launcher or from this default.
   const isTestFixture = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const watchVault = options.watchVault ?? !isTestFixture;
   const sidecarToken =
     options.token !== undefined
       ? options.token
@@ -612,6 +613,7 @@ export async function createSidecar(
         ),
       onError: (error) => publishVaultIndexFailure(workspaceId, error),
       rootPath: workspace.rootPath,
+      ...(watchVault ? {} : { watchFactory: () => ({ close() {} }) }),
     });
     vaultWatchers.set(workspaceId, watcher);
     try {

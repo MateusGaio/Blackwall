@@ -828,7 +828,10 @@ describe("sidecar robustez", () => {
     const workspaceRoot = join(directory, "project");
     await mkdir(workspaceRoot);
     directories.push(directory);
-    const { port, server } = await createSidecar(0, directory, { token: "lifecycle-token" });
+    const { port, server } = await createSidecar(0, directory, {
+      token: "lifecycle-token",
+      watchVault: true,
+    });
     servers.push(server);
     const baseUrl = `http://${SIDECAR_HOST}:${port}`;
     const bootstrap = await fetch(`${baseUrl}/v1/bootstrap`, {
