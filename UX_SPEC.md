@@ -208,3 +208,24 @@ Listagem e criação usam skeleton, operações assíncronas mostram progresso e
 entradas/saídas usam motion funcional de 120–180 ms, instantânea para teclado e
 `prefers-reduced-motion`. Templates continuam sendo Markdown em disco; não há
 uma nova tabela SQLite.
+
+## 18. QA browser-only e motion verificável (F2.11)
+
+Quando `VITE_BLACKWALL_E2E=1`, Configurações exibe a seção lazy **QA controls**.
+Ela oferece somente cenários enum, motion normal/reduzido, texto em 100%/200% e
+latência normal/lenta para streaming, carregamento e indexação. O estado é
+temporário, sanitizado e não é persistido.
+
+Interações iniciadas por teclado são instantâneas; interações por pointer usam
+transições funcionais de 120–180 ms e nunca dependem delas para concluir uma
+ação. A modalidade de entrada fica registrada no elemento raiz. Command
+palette, dialogs, popovers, tabs, painéis e seus estados de loading respeitam
+essa regra; `prefers-reduced-motion` e o modo reduced do QA têm o mesmo
+comportamento final: uma iteração, sem bounce/pulse/loop decorativo e sem
+espera por animação. Nenhum `tabindex` positivo é permitido; Escape fecha a
+superfície ativa e devolve o foco ao acionador.
+
+O contraste computado deve atingir 4,5:1 para texto normal, 3:1 para texto
+grande e manter foco, controles e estados desabilitados distinguíveis. A
+validação browser percorre onboarding, sidebar, chat, Configurações, Vault e
+Templates com Tab/Shift+Tab, incluindo escala de texto e estados lentos.

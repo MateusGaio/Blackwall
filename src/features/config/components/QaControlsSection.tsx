@@ -11,6 +11,7 @@ import {
   getE2EState,
   setE2EState,
 } from "../../../shared/api/sidecar";
+import { notifyQaMotionChange } from "../../../shared/qa-controls";
 
 const labelFor: Record<(typeof e2eScenarios)[number], string> = {
   citation_review: "Revisão de citações",
@@ -29,6 +30,9 @@ const labelFor: Record<(typeof e2eScenarios)[number], string> = {
 export function QaControlsSection() {
   const { t } = useTranslation();
   const [state, setState] = useState<E2EState | null>(null);
+  const [motion, setMotion] = useState<"normal" | "reduced">("normal");
+  const [textScale, setTextScale] = useState<"100" | "200">("100");
+  const [latency, setLatency] = useState<"normal" | "slow">("normal");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -46,6 +50,20 @@ export function QaControlsSection() {
       cancelled = true;
     };
   }, [t]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.qaMotion = motion;
+    root.dataset.qaTextScale = textScale;
+    root.dataset.qaLatency = latency;
+    notifyQaMotionChange();
+    return () => {
+      delete root.dataset.qaMotion;
+      delete root.dataset.qaTextScale;
+      delete root.dataset.qaLatency;
+      notifyQaMotionChange();
+    };
+  }, [latency, motion, textScale]);
 
   async function chooseScenario(scenario: (typeof e2eScenarios)[number]) {
     setBusy(true);
@@ -144,6 +162,51 @@ export function QaControlsSection() {
                 {t("settings.qaMcpWrite")}
               </Button>
             </div>
+            <fieldset className="grid gap-2 border-t border-border pt-4 text-sm">
+              <legend className="font-medium">{t("settings.qaMotion")}</legend>
+              <div className="flex flex-wrap gap-3">
+                {(["normal", "reduced"] as const).map((value) => (
+                  <label className="flex items-center gap-2" key={value}>
+                    <input
+                      checked={motion === value}
+                      name="qa-motion"
+                      onChange={() => setMotion(value)}
+                      type="radio"
+                    />
+                    {value === "normal"
+                      ? t("settings.qaMotionNormal")
+                      : t("settings.qaMotionReduced")}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label
+              className="grid gap-1 border-t border-border pt-4 text-sm"
+              htmlFor="qa-text-scale"
+            >
+              {t("settings.qaTextScale")}
+              <select
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                id="qa-text-scale"
+                onChange={(event) => setTextScale(event.target.value as "100" | "200")}
+                value={textScale}
+              >
+                <option value="100">100%</option>
+                <option value="200">200%</option>
+              </select>
+            </label>
+            <label className="grid gap-1 border-t border-border pt-4 text-sm" htmlFor="qa-latency">
+              {t("settings.qaLatency")}
+              <select
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                id="qa-latency"
+                onChange={(event) => setLatency(event.target.value as "normal" | "slow")}
+                value={latency}
+              >
+                <option value="normal">{t("settings.qaLatencyNormal")}</option>
+                <option value="slow">{t("settings.qaLatencySlow")}</option>
+              </select>
+            </label>
           </>
         )}
       </div>

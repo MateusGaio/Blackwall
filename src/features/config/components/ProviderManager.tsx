@@ -89,7 +89,7 @@ export function ProviderManager({
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
   const qaEnabled = import.meta.env.VITE_BLACKWALL_E2E === "1";
-  const visibleSettingsSections: SettingsSection[] = qaEnabled
+  const visibleSettingsSections: readonly SettingsSection[] = qaEnabled
     ? [...settingsSections, "qa"]
     : settingsSections;
 

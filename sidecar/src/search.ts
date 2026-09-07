@@ -19,7 +19,7 @@ import { parseMarkdownObject } from "./vault-portent.js";
 
 const RRF_K = 60;
 
-export type VaultCitation = {
+type VaultCitation = {
   chunkIndex: number;
   contentHash: string;
   excerpt: string;
@@ -29,7 +29,7 @@ export type VaultCitation = {
   title: string;
 };
 
-export type AttachmentCitation = {
+type AttachmentCitation = {
   attachmentId: string;
   chunkIndex: number;
   contentHash: string;

@@ -2,6 +2,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EnterExit } from "@/shared/components/motion/EnterExit";
+import { useInputModality } from "@/shared/components/motion/input-modality";
 import { ProgressIndicator } from "@/shared/components/motion/ProgressIndicator";
 import { Skeleton } from "@/shared/components/motion/Skeleton";
 import { Button } from "@/shared/components/ui/button";
@@ -379,6 +380,7 @@ function OnboardingPanel({
 
 export function App() {
   const { i18n, t } = useTranslation();
+  useInputModality();
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [pendingStep, setPendingStep] = useState<number | null>(null);
