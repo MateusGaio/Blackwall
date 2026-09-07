@@ -633,20 +633,23 @@ export async function createSidecar(
     try {
       await watcher.start();
     } catch (error) {
-      watcher.stop();
+      await watcher.stop();
       vaultWatchers.delete(workspaceId);
       publishVaultIndexFailure(workspaceId, error);
     }
   }
 
-  function stopVaultWorkspace(workspaceId: string) {
-    vaultWatchers.get(workspaceId)?.stop();
+  async function stopVaultWorkspace(workspaceId: string) {
+    const watcher = vaultWatchers.get(workspaceId);
     vaultWatchers.delete(workspaceId);
     vaultIndexQueues.delete(workspaceId);
+    await watcher?.stop();
   }
 
-  function stopAllVaultWatchers() {
-    for (const workspaceId of vaultWatchers.keys()) stopVaultWorkspace(workspaceId);
+  async function stopAllVaultWatchers() {
+    await Promise.all(
+      [...vaultWatchers.keys()].map((workspaceId) => stopVaultWorkspace(workspaceId)),
+    );
   }
 
   async function initializeVaultWorkspaces() {
@@ -1702,7 +1705,9 @@ export async function createSidecar(
           ),
         );
         const state = await store.deleteProfile(pathname.split("/")[3]);
-        for (const workspaceId of profileWorkspaceIds) stopVaultWorkspace(workspaceId);
+        await Promise.all(
+          profileWorkspaceIds.map((workspaceId) => stopVaultWorkspace(workspaceId)),
+        );
         writeJson(response, 200, state);
         return;
       }
@@ -2196,13 +2201,29 @@ export async function createSidecar(
       });
     }
   });
-  server.once("close", () => {
-    stopAllVaultWatchers();
-    void mcpClients.closeAll();
-    void memoryWorker.stop();
-    void embeddings.close();
-    database.close();
-  });
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = () => {
+    cleanupPromise ??= (async () => {
+      await stopAllVaultWatchers();
+      await Promise.all([mcpClients.closeAll(), memoryWorker.stop(), embeddings.close()]);
+      database.close();
+    })();
+    return cleanupPromise;
+  };
+  server.once("close", () => void cleanup());
+  const closeServer = server.close.bind(server);
+  server.close = ((callback?: (error?: Error) => void) =>
+    closeServer((error) => {
+      void cleanup().then(
+        () => callback?.(error),
+        (cleanupError: unknown) =>
+          callback?.(
+            cleanupError instanceof Error
+              ? cleanupError
+              : new Error("Falha ao encerrar recursos do sidecar."),
+          ),
+      );
+    })) as Server["close"];
 
   const socketServer = new WebSocketServer({
     handleProtocols: websocketProtocolSelector,

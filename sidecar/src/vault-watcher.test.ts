@@ -30,7 +30,7 @@ describe("watcher do Vault", () => {
     rootListener?.("change", "nota.md");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(changes).toEqual([[join(root, "nota.md")]]);
-    watcher.stop();
+    await watcher.stop();
     expect(close).toHaveBeenCalled();
     expect(started).toBe(watcher);
     await rm(root, { force: true, recursive: true });
@@ -58,7 +58,7 @@ describe("watcher do Vault", () => {
     listener?.("change", "ignore.txt");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(changes).toEqual([[join(root, "a.md"), join(root, "z.md")]]);
-    watcher.stop();
+    await watcher.stop();
     await rm(root, { force: true, recursive: true });
   });
 
@@ -81,7 +81,7 @@ describe("watcher do Vault", () => {
     events.get(root)?.("rename", "anexo.txt");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(changes).toEqual([[join(root, "anexo.txt")]]);
-    watcher.stop();
+    await watcher.stop();
     await rm(root, { force: true, recursive: true });
   });
 
@@ -107,9 +107,38 @@ describe("watcher do Vault", () => {
     listener?.("change", "nota.md");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(changes).toEqual([]);
-    watcher.stop();
-    watcher.stop();
+    await Promise.all([watcher.stop(), watcher.stop()]);
     expect(close).toHaveBeenCalledOnce();
+    await rm(root, { force: true, recursive: true });
+  });
+
+  it("aguarda o evento close do handle antes de concluir o encerramento", async () => {
+    const root = await mkdtemp(join(tmpdir(), "blackwall-watcher-close-"));
+    let notifyClose: (() => void) | undefined;
+    const watcher = createVaultWatcher({
+      onChange: vi.fn(),
+      reconcileMs: 0,
+      rootPath: root,
+      watchFactory: () => ({
+        close: vi.fn(),
+        once: (event, listener) => {
+          expect(event).toBe("close");
+          notifyClose = listener;
+        },
+      }),
+    });
+    await watcher.start();
+
+    let stopped = false;
+    const stopping = watcher.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    notifyClose?.();
+    await stopping;
+    expect(stopped).toBe(true);
     await rm(root, { force: true, recursive: true });
   });
 
@@ -134,7 +163,7 @@ describe("watcher do Vault", () => {
     events.get(join(root, "new-folder"))?.("rename", "created.md");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(changes).toEqual([[join(root, "new-folder", "created.md")]]);
-    watcher.stop();
+    await watcher.stop();
     await rm(root, { force: true, recursive: true });
   });
 });

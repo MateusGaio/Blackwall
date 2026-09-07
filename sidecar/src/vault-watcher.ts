@@ -22,7 +22,10 @@ const ignoredDirectories = new Set([
   "venv",
 ]);
 
-type WatchHandle = { close: () => void };
+type WatchHandle = {
+  close: () => void;
+  once?: (event: "close", listener: () => void) => unknown;
+};
 type WatchFactory = (
   directory: string,
   onEvent: (event: string, filename?: string) => void,
@@ -54,6 +57,27 @@ function watchedPath(path: string, includeAttachments: boolean) {
   return includeAttachments || /\.(md|markdown)$/i.test(path);
 }
 
+function closeWatchHandle(handle: WatchHandle) {
+  if (!handle.once) {
+    handle.close();
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    handle.once?.("close", finish);
+    try {
+      handle.close();
+    } catch {
+      finish();
+    }
+  });
+}
+
 export function createVaultWatcher(options: VaultWatcherOptions) {
   const rootPath = resolve(options.rootPath);
   const debounceMs = options.debounceMs ?? 250;
@@ -73,6 +97,7 @@ export function createVaultWatcher(options: VaultWatcherOptions) {
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   let reconcileTimer: ReturnType<typeof setInterval> | undefined;
   let installing: Promise<void> | undefined;
+  let stopping: Promise<void> | undefined;
 
   const schedule = (path: string) => {
     if (stopped || !watchedPath(path, options.includeAttachments === true)) return;
@@ -93,7 +118,7 @@ export function createVaultWatcher(options: VaultWatcherOptions) {
       const discovered = new Set(directories);
       for (const [directory, handle] of handles) {
         if (discovered.has(directory)) continue;
-        handle.close();
+        await closeWatchHandle(handle);
         handles.delete(directory);
       }
       for (const directory of directories) {
@@ -138,15 +163,20 @@ export function createVaultWatcher(options: VaultWatcherOptions) {
       );
     },
     stop() {
-      if (stopped) return;
+      if (stopping) return stopping;
       stopped = true;
       if (reconcileTimer) clearInterval(reconcileTimer);
       if (debounceTimer) clearTimeout(debounceTimer);
       for (const timer of internalWrites.values()) clearTimeout(timer);
-      for (const handle of handles.values()) handle.close();
       pending.clear();
       internalWrites.clear();
-      handles.clear();
+      stopping = (async () => {
+        await installing?.catch((error) => options.onError?.(error));
+        const openHandles = [...handles.values()];
+        handles.clear();
+        await Promise.all(openHandles.map((handle) => closeWatchHandle(handle)));
+      })();
+      return stopping;
     },
   };
   return controller;
