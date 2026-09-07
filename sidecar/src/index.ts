@@ -49,6 +49,7 @@ import {
   workspaces,
 } from "./db/schema.js";
 import { type BootstrapInput, createStore, type PermissionMode } from "./db/store.js";
+import { e2eControlsEnabled, e2eMcpCall, getE2EState, setE2EState } from "./e2e-controls.js";
 import { EmbeddingAdapterError, sanitizeEmbeddingErrorCode } from "./embeddings.js";
 import {
   enabledMcpToolDefinitions,
@@ -108,7 +109,7 @@ import {
 } from "./providers.js";
 import { withRetry } from "./retry.js";
 import { createRunStore } from "./run-store.js";
-import { searchWorkspace } from "./search.js";
+import { searchWorkspace, validateWorkspaceReferences } from "./search.js";
 import { listSessionArtifacts } from "./session-artifacts.js";
 import {
   isRetryableProviderError,
@@ -682,6 +683,38 @@ export async function createSidecar(
     if (request.method === "OPTIONS") return response.writeHead(204).end();
     if (pathname === "/health") {
       writeJson(response, 200, withInstrumentation("sidecar.health", healthPayload));
+      return;
+    }
+    if (pathname === "/__e2e/state" || pathname === "/__e2e/mcp") {
+      if (!e2eControlsEnabled()) {
+        writeJson(response, 404, { error: "Not found" });
+        return;
+      }
+      if (!hasBearerToken(request, sidecarToken)) {
+        writeJson(response, 401, { error: "Autorização necessária." });
+        return;
+      }
+      try {
+        if (pathname === "/__e2e/state") {
+          if (request.method === "GET") {
+            writeJson(response, 200, getE2EState());
+            return;
+          }
+          if (request.method === "PUT") {
+            writeJson(response, 200, setE2EState(await requestBody(request, 8_000)));
+            return;
+          }
+        } else if (request.method === "POST") {
+          writeJson(response, 200, e2eMcpCall(await requestBody(request, 8_000)));
+          return;
+        }
+        writeJson(response, 405, { error: "Método E2E não permitido." });
+      } catch (error) {
+        const status = error instanceof HttpError ? error.status : 400;
+        writeJson(response, status, {
+          error: error instanceof Error ? error.message : "Pedido E2E inválido.",
+        });
+      }
       return;
     }
     if (pathname.startsWith("/v1/") && !hasBearerToken(request, sidecarToken)) {
@@ -1503,6 +1536,27 @@ export async function createSidecar(
         } catch {
           throw new HttpError(500, "Não foi possível consultar o índice local.");
         }
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/references\/validate$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        const workspace = database.db
+          .select({ id: workspaces.id })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .get();
+        if (!workspace) throw new HttpError(404, "O workspace selecionado não existe.");
+        const body = (await requestBody(request)) as { references?: unknown };
+        if (!Array.isArray(body?.references) || body.references.length > 50)
+          throw new HttpError(400, "As referências precisam ser uma lista de até 50 itens.");
+        writeJson(
+          response,
+          200,
+          validateWorkspaceReferences(database.client, workspaceId, body.references),
+        );
         return;
       }
       if (request.method === "POST" && /^\/v1\/workspaces\/[^/]+\/vault\/reindex$/.test(pathname)) {

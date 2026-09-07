@@ -6,6 +6,12 @@ import { join } from "node:path";
 import type { Connection, Table } from "@lancedb/lancedb";
 import * as lancedb from "@lancedb/lancedb";
 import type Database from "better-sqlite3";
+import {
+  deterministicEmbedding,
+  e2eControlsEnabled,
+  getE2EState,
+  nextEmbeddingAttempt,
+} from "./e2e-controls.js";
 import { chunkVaultObject } from "./embedding-chunks.js";
 import { setEmbeddingSourceState } from "./embedding-state.js";
 import {
@@ -171,6 +177,19 @@ function updateState(
     .run(...values);
 }
 
+function e2eVectors(config: StoredConfigRow, texts: string[]) {
+  if (!e2eControlsEnabled()) return null;
+  if (getE2EState().scenario === "embedding_unavailable") {
+    throw new EmbeddingServiceError(
+      "e2e_embedding_unavailable",
+      "Embeddings determinísticos indisponíveis neste cenário E2E.",
+    );
+  }
+  nextEmbeddingAttempt();
+  const dimension = config.dimension ?? 8;
+  return texts.map((text) => deterministicEmbedding(text, dimension));
+}
+
 function sqlString(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -320,8 +339,8 @@ export class VaultEmbeddingService {
 
       try {
         const chunks = objects.flatMap((object) => chunkVaultObject(object.title, object.body));
-        const adapter = await this.adapter(config);
-        const vectors = await adapter.embed(chunks);
+        const deterministic = e2eVectors(config, chunks);
+        const vectors = deterministic ?? (await (await this.adapter(config)).embed(chunks));
         const rows = this.vectorRows(workspaceId, config.model, objects, vectors);
         await this.createTable(workspaceId, rows);
         const dimension = rows[0]?.vector.length ?? config.dimension;
@@ -387,10 +406,9 @@ export class VaultEmbeddingService {
         };
       }
       try {
-        const adapter = await this.adapter(config);
-        const vectors = await adapter.embed(
-          objects.flatMap((object) => chunkVaultObject(object.title, object.body)),
-        );
+        const chunks = objects.flatMap((object) => chunkVaultObject(object.title, object.body));
+        const deterministic = e2eVectors(config, chunks);
+        const vectors = deterministic ?? (await (await this.adapter(config)).embed(chunks));
         const rows = this.vectorRows(workspaceId, config.model, objects, vectors);
         await this.addRows(workspaceId, rows);
         return {
@@ -426,7 +444,7 @@ export class VaultEmbeddingService {
       );
     }
     try {
-      return await (await this.adapter(config)).embed(texts, signal);
+      return e2eVectors(config, texts) ?? (await (await this.adapter(config)).embed(texts, signal));
     } catch (error) {
       throw new EmbeddingServiceError(
         sanitizeEmbeddingErrorCode(error),

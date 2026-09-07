@@ -1,6 +1,7 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
 import { type ChatMessage, completeChatMessage } from "./chat.js";
+import { getE2EState, nextMemoryAttempt } from "./e2e-controls.js";
 import { isMemorySourceEligible, redactMemoryInput } from "./memory-intent.js";
 import type {
   ExtractedMemoryCandidate,
@@ -142,6 +143,44 @@ export async function extractMemories(input: {
 }) {
   const messages = memoryExtractionMessages(input.sourceText);
   if (!messages.length) return { candidates: [], tokens: undefined, windows: [] };
+  if (
+    process.env.BLACKWALL_E2E === "1" &&
+    ["memory", "memory_fail_once"].includes(getE2EState().scenario)
+  ) {
+    const attempt = nextMemoryAttempt();
+    if (getE2EState().scenario === "memory_fail_once" && attempt === 1) {
+      throw new MemoryExtractorError(
+        "memory_provider_error",
+        "Falha transitória determinística do extrator E2E.",
+      );
+    }
+    const candidates: ExtractedMemoryCandidate[] = [
+      {
+        confidence: 0.99,
+        kind: "preference",
+        reasonCode: "user_preference",
+        scope: "profile",
+        statement: "O usuário prefere respostas objetivas.",
+        subject: "estilo de resposta",
+        value: "respostas objetivas",
+      },
+      {
+        confidence: 0.95,
+        kind: "fact",
+        proposedType: "Note",
+        reasonCode: "important_decision",
+        scope: "workspace",
+        statement: "O workspace usa um harness determinístico para testes browser-only.",
+        subject: "harness do workspace",
+        value: "harness determinístico para testes browser-only",
+      },
+    ];
+    return {
+      candidates,
+      tokens: undefined,
+      windows: [],
+    };
+  }
   try {
     const response = await (input.complete ?? completeChatMessage)(
       input.providerId,

@@ -9,7 +9,7 @@ export const settingsSections = [
   "mcp",
 ] as const;
 
-export type SettingsSection = (typeof settingsSections)[number];
+export type SettingsSection = (typeof settingsSections)[number] | "qa";
 
 export function normalizeSettingsSection(section: string | undefined): SettingsSection {
   return settingsSections.includes(section as SettingsSection)
