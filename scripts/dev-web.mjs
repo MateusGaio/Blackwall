@@ -22,7 +22,13 @@ const sidecarToken = process.env.BLACKWALL_SIDECAR_TOKEN ?? randomBytes(32).toSt
 process.env.BLACKWALL_SIDECAR_TOKEN = sidecarToken;
 let sidecar;
 try {
-  sidecar = await createSidecar(sidecarPort, undefined, { token: sidecarToken });
+  sidecar = await createSidecar(sidecarPort, undefined, {
+    token: sidecarToken,
+    // O runner Windows pode abortar dentro do libuv ao remover o diretório
+    // temporário observado. Os testes E2E não exercitam alterações externas;
+    // o ciclo do watcher é coberto com uma fixture determinística no Vitest.
+    ...(ownsDataDirectory ? { vaultWatchFactory: () => ({ close() {} }) } : {}),
+  });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("EADDRINUSE") || message.includes("address already in use")) {
