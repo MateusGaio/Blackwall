@@ -24,6 +24,7 @@ Repita estas restrições mentalmente antes de gerar qualquer plano ou código. 
 - **Licença:** MIT. Todo arquivo novo de código deve manter o cabeçalho de licença do projeto.
 - **Zero telemetria por padrão.** Qualquer instrumentação nova (OTel/Sentry) precisa nascer desligada, com opt-in explícito do usuário.
 - **Sem dependência nova sem necessidade clara.** Antes de `npm install` algo novo, verifique se já existe uma lib aprovada no `ARCHITECTURE.md` que resolve o problema.
+- **Planos operacionais são somente locais.** Planos de implementação, prompts de execução, handoffs, investigações e decomposições de Issues devem ficar em `.local/plans/` ou outro caminho ignorado pelo Git. Nunca os versione ou publique; transfira apenas decisões estáveis para a documentação canônica.
 - **Nenhum componente de UI é aceito sem:** skeleton de carregamento, lazy loading (se aplicável), animação de entrada/saída, indicador de progresso quando a ação não é instantânea, e suporte a `prefers-reduced-motion`. Isso não é opcional — é critério de aceite.
 
 ---
@@ -34,7 +35,7 @@ Toda tarefa (correção, melhoria ou nova função) segue este fluxo:
 
 ### 2.0 Regra obrigatória de rastreabilidade e release
 
-- O repositório remoto é [`MateusGaio/Blackwall.`](https://github.com/MateusGaio/Blackwall.). Ele permanece **privado durante o desenvolvimento atual**; uma publicação pública só pode acontecer após a revisão de segurança e governança descrita abaixo. A branch `main` é a base estável e padrão.
+- O repositório canônico é [`MateusGaio/Blackwall`](https://github.com/MateusGaio/Blackwall) e é **público**. Trate todo conteúdo enviado ao remoto, inclusive branches, Issues, PRs, logs e artefatos de CI, como imediatamente publicado. A branch `main` é a base estável e padrão.
 - Nenhum agente deve iniciar implementação de uma correção, melhoria ou função nova sem uma Issue aberta. Se a tarefa ainda não tiver Issue, crie-a antes de criar a branch.
 - Todo trabalho deve ocorrer em branch própria e chegar à `main` por Pull Request. Push direto na `main`, merge local e deploy manual fora do PR são proibidos.
 - O nome da branch deve conter o número da Issue: `feat/<issue>-descricao`, `fix/<issue>-descricao` ou `chore/<issue>-descricao`.
@@ -50,33 +51,33 @@ Toda tarefa (correção, melhoria ou nova função) segue este fluxo:
 - Antes de usar `gh`, valide a sessão com `gh auth status`. Nunca cole tokens em comandos, arquivos, Issues, PRs, logs ou telemetria. Se a autenticação estiver inválida, pare a publicação e peça ao owner para executar `gh auth login -h github.com`.
 - Depois do push, confirme a branch remota e os checks. Não declare uma Issue ou PR como publicado apenas porque o commit local existe.
 
-#### 2.0.1 Estado privado e pré-voo do GitHub
+#### 2.0.1 Estado público e pré-voo do GitHub
 
-- Não altere a visibilidade do repositório, crie uma Release pública, ative um updater público, faça merge, feche PRs ou modifique a proteção da `main` sem autorização explícita do owner para aquela ação.
+- Não altere a visibilidade do repositório, crie uma Release, ative um updater, faça merge, feche PRs ou modifique a proteção da `main` sem autorização explícita do owner para aquela ação.
 - Antes de qualquer ação externa, confira o remoto e a autenticação sem imprimir credenciais:
 
   ```bash
   git remote -v
   gh auth status
-  gh repo view MateusGaio/Blackwall. --json isPrivate,defaultBranchRef
+  gh repo view MateusGaio/Blackwall --json isPrivate,defaultBranchRef
   ```
 
 - Se `gh auth status` falhar, não tente contornar com tokens em argumentos, arquivos, variáveis persistentes, Issues ou logs. Pare a publicação e peça ao owner para renovar a sessão com `gh auth login -h github.com`.
 - `git status --short --branch`, `git diff --check` e a confirmação da branch remota são obrigatórios antes do push. Um commit local ou uma branch local nunca equivale a um PR publicado.
 - Toda alteração em CI, workflows, permissões, updater, dependências ou scripts de release deve ser revisada como mudança de segurança. Não aceite mudanças de Actions de terceiros sem fixar a versão e justificar a origem.
-- Nunca inclua no GitHub: API keys, tokens, `secrets.enc`, `secrets.key`, prompts, respostas, conteúdo de arquivos do usuário, dumps do banco, caminhos pessoais ou logs com dados sensíveis. Se um segredo aparecer no histórico, interrompa o push e trate a rotação antes de qualquer publicação.
+- Nunca inclua no GitHub: API keys, tokens, `secrets.enc`, `secrets.key`, prompts, respostas, conteúdo de arquivos do usuário, dumps do banco, caminhos pessoais, logs com dados sensíveis ou documentos operacionais de planejamento. Se um segredo aparecer no histórico, interrompa o push e trate a rotação antes de qualquer publicação.
 
-#### 2.0.2 Gate para futura publicação pública
+#### 2.0.2 Gate contínuo do repositório público
 
-Antes de tornar o repositório público, o owner deve aprovar um PR de preparação que:
+Antes de publicar qualquer branch ou artefato, o responsável deve:
 
-1. faça uma varredura do histórico e dos artefatos versionados em busca de segredos;
-2. revise `AGENTS.md`, `PRODUCT.md`, `ARCHITECTURE.md`, `UX_SPEC.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, Issues e templates para remover dados pessoais e exemplos reais;
-3. confirme licença, avisos de terceiros, política de segurança, CI sem segredos expostos e artefatos de release reproduzíveis;
-4. habilite proteção da `main` com os checks obrigatórios e revisão por PR;
-5. só então altere a visibilidade e publique a primeira Release.
+1. revisar o diff e os artefatos versionados em busca de segredos, dados pessoais e conteúdo local;
+2. confirmar que planos, prompts de execução, handoffs e investigações permanecem em caminhos ignorados;
+3. revisar Issues, PRs, logs e artefatos de CI como superfícies públicas;
+4. confirmar licença, avisos de terceiros, política de segurança, checks e proteção da `main`;
+5. exigir autorização explícita do owner para Releases ou mudanças de visibilidade.
 
-Até esse gate ser concluído, trate o remoto, os artefatos de CI e os workspaces de teste como material privado.
+O fato de uma informação estar numa branch não integrada não a torna privada.
 
 ### 2.1 Issue primeiro
 Nenhuma tarefa é iniciada sem uma Issue correspondente no GitHub. Toda Issue tem um tipo, marcado por label:
@@ -191,6 +192,8 @@ Antes de escrever qualquer código, produza um plano numerado e sequencial da ta
 5. Escrever/atualizar testes.
 6. Rodar os quality gates localmente.
 7. Abrir o PR com o template da seção 2.3.
+
+Esse plano existe na conversa ou em `.local/plans/`; ele não deve virar arquivo rastreado. Registre nos documentos públicos somente o estado final e as decisões duráveis necessárias a usuários e contribuidores.
 
 ### Constraint Anchoring
 No início de cada plano gerado, reafirme as restrições fixas relevantes à tarefa (stack, licença, ausência de telemetria não-opt-in, checklist de motion). Isso vale mesmo em conversas longas — não assuma que o contexto anterior "ainda vale"; reancore.

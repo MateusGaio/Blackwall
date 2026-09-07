@@ -7,7 +7,7 @@
 
 ## 1. Contexto e objetivo
 
-Blackwall é um harness de IA local-first e gratuito, licenciado em MIT e preparado para publicação pública futura, com foco em código. Durante o desenvolvimento atual, o repositório e seus artefatos permanecem privados. Ele combina, num único app desktop:
+Blackwall é um harness de IA local-first e gratuito, licenciado em MIT e desenvolvido em repositório público, com foco em código. Todo conteúdo enviado ao remoto e aos artefatos de CI deve ser tratado como publicado. Ele combina, num único app desktop:
 
 - Perfis + Workspaces + Souls (prompt base combinável)
 - Um Vault estilo Obsidian embutido (notas reais em `.md`, grafo de conhecimento, RAG)
@@ -231,7 +231,7 @@ Histórico é a conversa bruta da sessão; memória de perfil é uma preferênci
 ### Fase 0 — Fundação do repositório
 - Scaffolding Tauri + React/Vite + sidecar Node/Bun.
 - CI básico no GitHub Actions: Biome, Knip, dependency-cruiser, Vitest, Codecov.
-- `AGENTS.md`, `PRODUCT.md`, `ARCHITECTURE.md` e `CONTRIBUTING.md` mantidos como referência operacional; a publicação pública desses documentos depende do gate de segurança e governança.
+- `AGENTS.md`, `PRODUCT.md`, `ARCHITECTURE.md` e `CONTRIBUTING.md` mantidos como referências públicas; planos e registros operacionais ficam somente em caminhos locais ignorados.
 - OpenTelemetry instrumentado desde o início (mesmo com exporter "no-op" por padrão).
 - Templates de Issue e PR configurados.
 
@@ -269,8 +269,8 @@ Histórico é a conversa bruta da sessão; memória de perfil é uma preferênci
 - **Rust como barreira de entrada** para contribuidores que só conhecem TS — mitigar mantendo a superfície de Rust pequena (só o shell, não a lógica de IA).
 - **Custo de manter 3 sidecars** (Rust + Node + Python opcional) — mitigar deixando o sidecar Python estritamente opt-in e documentado como "avançado".
 - **Telemetria vs. privacidade** — qualquer decisão de observabilidade precisa reforçar que é opt-in e anonimizada, para não contradizer o pilar "local-first e privado" do produto.
-- **Repositório privado durante a construção** — Issues, PRs, logs de CI, fixtures e artefatos podem conter contexto operacional; o pipeline não deve tratá-los como material público antes da revisão de publicação.
-- **Publicação futura** — mudar a visibilidade, habilitar Releases públicas ou abrir a `main` exige revisão de histórico, segredos, licença, dependências, Actions e proteção de branch. Nenhuma automação deve executar esse passo implicitamente.
+- **Repositório público durante a construção** — Issues, PRs, branches, logs de CI e artefatos são superfícies públicas; fixtures devem ser sintéticas e contexto operacional não deve ser versionado.
+- **Releases e visibilidade** — publicar uma Release ou mudar a visibilidade exige revisão de histórico, segredos, licença, dependências, Actions e proteção de branch. Nenhuma automação deve executar esses passos implicitamente.
 
 ## 6. Editor seguro do Vault (F2.8)
 

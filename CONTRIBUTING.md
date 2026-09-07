@@ -2,7 +2,7 @@
 
 Este projeto usa um fluxo obrigatório de Issue → branch → Pull Request. A `main` é a base estável; não faça push direto nela.
 
-O repositório está privado durante esta fase de desenvolvimento. A publicação pública, Releases e qualquer mudança de visibilidade dependem de uma revisão de segurança e de autorização explícita do owner; não presuma que um link do GitHub significa que o código já está público.
+O repositório é público. Trate commits, branches, Issues, Pull Requests, logs e artefatos como conteúdo publicado. Releases e qualquer mudança de visibilidade dependem de revisão de segurança e autorização explícita do owner.
 
 ## Antes de implementar
 
@@ -23,6 +23,7 @@ chore/125-fluxo-de-release
 - Mantenha cada commit focado e verificável.
 - Rode os quality gates aplicáveis antes de abrir o PR.
 - Não inclua chaves, conteúdo de conversa ou dados pessoais em commits, logs, Issues, PRs ou telemetria.
+- Mantenha planos de implementação, prompts de execução, handoffs e investigações em `.local/plans/` ou outro caminho ignorado; publique somente decisões estáveis na documentação canônica.
 
 ## Pull Request
 
@@ -59,7 +60,7 @@ gh auth status
 
 ```bash
 git remote -v
-gh repo view MateusGaio/Blackwall. --json isPrivate,defaultBranchRef
+gh repo view MateusGaio/Blackwall --json isPrivate,defaultBranchRef
 ```
 
 - Se necessário, autentique-se com `gh auth login -h github.com`. Nunca exponha o token, nem o deixe em comandos, arquivos, Issues, PRs ou logs.
@@ -75,8 +76,8 @@ gh repo view MateusGaio/Blackwall. --json isPrivate,defaultBranchRef
 - [ ] Workflows, scripts de release e dependências novas foram revisados como superfície de segurança.
 - [ ] O PR usa `Closes #N` ou `Refs #N`, informa a base correta e permanece rascunho até todos os gates passarem.
 
-### Gate para tornar o projeto público
+### Gate contínuo de publicação
 
-Quando o owner decidir publicar, abra um PR de preparação separado. Ele deve revisar o histórico, os artefatos, a licença, os avisos de terceiros, os templates de Issue/PR, a política de segurança e a proteção da `main`. A visibilidade só deve ser alterada depois que esse PR for revisado e aprovado; nenhum agente deve executar essa mudança por conta própria.
+Antes de publicar uma branch ou artefato, revise segredos, dados pessoais, planos locais, licença, avisos de terceiros, templates de Issue/PR, política de segurança e proteção da `main`. Releases e mudanças de visibilidade exigem autorização explícita do owner; nenhum agente deve executá-las por conta própria.
 
 As instruções completas para agentes estão em [`AGENTS.md`](AGENTS.md).
