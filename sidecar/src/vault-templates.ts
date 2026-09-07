@@ -16,7 +16,7 @@ const MAX_TEMPLATE_NAME_LENGTH = 160;
 const MAX_TEMPLATE_TYPE_LENGTH = 64;
 const MAX_TEMPLATE_BODY_LENGTH = 2_000_000;
 
-export type VaultTemplateSummary = {
+type VaultTemplateSummary = {
   id: string;
   name: string;
   path: string;
@@ -24,21 +24,7 @@ export type VaultTemplateSummary = {
   type: string;
 };
 
-export type VaultTemplateCreateInput = {
-  body: string;
-  name: string;
-  status?: string;
-  type: string;
-};
-
-export type VaultTemplateApplyInput = {
-  title: string;
-};
-
-export type CreateInput = VaultTemplateCreateInput;
-export type ApplyInput = VaultTemplateApplyInput;
-
-export type VaultTemplateApplyResult = {
+type VaultTemplateApplyResult = {
   content: string;
   contentHash: string;
   note: {
@@ -52,7 +38,7 @@ export type VaultTemplateApplyResult = {
 
 type WorkspaceRow = { permissionMode: string; rootPath: string };
 
-export class VaultTemplateError extends Error {
+class VaultTemplateError extends Error {
   constructor(
     readonly code:
       | "vault_template_workspace_not_found"

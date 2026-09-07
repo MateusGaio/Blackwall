@@ -34,7 +34,7 @@
   --secondary: #252527;
   --secondary-foreground: #f2f2f3;
   --muted: #161618;
-  --muted-foreground: #77777c;
+  --muted-foreground: #85858a;
   --accent: #252527;
   --accent-foreground: #f2f2f3;
   /* Destrutivo monocromático e LEGÍVEL como texto (#9a9aa1 ≈ 6,5:1 sobre
@@ -162,6 +162,35 @@
     /* biome-ignore lint/complexity/noImportantStyles: precisa vencer utilitários e estilos inline */
     scroll-behavior: auto !important;
   }
+}
+
+/* O modo de teclado é instantâneo por intenção; o modo reduced do harness
+   replica exatamente o comportamento da media query real. Atributos vivem no
+   html para cobrir Radix (dialog/popover/tabs) e componentes lazy. */
+:where(:root[data-input-modality="keyboard"], :root[data-qa-motion="reduced"]) *,
+:where(:root[data-input-modality="keyboard"], :root[data-qa-motion="reduced"]) *::before,
+:where(:root[data-input-modality="keyboard"], :root[data-qa-motion="reduced"]) *::after {
+  /* biome-ignore lint/complexity/noImportantStyles: vence durações inline e utilitários Radix no modo instantâneo. */
+  animation-duration: 0.01ms !important;
+  /* biome-ignore lint/complexity/noImportantStyles: garante uma única iteração em reduced-motion. */
+  animation-iteration-count: 1 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: o teclado/reduced não pode aguardar transições. */
+  transition-duration: 0.01ms !important;
+  /* biome-ignore lint/complexity/noImportantStyles: remove atraso de entrada/saída iniciado por teclado. */
+  transition-delay: 0ms !important;
+}
+
+:root[data-input-modality="keyboard"] button:active {
+  /* biome-ignore lint/complexity/noImportantStyles: vence o feedback tátil do primitive quando o acionamento é por teclado. */
+  transform: none !important;
+}
+
+:root[data-qa-text-scale="200"] {
+  font-size: 200%;
+}
+
+:root[data-qa-text-scale="100"] {
+  font-size: 14px;
 }
 
 :root {
@@ -1019,7 +1048,7 @@ button:disabled {
 }
 
 .datafort-count {
-  color: #66666e;
+  color: #85858a;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.62rem;
 }
@@ -1041,7 +1070,7 @@ button:disabled {
   background: #17171b;
   border: 1px solid #29292f;
   border-radius: 6px;
-  color: #777780;
+  color: #85858a;
   display: flex;
   gap: 6px;
   margin: 0 2px 8px;
@@ -1280,7 +1309,7 @@ button:disabled {
   align-items: center;
   background: transparent;
   border: 0;
-  color: #77777f;
+  color: #85858a;
   display: inline-flex;
   font-size: 0.6rem;
   gap: 4px;
@@ -1545,7 +1574,7 @@ button:disabled {
 
 .datafort-search-result span,
 .datafort-search-result small {
-  color: #777780;
+  color: #85858a;
   font-size: 0.6rem;
   overflow: hidden;
   text-overflow: ellipsis;

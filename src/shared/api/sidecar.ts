@@ -2,6 +2,7 @@
 import i18n from "i18next";
 import "../../i18n";
 import { sidecarConfig } from "../../platform/runtime";
+import { qaLatencyMs } from "../qa-controls";
 
 export type ToolCall = { arguments: string; id: string; name: string };
 
@@ -593,6 +594,8 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
   if (config.sidecar_token) headers.set("authorization", `Bearer ${config.sidecar_token}`);
   let response: Response;
+  const latency = qaLatencyMs(path.includes("/reindex") ? "indexing" : "loading");
+  if (latency) await new Promise((resolve) => window.setTimeout(resolve, latency));
   try {
     response = await fetch(`${baseUrl}${path}`, { ...init, headers });
   } catch {
@@ -1815,18 +1818,24 @@ export async function streamMessage(
     },
   };
   socket.addEventListener("open", () => {
-    socket.send(
-      JSON.stringify({
-        messages,
-        model,
-        profileId,
-        providerId,
-        requestId,
-        sessionId,
-        type: "chat.start",
-        workspaceId: workspaceId === "default" ? undefined : workspaceId,
-      }),
-    );
+    const send = () => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      socket.send(
+        JSON.stringify({
+          messages,
+          model,
+          profileId,
+          providerId,
+          requestId,
+          sessionId,
+          type: "chat.start",
+          workspaceId: workspaceId === "default" ? undefined : workspaceId,
+        }),
+      );
+    };
+    const latency = qaLatencyMs("streaming");
+    if (latency) window.setTimeout(send, latency);
+    else send();
   });
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(String(event.data)) as {

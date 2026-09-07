@@ -12,7 +12,7 @@ export const settingsSections = [
 export type SettingsSection = (typeof settingsSections)[number] | "qa";
 
 export function normalizeSettingsSection(section: string | undefined): SettingsSection {
-  return settingsSections.includes(section as SettingsSection)
+  return settingsSections.includes(section as (typeof settingsSections)[number])
     ? (section as SettingsSection)
     : "usage";
 }

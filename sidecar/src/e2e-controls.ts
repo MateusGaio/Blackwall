@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 
-export const E2E_SCENARIOS = [
+const E2E_SCENARIOS = [
   "default",
   "invalid_paths",
   "pending_mutation",
@@ -16,9 +16,9 @@ export const E2E_SCENARIOS = [
   "embedding_unavailable",
 ] as const;
 
-export type E2EScenario = (typeof E2E_SCENARIOS)[number];
+type E2EScenario = (typeof E2E_SCENARIOS)[number];
 
-export type E2EState = {
+type E2EState = {
   embeddingAttempts: number;
   memoryAttempts: number;
   mcpReads: number;
