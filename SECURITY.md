@@ -2,22 +2,19 @@
 
 ## Estado atual
 
-O repositório do Blackwall permanece privado durante o desenvolvimento. Issues,
-Pull Requests, artefatos de CI, fixtures e workspaces de teste podem conter
-contexto operacional e não devem ser tratados como material público.
+O repositório do Blackwall é público. Issues, Pull Requests, branches, artefatos
+de CI e logs devem ser tratados como material publicado. Fixtures precisam usar
+dados sintéticos; workspaces reais, conteúdo operacional e documentos de
+planejamento permanecem somente no ambiente local.
 
-Uma publicação pública será feita somente depois de revisar o histórico, os
-artefatos, as dependências, os workflows, a licença e a proteção da `main`.
-Nenhum agente ou script deve alterar a visibilidade do repositório por conta
-própria.
+Nenhum agente ou script deve alterar a visibilidade, publicar Releases ou
+modificar a proteção da `main` sem autorização explícita do owner.
 
 ## Canal privado para vulnerabilidades
 
 Não use Issue, Pull Request, log ou artefato público para reportar uma
-vulnerabilidade. Enquanto o repositório estiver privado, envie a reprodução
-mínima e sintética diretamente ao owner por um canal privado. Depois da
-publicação, o canal canônico será o formulário de [Security Advisory do
-GitHub](https://github.com/MateusGaio/Blackwall/security/advisories/new).
+vulnerabilidade. O canal canônico é o formulário privado de [Security Advisory
+do GitHub](https://github.com/MateusGaio/Blackwall/security/advisories/new).
 
 Inclua impacto, versão/commit afetado, passos mínimos sem dados reais e uma
 correção sugerida quando possível. Não envie chaves ou conteúdo de usuário.
@@ -102,13 +99,11 @@ usuário do sistema: um processo local que obtiver o token pode consultar os exc
 ## Relato responsável
 
 Não abra uma Issue pública contendo segredos ou uma reprodução com dados reais.
-Durante o período privado, informe o owner diretamente e preserve somente uma
-reprodução mínima e sintética no repositório. Após a publicação, este arquivo
-deverá ser atualizado com o canal de divulgação responsável escolhido pelo
-owner.
+Informe o owner pelo Security Advisory e preserve somente uma reprodução mínima
+e sintética quando algum fixture precisar entrar no repositório.
 
 Consulte [`AGENTS.md`](AGENTS.md) e [`CONTRIBUTING.md`](CONTRIBUTING.md) para o
-fluxo Issue → branch → PR e o gate de futura publicação pública.
+fluxo Issue → branch → PR e o gate contínuo do repositório público.
 
 ## Editor seguro do Vault (F2.8)
 

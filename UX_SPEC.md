@@ -63,7 +63,7 @@ O composer reconhece somente `/nota`. O comando representa consentimento explíc
 - Contrato do `SidecarChatStore`/adaptador intacto; fila FIFO; guards de sessão/epoch.
 - Modos ask/automatic/read-only; anexos textuais/PDF; resumo automático; usage dialog; command palette.
 - Hooks contratuais de teste/e2e: `li.message-user`, `data-testid="chat-composer"`, `model-trigger` (antigo `provider-chip`), `session-statusline`, `menuitemradio` de permissões.
-- Labels i18n pt/en conforme tabela registrada no plano da fase C (`docs/plans/`).
+- Labels i18n pt/en definidas nos catálogos canônicos de `src/i18n.ts`; mudanças de texto atualizam ambos os locales e os testes correspondentes.
 
 ---
 

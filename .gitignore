@@ -13,3 +13,12 @@ src-tauri/target/
 .playwright-data/
 test-results/
 skills-lock.json
+
+# Internal planning artifacts are local-only. New plans belong in .local/plans/.
+.local/
+ROADMAP.md
+BLACKWALL_OPENCODE_ALIGNMENT_PLAN.md
+PLANO_NOVA_UI_CHAT.md
+codex-prompt-opencode-parity.md
+docs/plans/
+docs/investigacoes/

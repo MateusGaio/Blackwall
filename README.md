@@ -19,7 +19,7 @@
   <sub>Fases 1 e 2 implementadas no código atual · Datafort disponível · estabilização e aceite da beta em andamento</sub>
 </p>
 
-> **Aviso de privacidade:** este repositório permanece privado durante a estabilização. Não inclua chaves, prompts, respostas, dados reais, dumps, caminhos pessoais ou conteúdo de workspaces em commits, Issues, Pull Requests, logs ou artefatos.
+> **Aviso de privacidade:** este repositório é público. Não inclua chaves, prompts, respostas, dados reais, dumps, caminhos pessoais, conteúdo de workspaces ou planos operacionais em commits, Issues, Pull Requests, logs ou artefatos.
 
 <p align="center">
   <a href="#o-que-é">O que é</a> ·
@@ -66,7 +66,7 @@ seu contexto + seus arquivos + seus provedores + suas regras
 
 O Blackwall está em **estabilização da beta `v0.1.0`**. A Fase 1 estabeleceu o produto desktop e a Fase 2 adicionou indexação incremental, RAG, MCP, edição segura do Vault e memória contínua. O Datafort amplia essa base com um workspace completo de conhecimento local.
 
-Essas capacidades já estão presentes na linha atual de desenvolvimento, mas a beta ainda passa por correções de runtime, testes manuais e consolidação das Pull Requests empilhadas. Não trate este estado como uma release estável nem como autorização para tornar o repositório público. Orquestração visual de múltiplos agentes e LoRA/QLoRA permanecem planejadas para a Fase 3.
+Essas capacidades já estão presentes na linha atual de desenvolvimento, mas a beta ainda passa por correções de runtime, testes manuais e consolidação das Pull Requests empilhadas. Não trate este estado como uma release estável. Orquestração visual de múltiplos agentes e LoRA/QLoRA permanecem planejadas para a Fase 3.
 
 ```mermaid
 timeline
@@ -79,7 +79,7 @@ timeline
     Fase 3 : Planejada : swarm de agentes e LoRA/QLoRA opcional
 ```
 
-O histórico e a decomposição das fases estão em [`ROADMAP.md`](ROADMAP.md). As decisões técnicas canônicas ficam em [`ARCHITECTURE.md`](ARCHITECTURE.md).
+As decisões técnicas canônicas ficam em [`ARCHITECTURE.md`](ARCHITECTURE.md). Planos de implementação e registros operacionais são mantidos apenas localmente pelos responsáveis.
 
 ## Princípios
 
@@ -98,7 +98,6 @@ O histórico e a decomposição das fases estão em [`ROADMAP.md`](ROADMAP.md). 
 - Rust 1.77 ou superior;
 - dependências nativas da sua plataforma para o Tauri v2;
 - Git;
-- acesso ao repositório privado;
 - um endpoint OpenAI-compatible ou Ollama para conversar e, opcionalmente, gerar embeddings.
 
 Consulte os guias oficiais de [Node.js](https://nodejs.org/), [Rust](https://www.rust-lang.org/tools/install) e [pré-requisitos do Tauri](https://v2.tauri.app/start/prerequisites/) para preparar o ambiente.
@@ -245,7 +244,6 @@ Consulte [`AGENTS.md`](AGENTS.md) para as regras completas e [`CONTRIBUTING.md`]
 | Documento | Para que serve |
 | --- | --- |
 | [`PRODUCT.md`](PRODUCT.md) | Propósito, público, princípios e limites do produto |
-| [`ROADMAP.md`](ROADMAP.md) | Histórico das fases, frentes em andamento e próximos passos |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Stack, ADRs e decisões técnicas |
 | [`UX_SPEC.md`](UX_SPEC.md) | Navegação, estados, motion e identidade visual |
 | [`AGENTS.md`](AGENTS.md) | Regras para agentes, Issues, branches, PRs e qualidade |

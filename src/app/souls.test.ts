@@ -28,12 +28,15 @@ describe("Soul presets", () => {
     }
     expect(builder).toContain("proportional to risk");
     expect(builder).toContain("focused questions");
+    expect(builder).toContain("planning artifacts local-only");
     expect(builder.toLowerCase()).not.toContain("generic creative");
 
     // Dev mantém o ritual completo de engenharia.
     expect(dev).toContain("OpenTelemetry");
     expect(dev).toContain("Playwright");
     expect(dev).toContain("Closes #<issue>");
+    expect(dev).toContain(".local/plans/");
+    expect(dev).toContain("never commit or publish them");
     // Diferencial chave: Dev exige o fluxo sempre; Builder só quando o pedido justifica.
     expect(builder).toContain("unless the user asks");
   });

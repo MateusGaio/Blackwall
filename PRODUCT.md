@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que trabalham com código. O projeto é licenciado em MIT e foi desenhado para uma publicação pública futura; durante o desenvolvimento atual, o repositório permanece privado. Ele reúne conversa, contexto de projeto, notas e automação num ambiente que continua sob controle do usuário.
+Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que trabalham com código. O projeto é público e licenciado em MIT. Ele reúne conversa, contexto de projeto, notas e automação num ambiente que continua sob controle do usuário.
 
 ## Para quem
 
@@ -20,8 +20,9 @@ Blackwall é um harness de IA desktop, local-first e gratuito para pessoas que t
 
 ## Estado de distribuição e privacidade
 
-- A meta de distribuição é a `v0.1.0` marcada como pre-release beta, com release manual no GitHub; o repositório permanece privado até os gates e a autorização final do owner.
-- Nenhuma publicação pública, Release, mudança de visibilidade ou inclusão de dados reais deve ocorrer sem autorização do owner e sem a revisão de segurança/governança prevista em `AGENTS.md`.
+- A meta de distribuição é a `v0.1.0` marcada como pre-release beta, com release manual no GitHub; o código-fonte já está em um repositório público.
+- Releases, mudanças de visibilidade e inclusão de artefatos dependem de autorização do owner e da revisão de segurança/governança prevista em `AGENTS.md`.
+- Planos de implementação, prompts de execução, handoffs e investigações permanecem somente locais; a documentação pública registra apenas decisões estáveis necessárias a usuários e contribuidores.
 - Chaves ficam exclusivamente em `secrets.enc`/`secrets.key`; prompts, respostas, arquivos e resultados de ferramentas não entram em telemetria nem em material de contribuição.
 - O painel de uso registra somente o que o provedor informa e o que o Blackwall observa localmente. Ele não representa automaticamente o saldo atual de uma chave; rate limits e quotas devem ser tratados como respostas do provedor.
 - A beta gera AppImage/`.deb` no Linux e NSIS no Windows, com checksums SHA-256. Não há updater automático nem code signing nesta fase.
