@@ -243,6 +243,7 @@ export async function syncVaultIndexChanges(
   client: Database.Database,
   input: { paths: string[]; rootPath: string; workspaceId: string },
 ): Promise<VaultIndexSyncResult> {
+  const configuredRootPath = resolve(input.rootPath);
   const rootPath = await vaultRoot(input.rootPath);
   const requestedPaths = [...new Set(input.paths)].sort();
   const normalizedPaths: string[] = [];
@@ -255,12 +256,19 @@ export async function syncVaultIndexChanges(
   > = [];
 
   for (const requestedPath of requestedPaths) {
-    const candidate = resolve(rootPath, requestedPath);
+    const configuredCandidate = resolve(configuredRootPath, requestedPath);
+    if (!inside(configuredRootPath, configuredCandidate)) {
+      ignoredPaths.push(requestedPath);
+      continue;
+    }
+    // Preserve a stable POSIX-style identity even when Windows exposes the
+    // configured temp directory through an 8.3 alias and realpath expands it.
+    const path = relative(configuredRootPath, configuredCandidate).split("\\").join("/");
+    const candidate = resolve(rootPath, path);
     if (!inside(rootPath, candidate)) {
       ignoredPaths.push(requestedPath);
       continue;
     }
-    const path = relative(rootPath, candidate).split("\\").join("/");
     if (!/\.(md|markdown)$/i.test(path)) {
       ignoredPaths.push(path);
       continue;

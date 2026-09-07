@@ -406,7 +406,9 @@ function notePath(type: VaultNoteType, title: string, shortId: string) {
     .replace(/^-+|-+$/g, "")
     .toLowerCase()
     .slice(0, 96);
-  return join("Blackwall Vault", noteDirectory(type), `${slug || "nota"}--${shortId}.md`);
+  return join("Blackwall Vault", noteDirectory(type), `${slug || "nota"}--${shortId}.md`)
+    .split("\\")
+    .join("/");
 }
 
 function pathForWikiLink(path: string) {

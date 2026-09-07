@@ -887,7 +887,9 @@ describe("sidecar robustez", () => {
       await once(client, "open");
       await waitFor("system:ready");
       await writeFile(join(workspaceRoot, "outside-edit.md"), "# Fora do app\n\nWatcher", "utf8");
-      watchEvents.get(workspaceRoot)?.("rename", "outside-edit.md");
+      const [rootWatchEvent] = watchEvents.values();
+      expect(rootWatchEvent).toBeDefined();
+      rootWatchEvent?.("rename", "outside-edit.md");
       await expect(waitFor("vault.graph.updated")).resolves.toMatchObject({ workspaceId });
 
       const database = openDatabase(directory);
