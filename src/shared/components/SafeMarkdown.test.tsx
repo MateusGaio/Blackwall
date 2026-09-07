@@ -38,6 +38,20 @@ describe("SafeMarkdown", () => {
     expect(markup).not.toContain('target="_blank"');
   });
 
+  it("mantém HTML ativo e protocolos inseguros inertes na renderização", () => {
+    const markup = renderToStaticMarkup(
+      <SafeMarkdown
+        content={
+          '<script>alert(1)</script>\n\n<img src="x" onerror="alert(2)">\n\n[ruim](javascript:alert(3))'
+        }
+      />,
+    );
+
+    expect(markup).not.toContain("<script");
+    expect(markup).not.toContain("onerror");
+    expect(markup).not.toContain("javascript:");
+  });
+
   it("localiza ações do Markdown quando o perfil está em inglês", async () => {
     await i18next.changeLanguage("en");
     const markup = renderToStaticMarkup(

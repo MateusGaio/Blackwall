@@ -149,14 +149,10 @@ function cleanText(value: string, maxLength: number, field: string, allowEmpty =
 }
 
 function cleanBody(value: string) {
-  const sanitized = value
-    .replace(
-      /<\/?(?:script|iframe|object|embed|style)(?:\s[^>]*)?>[\s\S]*?<\/?(?:script|iframe|object|embed|style)\s*>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(\]\(\s*)(?:javascript|vbscript|data):[^)]*(\))/gi, "$1#blocked$2");
-  return cleanText(sanitized, MAX_BODY_LENGTH, "body", true);
+  // O Markdown é persistido fielmente para interoperar com o Obsidian.
+  // Conteúdo ativo é bloqueado no único limite de renderização da UI,
+  // SafeMarkdown, por ReactMarkdown + rehype-sanitize.
+  return cleanText(value, MAX_BODY_LENGTH, "body", true);
 }
 
 function noteType(value: unknown, fallback: VaultNoteType): VaultNoteType {

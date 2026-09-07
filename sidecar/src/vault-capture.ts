@@ -64,16 +64,6 @@ function cleanText(value: string, maxLength: number, field: string) {
   return cleaned;
 }
 
-function sanitizeMarkdown(value: string) {
-  return value
-    .replace(
-      /<\/?(?:script|iframe|object|embed|style)(?:\s[^>]*)?>[\s\S]*?<\/?(?:script|iframe|object|embed|style)\s*>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(\]\(\s*)(?:javascript|vbscript|data):[^)]*(\))/gi, "$1#blocked$2");
-}
-
 function safeReference(value: string, field: string) {
   return cleanText(value, 512, field).replace(/\r?\n/g, " ");
 }
@@ -173,7 +163,7 @@ async function atomicCreate(root: string, requestedPath: string, content: string
 
 export async function createVaultNote(input: CaptureInput): Promise<VaultNoteResult> {
   const title = cleanText(input.title, 240, "title");
-  const body = sanitizeMarkdown(cleanText(input.body, 500_000, "body"));
+  const body = cleanText(input.body, 500_000, "body");
   if (!body.trim()) throw new VaultCaptureError("invalid_vault_note", "body não pode ficar vazio.");
   const files = (await scanVault(input.workspaceRoot, { includeArchived: true })).files;
   const belongsTo = input.belongsTo ? resolveReference(files, input.belongsTo, "belongsTo") : null;
