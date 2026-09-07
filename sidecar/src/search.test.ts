@@ -11,7 +11,7 @@ import { syncDatafortAttachmentIndex } from "./datafort-attachments.js";
 import { openDatabase } from "./db/database.js";
 import { createStore } from "./db/store.js";
 import type { FetchLike } from "./embeddings.js";
-import { fuseRankedSearchLists, searchWorkspace } from "./search.js";
+import { fuseRankedSearchLists, searchWorkspace, validateWorkspaceReferences } from "./search.js";
 import { chunkVaultObject, VaultEmbeddingService } from "./vault-embeddings.js";
 import { rebuildVaultIndex, syncVaultIndexChanges } from "./vault-index.js";
 
@@ -227,5 +227,27 @@ describe("busca híbrida e citações", () => {
     expect(chunkVaultObject("Nota", "x".repeat(4_000))).toEqual(
       chunkVaultObject("Nota", "x".repeat(4_000)),
     );
+  });
+
+  it("marca como stale uma referência cujo hash deixou de ser atual", async () => {
+    const { database, root, runtime, workspaceId } = await fixture();
+    const notePath = join(root, "referencia.md");
+    await writeFile(notePath, "# Referência\n\nmarcador antigo", "utf8");
+    await rebuildVaultIndex(database.client, { rootPath: root, workspaceId });
+    const first = await searchWorkspace(database.client, runtime, workspaceId, "marcador", 10);
+    const reference = first.results[0]?.citation;
+    expect(reference?.source).toBe("vault");
+
+    await writeFile(notePath, "# Referência\n\nmarcador novo", "utf8");
+    await syncVaultIndexChanges(database.client, {
+      paths: ["referencia.md"],
+      rootPath: root,
+      workspaceId,
+    });
+    expect(validateWorkspaceReferences(database.client, workspaceId, [reference])).toEqual({
+      current: [],
+      stale: 1,
+      total: 1,
+    });
   });
 });

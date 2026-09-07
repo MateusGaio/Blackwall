@@ -376,6 +376,36 @@ export type VaultTemplateApplyResult = {
   templateId: string;
 };
 
+export const e2eScenarios = [
+  "default",
+  "invalid_paths",
+  "pending_mutation",
+  "hybrid_search",
+  "search_turn_limit",
+  "mcp",
+  "memory",
+  "memory_fail_once",
+  "pdf_citation",
+  "citation_review",
+  "embedding_unavailable",
+] as const;
+
+export type E2EScenario = (typeof e2eScenarios)[number];
+
+export type E2EState = {
+  embeddingAttempts: number;
+  memoryAttempts: number;
+  mcpReads: number;
+  mcpWrites: number;
+  scenario: E2EScenario;
+};
+
+export type E2EMcpResult = {
+  counters: { reads: number; writes: number };
+  marker: string;
+  operation: "read_marker" | "write_marker";
+};
+
 export class SidecarApiError extends Error {
   constructor(
     message: string,
@@ -490,6 +520,12 @@ export type WorkspaceSearchResponse = {
   mode: "hybrid" | "lexical";
   results: Array<{ citation: WorkspaceSearchCitation }>;
   semanticUnavailable?: string;
+};
+
+export type VaultReferenceValidationResult = {
+  current: WorkspaceSearchCitation[];
+  stale: number;
+  total: number;
 };
 
 export type WorkspaceTreeEntry = {
@@ -747,6 +783,26 @@ export async function setSessionModel(
 
 export async function getAppState(): Promise<AppState> {
   return request("/v1/state", { method: "GET" });
+}
+
+export async function getE2EState(): Promise<E2EState> {
+  return request<E2EState>("/__e2e/state", { method: "GET" });
+}
+
+export async function setE2EState(scenario: E2EScenario): Promise<E2EState> {
+  return request<E2EState>("/__e2e/state", {
+    body: JSON.stringify({ scenario }),
+    headers: { "content-type": "application/json" },
+    method: "PUT",
+  });
+}
+
+export async function callE2EMcp(operation: E2EMcpResult["operation"]): Promise<E2EMcpResult> {
+  return request<E2EMcpResult>("/__e2e/mcp", {
+    body: JSON.stringify({ operation }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
 }
 
 export async function selectProfile(profileId: string): Promise<AppState> {
@@ -1436,6 +1492,17 @@ export async function searchWorkspace(
 ): Promise<WorkspaceSearchResponse> {
   return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/search`, {
     body: JSON.stringify({ includeLifecycle: options.includeLifecycle === true, limit, query }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function validateVaultReferences(
+  workspaceId: string,
+  references: WorkspaceSearchCitation[],
+): Promise<VaultReferenceValidationResult> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/references/validate`, {
+    body: JSON.stringify({ references }),
     headers: { "content-type": "application/json" },
     method: "POST",
   });

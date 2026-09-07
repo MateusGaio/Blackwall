@@ -19,7 +19,7 @@ import { parseMarkdownObject } from "./vault-portent.js";
 
 const RRF_K = 60;
 
-type VaultCitation = {
+export type VaultCitation = {
   chunkIndex: number;
   contentHash: string;
   excerpt: string;
@@ -29,7 +29,7 @@ type VaultCitation = {
   title: string;
 };
 
-type AttachmentCitation = {
+export type AttachmentCitation = {
   attachmentId: string;
   chunkIndex: number;
   contentHash: string;
@@ -39,13 +39,43 @@ type AttachmentCitation = {
   source: "attachment";
 };
 
-type SearchCitation = VaultCitation | AttachmentCitation;
+export type SearchCitation = VaultCitation | AttachmentCitation;
 
 export type WorkspaceSearchResponse = {
   mode: "hybrid" | "lexical";
   results: Array<{ citation: SearchCitation }>;
   semanticUnavailable?: string;
 };
+
+export function validateWorkspaceReferences(
+  client: Database.Database,
+  workspaceId: string,
+  references: unknown[],
+) {
+  const current: SearchCitation[] = [];
+  let stale = 0;
+  for (const reference of references) {
+    if (!reference || typeof reference !== "object" || Array.isArray(reference)) {
+      stale += 1;
+      continue;
+    }
+    const raw = reference as Record<string, unknown>;
+    const candidate = {
+      ...raw,
+      text: raw.excerpt,
+      workspaceId,
+    } satisfies VectorCandidate;
+    const citation =
+      raw.source === "vault"
+        ? verifyVaultVector(client, workspaceId, candidate)
+        : raw.source === "attachment"
+          ? verifyAttachmentVector(client, workspaceId, candidate)
+          : null;
+    if (citation) current.push(citation);
+    else stale += 1;
+  }
+  return { current, stale, total: references.length };
+}
 
 type RankedCandidate = {
   citation: SearchCitation;
@@ -62,6 +92,7 @@ type VectorCandidate = {
   model?: unknown;
   objectId?: unknown;
   path?: unknown;
+  source?: unknown;
   text?: unknown;
   title?: unknown;
   vector?: unknown;

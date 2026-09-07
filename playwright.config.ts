@@ -32,6 +32,7 @@ export default defineConfig({
       BLACKWALL_SIDECAR_TOKEN: e2eSidecarToken,
       VITE_SIDECAR_TOKEN: e2eSidecarToken,
       VITE_SIDECAR_URL: "http://127.0.0.1:1423",
+      VITE_BLACKWALL_E2E: "1",
     },
     port: 1421,
     reuseExistingServer: false,

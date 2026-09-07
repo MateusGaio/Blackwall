@@ -35,6 +35,10 @@ const MemorySettingsSection = lazy(async () => {
   const module = await import("./MemorySettingsSection");
   return { default: module.MemorySettingsSection };
 });
+const QaControlsSection = lazy(async () => {
+  const module = await import("./QaControlsSection");
+  return { default: module.QaControlsSection };
+});
 
 type ProviderManagerProps = {
   activeSessionId?: string | null;
@@ -84,6 +88,10 @@ export function ProviderManager({
   const [isSaving, setIsSaving] = useState(false);
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
+  const qaEnabled = import.meta.env.VITE_BLACKWALL_E2E === "1";
+  const visibleSettingsSections: SettingsSection[] = qaEnabled
+    ? [...settingsSections, "qa"]
+    : settingsSections;
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
@@ -211,7 +219,9 @@ export function ProviderManager({
             ? t("settings.tabMemory")
             : section === "providers"
               ? t("settings.tabProviders")
-              : t("settings.tabMcp");
+              : section === "mcp"
+                ? t("settings.tabMcp")
+                : t("settings.tabQa");
 
   return (
     <>
@@ -247,7 +257,7 @@ export function ProviderManager({
             className="flex gap-1 overflow-x-auto pb-3"
             data-testid="settings-tabs"
           >
-            {settingsSections.map((value) => (
+            {visibleSettingsSections.map((value) => (
               <button
                 aria-current={section === value ? "page" : undefined}
                 className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs transition-colors duration-[120ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
@@ -381,6 +391,18 @@ export function ProviderManager({
           headingLabel={t("settings.confirmation")}
           title={`${t("settings.remove")} ${providerToRemove.name}?`}
         />
+      )}
+      {section === "qa" && qaEnabled && (
+        <Suspense
+          fallback={
+            <div className="grid gap-3" data-testid="qa-settings-skeleton">
+              <Skeleton className="h-7 w-48" />
+              <Skeleton className="h-44 rounded-[var(--radius-panel)]" />
+            </div>
+          }
+        >
+          <QaControlsSection />
+        </Suspense>
       )}
       {profileSettings.profileToDelete && (
         <ConfirmDialog

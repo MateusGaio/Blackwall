@@ -1,5 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { randomUUID } from "node:crypto";
+import { getE2EState } from "./e2e-controls.js";
 import { withAsyncInstrumentation } from "./observability.js";
 import {
   createProviderAdapter,
@@ -128,6 +129,29 @@ export function scriptedHarnessTurn(messages: StreamMessage[]): {
   toolCalls: ToolCall[];
 } | null {
   const request = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  if (
+    process.env.BLACKWALL_E2E_AGENT === "1" &&
+    getE2EState().scenario === "search_turn_limit" &&
+    request.includes("Busca o workspace selecionado")
+  ) {
+    const step = messages.filter((message) => message.role === "tool").length;
+    if (step < 4) {
+      return {
+        content: "",
+        toolCalls: [
+          {
+            arguments: JSON.stringify({ query: `blackwall-e2e-search-${step + 1}` }),
+            id: `e2e-search-${step + 1}`,
+            name: "search_workspace",
+          },
+        ],
+      };
+    }
+    return {
+      content: "O limite determinístico de três buscas novas por turno foi aplicado.",
+      toolCalls: [],
+    };
+  }
   if (!request.includes("Explore o workspace selecionado")) return null;
   const results = messages.filter((message) => message.role === "tool");
   const step = results.length;
@@ -189,7 +213,9 @@ export function isRetryableProviderError(error: unknown): boolean {
   if (
     error &&
     typeof error === "object" &&
-    (error as { code?: unknown }).code === "STREAM_INCOMPLETE"
+    ["STREAM_INCOMPLETE", "memory_provider_error"].includes(
+      String((error as { code?: unknown }).code ?? ""),
+    )
   )
     return true;
   return error instanceof TypeError || (error instanceof Error && error.name === "AbortError");
