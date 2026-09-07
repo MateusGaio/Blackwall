@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { removeAttachment, saveAttachment, searchAttachments } from "./attachments.js";
+import {
+  listAttachments,
+  removeAttachment,
+  saveAttachment,
+  searchAttachments,
+} from "./attachments.js";
 import { openDatabase } from "./db/database.js";
 import { createStore } from "./db/store.js";
 
@@ -27,6 +32,23 @@ describe("indexador local de anexos", () => {
     await expect(
       saveAttachment({ contentBase64: oversized, filename: "large.txt", workspaceId: "workspace" }),
     ).rejects.toThrow("O anexo excede o limite local de 10 MB.");
+  });
+
+  it("recusa nomes que tentam atravessar a fronteira do arquivo", async () => {
+    await expect(
+      saveAttachment({
+        contentBase64: Buffer.from("unsafe").toString("base64"),
+        filename: "../outside.txt",
+        workspaceId: "workspace",
+      }),
+    ).rejects.toThrow("nome de arquivo relativo e seguro");
+    await expect(
+      saveAttachment({
+        contentBase64: Buffer.from("unsafe").toString("base64"),
+        filename: "folder\\outside.txt",
+        workspaceId: "workspace",
+      }),
+    ).rejects.toThrow("nome de arquivo relativo e seguro");
   });
 
   it("salva, pesquisa após reabrir o banco e remove um anexo", async () => {
@@ -54,7 +76,12 @@ describe("indexador local de anexos", () => {
       soul: "Other workspace",
     });
     const otherSession = store.createSession({ workspaceId: otherWorkspace.id });
+    const secondSession = store.createSession({ workspaceId: state.activeWorkspaceId });
     database.close();
+
+    await expect(
+      listAttachments(state.activeWorkspaceId as string, secondSession.id, directory),
+    ).resolves.toEqual([]);
 
     const input = Buffer.from("Blackwall indexa contexto local com SQLite FTS5.").toString(
       "base64",
@@ -88,6 +115,14 @@ describe("indexador local de anexos", () => {
       "notas.md",
     );
     await expect(readFile(storedPath, "utf8")).resolves.toContain("SQLite FTS5");
+    await expect(
+      removeAttachment(
+        saved.id,
+        { sessionId: otherSession.id, workspaceId: otherWorkspace.id },
+        directory,
+      ),
+    ).rejects.toThrow("O anexo selecionado não existe.");
+    await expect(readFile(storedPath, "utf8")).resolves.toContain("SQLite FTS5");
 
     const matches = await searchAttachments(state.activeWorkspaceId as string, "SQLite", directory);
     expect(matches).toEqual([
@@ -97,7 +132,11 @@ describe("indexador local de anexos", () => {
       }),
     ]);
 
-    await removeAttachment(saved.id, directory);
+    await removeAttachment(
+      saved.id,
+      { sessionId: state.activeSessionId, workspaceId: state.activeWorkspaceId as string },
+      directory,
+    );
     await expect(readFile(storedPath)).rejects.toThrow();
     await expect(
       searchAttachments(state.activeWorkspaceId as string, "SQLite", directory),

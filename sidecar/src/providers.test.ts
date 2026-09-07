@@ -13,6 +13,7 @@ import {
   OpenAICompatibleProvider,
   type ProviderConnectionError,
   ProviderHttpError,
+  ProviderInputError,
   providerApiKey,
   reconcileProviderDuplicates,
   removeProvider,
@@ -60,7 +61,33 @@ describe("providers", () => {
 
   it("recusa endpoints remotos sem HTTPS", () => {
     expect(() => normalizeBaseUrl("http://example.com/v1")).toThrow("HTTPS");
+    expect(() => normalizeBaseUrl("não é uma URL")).toThrowError(ProviderInputError);
     expect(normalizeBaseUrl("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
+  });
+
+  it("usa um catálogo determinístico no modo E2E sem chamar endpoint externo", async () => {
+    vi.stubEnv("BLACKWALL_E2E_MOCK", "1");
+    const request = vi.fn(() =>
+      Promise.reject(new Error("não deveria chamar a rede")),
+    ) as unknown as typeof fetch;
+    try {
+      await expect(
+        listProviderModels(
+          {
+            apiKey: "test-key",
+            baseUrl: "https://mock.invalid/v1",
+            model: "mock-model",
+            name: "Mock provider",
+          },
+          request,
+        ),
+      ).resolves.toEqual([
+        { capabilities: [], contextLimit: 32_000, id: "mock-model", name: "mock-model" },
+      ]);
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("valida a conexão sem exigir modelo padrão", async () => {

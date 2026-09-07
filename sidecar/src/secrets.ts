@@ -80,6 +80,10 @@ export async function decryptSecret(dataDirectory: string, name: string): Promis
   return value;
 }
 
+export async function hasSecret(dataDirectory: string, name: string): Promise<boolean> {
+  return Boolean((await readSecrets(dataDirectory))[name]);
+}
+
 export async function removeSecret(dataDirectory: string, name: string): Promise<void> {
   const secrets = await readSecrets(dataDirectory);
   if (!(name in secrets)) return;

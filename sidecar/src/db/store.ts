@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { sourceRevisionHash } from "../memory-policy.js";
+import { invalidateMemorySource } from "../memory-store.js";
 import type { ToolCall } from "../tool-contract.js";
 import { type DatabaseHandle, dataDirectory } from "./database.js";
 import { appSettings, messages, profiles, sessions, workspaces } from "./schema.js";
@@ -473,6 +475,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
     if (message?.role !== "user") {
       throw new Error("A mensagem selecionada não pode ser editada.");
     }
+    const oldSourceHash = sourceRevisionHash(message.id, message.content);
     const transaction = database.client.transaction(() => {
       database.client
         .prepare("DELETE FROM messages WHERE session_id = ? AND sequence > ?")
@@ -489,6 +492,7 @@ export function createStore(database: DatabaseHandle, storageDirectory = dataDir
         .run();
     });
     transaction();
+    invalidateMemorySource(database.client, message.id, oldSourceHash);
     return listMessages(sessionId);
   }
 

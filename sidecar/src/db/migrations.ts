@@ -592,4 +592,400 @@ export function applyMigrations(client: Database.Database) {
     });
     transaction();
   }
+
+  const vaultSourceContent = client.prepare("SELECT id FROM _migrations WHERE id = 15").get();
+  if (!vaultSourceContent) {
+    const transaction = client.transaction(() => {
+      const columns = new Set(
+        (client.prepare("PRAGMA table_info(vault_objects)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+      if (!columns.has("source_content")) {
+        client.exec("ALTER TABLE vault_objects ADD COLUMN source_content TEXT NOT NULL DEFAULT ''");
+      }
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(15, Date.now());
+    });
+    transaction();
+  }
+
+  const workspaceEmbeddingConfigs = client
+    .prepare("SELECT id FROM _migrations WHERE id = 16")
+    .get();
+  if (!workspaceEmbeddingConfigs) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_embedding_configs (
+          workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          provider_kind TEXT NOT NULL,
+          url TEXT NOT NULL,
+          model TEXT NOT NULL,
+          dimension INTEGER,
+          state TEXT NOT NULL DEFAULT 'stale',
+          error_code TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(16, Date.now());
+    });
+    transaction();
+  }
+
+  const workspaceEmbeddingStates = client.prepare("SELECT id FROM _migrations WHERE id = 17").get();
+  if (!workspaceEmbeddingStates) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_embedding_states (
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          source TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'unconfigured',
+          error_code TEXT,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (workspace_id, source),
+          CHECK (source IN ('vault', 'attachment'))
+        );
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(17, Date.now());
+    });
+    transaction();
+  }
+
+  const sessionArtifacts = client.prepare("SELECT id FROM _migrations WHERE id = 18").get();
+  if (!sessionArtifacts) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS session_artifacts (
+          id TEXT PRIMARY KEY NOT NULL,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          first_seen_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          UNIQUE(session_id, workspace_id, path),
+          CHECK (operation IN ('created', 'modified', 'deleted'))
+        );
+        CREATE INDEX IF NOT EXISTS session_artifacts_workspace_session_seen
+          ON session_artifacts(workspace_id, session_id, last_seen_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(18, Date.now());
+    });
+    transaction();
+  }
+
+  const mcpClient = client.prepare("SELECT id FROM _migrations WHERE id = 19").get();
+  if (!mcpClient) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          transport TEXT NOT NULL CHECK (transport IN ('stdio', 'streamable-http')),
+          enabled INTEGER NOT NULL DEFAULT 0,
+          config_json TEXT NOT NULL,
+          share_workspace_root INTEGER NOT NULL DEFAULT 0,
+          allow_private_network INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL DEFAULT 'disabled',
+          error_code TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, slug)
+        );
+        CREATE TABLE IF NOT EXISTS mcp_server_secrets (
+          id TEXT PRIMARY KEY NOT NULL,
+          server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('bearer', 'env')),
+          name TEXT NOT NULL DEFAULT '',
+          secret_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(server_id, kind, name)
+        );
+        CREATE TABLE IF NOT EXISTS mcp_tools (
+          id TEXT PRIMARY KEY NOT NULL,
+          server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+          remote_name TEXT NOT NULL,
+          public_name TEXT NOT NULL UNIQUE,
+          description TEXT NOT NULL DEFAULT '',
+          input_schema TEXT NOT NULL DEFAULT '{}',
+          enabled INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL DEFAULT 'ready',
+          error_code TEXT,
+          discovered_at INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(server_id, remote_name)
+        );
+        CREATE INDEX IF NOT EXISTS mcp_servers_workspace_updated
+          ON mcp_servers(workspace_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS mcp_tools_server_enabled
+          ON mcp_tools(server_id, enabled);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(19, Date.now());
+    });
+    transaction();
+  }
+
+  const mcpExport = client.prepare("SELECT id FROM _migrations WHERE id = 20").get();
+  if (!mcpExport) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS mcp_exports (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL UNIQUE REFERENCES workspaces(id) ON DELETE CASCADE,
+          enabled INTEGER NOT NULL DEFAULT 0,
+          last_used_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS mcp_export_tools (
+          export_id TEXT NOT NULL REFERENCES mcp_exports(id) ON DELETE CASCADE,
+          tool_name TEXT NOT NULL CHECK (tool_name = 'search_workspace'),
+          enabled INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (export_id, tool_name)
+        );
+        CREATE TABLE IF NOT EXISTS mcp_export_calls (
+          id TEXT PRIMARY KEY NOT NULL,
+          export_id TEXT NOT NULL REFERENCES mcp_exports(id) ON DELETE CASCADE,
+          tool_name TEXT NOT NULL CHECK (tool_name = 'search_workspace'),
+          outcome TEXT NOT NULL CHECK (outcome IN ('success', 'error', 'timeout', 'rate_limited')),
+          error_code TEXT,
+          duration_ms INTEGER NOT NULL,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS mcp_export_calls_export_created
+          ON mcp_export_calls(export_id, created_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(20, Date.now());
+    });
+    transaction();
+  }
+
+  const vaultWriteJournal = client.prepare("SELECT id FROM _migrations WHERE id = 21").get();
+  if (!vaultWriteJournal) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS vault_write_operations (
+          operation_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          portent_id TEXT,
+          path TEXT NOT NULL,
+          operation TEXT NOT NULL CHECK (operation IN ('create', 'update', 'archive', 'restore', 'delete')),
+          expected_hash TEXT,
+          result_hash TEXT,
+          temporary_path TEXT,
+          state TEXT NOT NULL CHECK (state IN ('prepared', 'committed', 'aborted', 'conflict')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS vault_write_operations_workspace_state
+          ON vault_write_operations(workspace_id, state, created_at);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(21, Date.now());
+    });
+    transaction();
+  }
+
+  const memoryV2 = client.prepare("SELECT id FROM _migrations WHERE id = 22").get();
+  if (!memoryV2) {
+    const transaction = client.transaction(() => {
+      const columns = (table: string) =>
+        new Set(
+          (client.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+            (column) => column.name,
+          ),
+        );
+      const addColumn = (table: string, name: string, definition: string) => {
+        if (!columns(table).has(name))
+          client.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      };
+
+      addColumn("memory_capture_jobs", "source_provider_id", "TEXT");
+      addColumn("memory_capture_jobs", "source_model_id", "TEXT");
+      addColumn("memory_capture_jobs", "lease_token", "TEXT");
+      addColumn("memory_capture_jobs", "finished_at", "INTEGER");
+      addColumn("memory_capture_jobs", "scrubbed_at", "INTEGER");
+      addColumn("profile_memory_settings", "disclosure_version", "TEXT");
+      addColumn("profile_memory_settings", "disclosure_accepted_at", "INTEGER");
+      addColumn("profile_memory_settings", "paused_reason", "TEXT");
+      addColumn("profile_memories", "reason_code", "TEXT NOT NULL DEFAULT 'user_preference'");
+      addColumn("profile_memories", "revision_hash", "TEXT NOT NULL DEFAULT ''");
+      addColumn("provider_usage_events", "purpose", "TEXT NOT NULL DEFAULT 'chat'");
+
+      // v1 was only scaffolding. It must never become a paid retroactive job.
+      const now = Date.now();
+      client
+        .prepare(
+          `UPDATE memory_capture_jobs
+             SET status = CASE WHEN status IN ('pending', 'running') THEN 'cancelled' ELSE status END,
+                 cancel_reason = CASE WHEN status IN ('pending', 'running') THEN 'legacy_unimplemented' ELSE cancel_reason END,
+                 input_json = '{}', finished_at = ?, scrubbed_at = ?, updated_at = ?
+           WHERE pipeline_version = 'v1'`,
+        )
+        .run(now, now, now);
+      client
+        .prepare(
+          "UPDATE provider_usage_events SET purpose = 'chat' WHERE purpose IS NULL OR purpose = ''",
+        )
+        .run();
+      client
+        .prepare(
+          `INSERT OR IGNORE INTO profile_memory_settings
+             (profile_id, automatic_enabled, extractor_mode, max_daily_jobs,
+              candidate_retention_days, revision_retention_days, disclosure_version,
+              disclosure_accepted_at, paused_reason, created_at, updated_at)
+           SELECT id, 0, 'same_session_model', 100, 30, 90, NULL, NULL, NULL, ?, ?
+             FROM profiles`,
+        )
+        .run(now, now);
+      client.exec(`
+        CREATE INDEX IF NOT EXISTS memory_capture_jobs_profile_trigger_created
+          ON memory_capture_jobs(profile_id, trigger, created_at DESC);
+        CREATE INDEX IF NOT EXISTS memory_capture_jobs_status_available_priority
+          ON memory_capture_jobs(status, available_at, priority DESC, created_at);
+        CREATE INDEX IF NOT EXISTS profile_memories_profile_status_pinned_updated
+          ON profile_memories(profile_id, status, pinned DESC, updated_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(22, now);
+    });
+    transaction();
+  }
+
+  // 23 is intentionally additive. Migration 15 was used by two historical
+  // development lines: a database can therefore have the migration marker
+  // without the source_content column. Repair the schema by post-condition,
+  // without changing or replaying migration 15.
+  const datafortFoundation = client.prepare("SELECT id FROM _migrations WHERE id = 23").get();
+  if (!datafortFoundation) {
+    const transaction = client.transaction(() => {
+      const columns = new Set(
+        (client.prepare("PRAGMA table_info(vault_objects)").all() as Array<{ name: string }>).map(
+          (column) => column.name,
+        ),
+      );
+      if (!columns.has("source_content")) {
+        client.exec("ALTER TABLE vault_objects ADD COLUMN source_content TEXT NOT NULL DEFAULT ''");
+      }
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS datafort_settings (
+          workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          external_markdown_write_enabled INTEGER NOT NULL DEFAULT 0,
+          new_note_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Notes',
+          attachment_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Attachments',
+          template_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Templates',
+          daily_directory TEXT NOT NULL DEFAULT 'Blackwall Vault/Daily',
+          daily_template_path TEXT,
+          auto_update_links INTEGER NOT NULL DEFAULT 1,
+          explorer_scope TEXT NOT NULL DEFAULT 'knowledge',
+          layout_json TEXT NOT NULL DEFAULT '{}',
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS datafort_file_identities (
+          file_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          managed INTEGER NOT NULL DEFAULT 0,
+          portent_id TEXT,
+          last_seen_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, path)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS datafort_file_identities_workspace_portent
+          ON datafort_file_identities(workspace_id, portent_id) WHERE portent_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS datafort_file_identities_workspace_path
+          ON datafort_file_identities(workspace_id, path);
+        CREATE TABLE IF NOT EXISTS datafort_trash_entries (
+          entry_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          file_id TEXT NOT NULL,
+          original_path TEXT NOT NULL,
+          trash_path TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          managed INTEGER NOT NULL DEFAULT 0,
+          portent_id TEXT,
+          deleted_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS datafort_trash_entries_workspace_deleted
+          ON datafort_trash_entries(workspace_id, deleted_at DESC);
+        CREATE TABLE IF NOT EXISTS datafort_drafts (
+          file_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          content TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS datafort_write_journal (
+          operation_id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          operation TEXT NOT NULL,
+          source_path TEXT,
+          target_path TEXT,
+          expected_hash TEXT,
+          state TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS datafort_write_journal_workspace_state
+          ON datafort_write_journal(workspace_id, state, created_at);
+      `);
+      const now = Date.now();
+      client
+        .prepare(
+          `INSERT OR IGNORE INTO datafort_settings
+             (workspace_id, created_at, updated_at)
+           SELECT id, ?, ? FROM workspaces`,
+        )
+        .run(now, now);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(23, now);
+    });
+    transaction();
+  }
+
+  const datafortAttachmentIndex = client.prepare("SELECT id FROM _migrations WHERE id = 24").get();
+  if (!datafortAttachmentIndex) {
+    const transaction = client.transaction(() => {
+      client.exec(`
+        CREATE TABLE IF NOT EXISTS datafort_attachments (
+          id TEXT PRIMARY KEY NOT NULL,
+          workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+          path TEXT NOT NULL,
+          filename TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          sha256 TEXT NOT NULL,
+          byte_size INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(workspace_id, path)
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS datafort_attachments_fts USING fts5(
+          attachment_id UNINDEXED,
+          workspace_id UNINDEXED,
+          content,
+          tokenize = 'unicode61'
+        );
+        CREATE INDEX IF NOT EXISTS datafort_attachments_workspace_updated
+          ON datafort_attachments(workspace_id, updated_at DESC);
+      `);
+      client.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(24, Date.now());
+    });
+    transaction();
+  }
+}
+
+/** Startup invariant used before any Vault watcher or indexer is started. */
+export function assertVaultSchema(client: Database.Database) {
+  const columns = new Set(
+    (client.prepare("PRAGMA table_info(vault_objects)").all() as Array<{ name: string }>).map(
+      (column) => column.name,
+    ),
+  );
+  if (!columns.has("source_content")) {
+    throw new Error("Schema do Vault incompleto: vault_objects.source_content ausente.");
+  }
 }

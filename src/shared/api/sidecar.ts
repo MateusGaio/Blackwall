@@ -2,8 +2,9 @@
 import i18n from "i18next";
 import "../../i18n";
 import { sidecarConfig } from "../../platform/runtime";
+import { qaLatencyMs } from "../qa-controls";
 
-export type ToolCall = { arguments: string; id: string; name: WorkspaceToolName };
+export type ToolCall = { arguments: string; id: string; name: string };
 
 export type ConnectedProvider = {
   baseUrl: string;
@@ -59,6 +60,11 @@ export type UsageSummary = {
     requests: number;
     totalTokens: number;
   }>;
+  byPurpose: Array<{
+    purpose: "chat" | "compaction" | "memory_extract";
+    requests: number;
+    totalTokens: number;
+  }>;
 };
 
 export type Profile = {
@@ -67,6 +73,58 @@ export type Profile = {
   locale: string;
   name: string;
   soul: string;
+};
+
+export type MemorySettings = {
+  automaticEnabled: boolean;
+  candidateRetentionDays: number;
+  disclosureAcceptedAt: number | null;
+  disclosureVersion: string | null;
+  extractorMode: string;
+  maxDailyJobs: number;
+  pausedReason: string | null;
+  profileId: string;
+  revisionRetentionDays: number;
+};
+
+export type ProfileMemory = {
+  confidence: number;
+  createdAt: number;
+  evidenceCount: number;
+  id: string;
+  kind: string;
+  lastSeenAt: number;
+  pinned: boolean;
+  reasonCode: string;
+  revisionHash: string;
+  statement: string;
+  status: "organized" | "captured" | "archived";
+  updatedAt: number;
+};
+
+export type MemoryActivity = {
+  candidates: Array<{
+    body: string;
+    confidence: number;
+    disposition: string;
+    id: string;
+    jobId: string;
+    kind: string;
+    reasonCode: string;
+    scope: "profile" | "workspace" | "unassigned";
+    title: string;
+  }>;
+  jobs: Array<{
+    attempts: number;
+    createdAt: number;
+    errorCode: string | null;
+    finishedAt: number | null;
+    id: string;
+    status: string;
+    updatedAt: number;
+  }>;
+  limit: number;
+  offset: number;
 };
 
 export type Workspace = {
@@ -78,9 +136,86 @@ export type Workspace = {
   soul: string;
 };
 
+export type McpTransportKind = "stdio" | "streamable-http";
+
+export type McpServerConfig =
+  | { args: string[]; command: string; cwd: "isolated" | "workspace" }
+  | { url: string };
+
+export type McpTool = {
+  description: string;
+  discoveredAt: number;
+  enabled: boolean;
+  errorCode: string | null;
+  inputSchema: Record<string, unknown>;
+  publicName: string;
+  remoteName: string;
+  state: "ready" | "removed" | "unsupported";
+};
+
+export type McpServer = {
+  allowPrivateNetwork: boolean;
+  config: McpServerConfig;
+  enabled: boolean;
+  envNames: string[];
+  errorCode: string | null;
+  hasBearer: boolean;
+  id: string;
+  name: string;
+  shareWorkspaceRoot: boolean;
+  slug: string;
+  state: "disabled" | "disconnected" | "connecting" | "ready" | "error";
+  tools: McpTool[];
+  transport: McpTransportKind;
+  workspaceId: string;
+};
+
+export type McpServerInput = {
+  allowPrivateNetwork?: boolean;
+  /** Write-only. A resposta nunca ecoa este campo. */
+  bearer?: string | null;
+  config: McpServerConfig;
+  /** Valores são write-only; null remove uma variável configurada. */
+  environment?: Record<string, string | null>;
+  name: string;
+  shareWorkspaceRoot?: boolean;
+  transport: McpTransportKind;
+};
+
+export type McpExport = {
+  enabled: boolean;
+  endpointPath: string | null;
+  hasToken: boolean;
+  id: string | null;
+  lastUsedAt: number | null;
+  tools: Array<{ enabled: boolean; name: "search_workspace" }>;
+  workspaceId: string;
+};
+
+export type McpExportCall = {
+  createdAt: number;
+  durationMs: number;
+  errorCode: string | null;
+  outcome: "success" | "error" | "timeout" | "rate_limited";
+  toolName: "search_workspace";
+};
+
 export type VaultFile = {
   content: string;
   headings: string[];
+  managed?: boolean;
+  object?: {
+    body?: string;
+    createdAt?: string;
+    id?: string;
+    revisionId?: string;
+    source?: string;
+    sourceKind?: string;
+    status?: string;
+    title?: string;
+    type?: string;
+    updatedAt?: string;
+  };
   path: string;
   title: string;
 };
@@ -90,6 +225,199 @@ export type VaultGraph = {
   files: VaultFile[];
   nodes: Array<{ id: string; label: string; path: string }>;
 };
+
+export type VaultNoteType = "Project" | "Event" | "Note" | "Topic";
+export type VaultNoteStatus = "captured" | "organized" | "archived";
+
+export type VaultNoteRelationTarget = {
+  path: string;
+  portentId: string;
+  title: string;
+};
+
+export type VaultNoteSummary = {
+  contentHash: string;
+  createdAt?: string;
+  diagnosticCount: number;
+  managed: true;
+  path: string;
+  portentId: string;
+  revisionId?: string;
+  source: "blackwall";
+  sourceKind?: string;
+  status: VaultNoteStatus;
+  title: string;
+  type: VaultNoteType;
+  updatedAt?: string;
+};
+
+export type VaultNoteDetail = VaultNoteSummary & {
+  belongsTo: VaultNoteRelationTarget | null;
+  body: string;
+  relatedTo: VaultNoteRelationTarget[];
+};
+
+export type VaultNoteCreateInput = {
+  belongsTo: string | null;
+  body: string;
+  relatedTo: string[];
+  status: VaultNoteStatus;
+  title: string;
+  type: VaultNoteType;
+};
+
+export type VaultNotePatchInput = Partial<Omit<VaultNoteCreateInput, "belongsTo">> & {
+  belongsTo?: string | null;
+  expectedHash: string;
+};
+
+export type VaultNoteListResponse = {
+  notes: VaultNoteSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type VaultDiagnostic = {
+  code: string;
+  message: string;
+  path: string;
+  target?: string;
+};
+
+export type VaultDiagnosticPage = {
+  diagnostics: VaultDiagnostic[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type DatafortSettings = {
+  autoUpdateLinks: boolean;
+  attachmentDirectory: string;
+  dailyDirectory: string;
+  dailyTemplatePath: string | null;
+  explorerScope: "knowledge" | "all";
+  externalMarkdownWriteEnabled: boolean;
+  layout: Record<string, unknown>;
+  newNoteDirectory: string;
+  templateDirectory: string;
+};
+
+export type DatafortTreeEntry = {
+  fileId?: string;
+  kind: "directory" | "file" | "attachment";
+  managed: boolean;
+  name: string;
+  path: string;
+  size?: number;
+  writable: boolean;
+};
+
+export type DatafortTree = {
+  entries: DatafortTreeEntry[];
+  limited: boolean;
+  settings: DatafortSettings;
+};
+
+export type DatafortDocument = {
+  content: string;
+  contentHash: string;
+  fileId: string;
+  managed: boolean;
+  mtime: number;
+  path: string;
+  portentId?: string;
+  writable: boolean;
+};
+
+export type DatafortTrashEntry = {
+  contentHash: string;
+  deletedAt: number;
+  entryId: string;
+  fileId: string;
+  managed: boolean;
+  originalPath: string;
+  portentId?: string;
+};
+
+export type DatafortAttachment = {
+  byteSize: number;
+  contentHash: string;
+  fileId: string;
+  filename: string;
+  kind: "attachment";
+  mimeType: string;
+  path: string;
+};
+
+export type VaultTemplateSummary = {
+  id: string;
+  name: string;
+  path: string;
+  status: string;
+  type: string;
+};
+
+export type VaultTemplateCreateInput = {
+  body: string;
+  name: string;
+  status?: string;
+  type: string;
+};
+
+export type VaultTemplateApplyInput = {
+  title: string;
+};
+
+export type VaultTemplateApplyResult = {
+  content: string;
+  contentHash: string;
+  note: { id: string; path: string; title: string; type: string };
+  templateId: string;
+};
+
+export const e2eScenarios = [
+  "default",
+  "invalid_paths",
+  "pending_mutation",
+  "hybrid_search",
+  "search_turn_limit",
+  "mcp",
+  "memory",
+  "memory_fail_once",
+  "pdf_citation",
+  "citation_review",
+  "embedding_unavailable",
+] as const;
+
+export type E2EScenario = (typeof e2eScenarios)[number];
+
+export type E2EState = {
+  embeddingAttempts: number;
+  memoryAttempts: number;
+  mcpReads: number;
+  mcpWrites: number;
+  scenario: E2EScenario;
+};
+
+export type E2EMcpResult = {
+  counters: { reads: number; writes: number };
+  marker: string;
+  operation: "read_marker" | "write_marker";
+};
+
+export class SidecarApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly errorCode?: string,
+    readonly currentHash?: string,
+  ) {
+    super(message);
+    this.name = "SidecarApiError";
+  }
+}
 
 export type Session = {
   createdAt: number;
@@ -166,14 +494,77 @@ export type WorkspaceToolName =
   | "execute_command"
   | "list_directory"
   | "read_file"
-  | "search_text";
+  | "search_text"
+  | "search_workspace";
+
+export type WorkspaceSearchCitation =
+  | {
+      chunkIndex: number;
+      contentHash: string;
+      excerpt: string;
+      objectId: string;
+      path: string;
+      source: "vault";
+      title: string;
+    }
+  | {
+      attachmentId: string;
+      chunkIndex: number;
+      contentHash: string;
+      excerpt: string;
+      filename: string;
+      path?: string;
+      source: "attachment";
+    };
+
+export type WorkspaceSearchResponse = {
+  mode: "hybrid" | "lexical";
+  results: Array<{ citation: WorkspaceSearchCitation }>;
+  semanticUnavailable?: string;
+};
+
+export type VaultReferenceValidationResult = {
+  current: WorkspaceSearchCitation[];
+  stale: number;
+  total: number;
+};
+
+export type WorkspaceTreeEntry = {
+  kind: "directory" | "file";
+  name: string;
+  path: string;
+  size: number | null;
+};
+
+export type WorkspaceFileTree = {
+  entries: WorkspaceTreeEntry[];
+  limited: boolean;
+  path: string;
+};
+
+export type WorkspaceFilePreview = {
+  content: string;
+  kind: "code" | "markdown" | "text";
+  path: string;
+  size: number;
+};
+
+export type SessionArtifact = {
+  firstSeenAt: number;
+  lastSeenAt: number;
+  operation: "created" | "modified" | "deleted";
+  path: string;
+};
 
 export type WorkspaceToolApproval = {
   args: Record<string, unknown>;
   id: string;
+  remoteName?: string;
   requestId: string;
+  serverId?: string;
+  serverName?: string;
   sessionId: string | null;
-  tool: WorkspaceToolName;
+  tool: string;
   workspaceId: string;
 };
 
@@ -203,14 +594,54 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
   if (config.sidecar_token) headers.set("authorization", `Bearer ${config.sidecar_token}`);
   let response: Response;
+  const latency = qaLatencyMs(path.includes("/reindex") ? "indexing" : "loading");
+  if (latency) await new Promise((resolve) => window.setTimeout(resolve, latency));
   try {
     response = await fetch(`${baseUrl}${path}`, { ...init, headers });
   } catch {
     throw new Error(i18n.t("errors.sidecarUnreachable"));
   }
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? i18n.t("errors.localActionFailed"));
+  const body = (await response.json()) as T & {
+    currentHash?: string;
+    error?: string;
+    errorCode?: string;
+  };
+  if (!response.ok)
+    throw new SidecarApiError(
+      body.error ?? i18n.t("errors.localActionFailed"),
+      response.status,
+      body.errorCode,
+      body.currentHash,
+    );
   return body;
+}
+
+async function requestBytes(
+  path: string,
+  init: RequestInit,
+): Promise<{ bytes: Uint8Array; response: Response }> {
+  const config = await sidecarConfig();
+  const baseUrl = config.sidecar_url;
+  if (!baseUrl) throw new Error(i18n.t("errors.sidecarDesktopOnly"));
+  const headers = new Headers(init.headers);
+  if (config.sidecar_token) headers.set("authorization", `Bearer ${config.sidecar_token}`);
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  } catch {
+    throw new Error(i18n.t("errors.sidecarUnreachable"));
+  }
+  if (!response.ok) {
+    let message = i18n.t("errors.localActionFailed");
+    try {
+      const body = (await response.json()) as { error?: string };
+      message = body.error ?? message;
+    } catch {
+      // Respostas binárias com erro não têm corpo JSON obrigatório.
+    }
+    throw new Error(message);
+  }
+  return { bytes: new Uint8Array(await response.arrayBuffer()), response };
 }
 
 export async function connectProvider(input: ProviderInput): Promise<ConnectedProvider> {
@@ -357,6 +788,26 @@ export async function getAppState(): Promise<AppState> {
   return request("/v1/state", { method: "GET" });
 }
 
+export async function getE2EState(): Promise<E2EState> {
+  return request<E2EState>("/__e2e/state", { method: "GET" });
+}
+
+export async function setE2EState(scenario: E2EScenario): Promise<E2EState> {
+  return request<E2EState>("/__e2e/state", {
+    body: JSON.stringify({ scenario }),
+    headers: { "content-type": "application/json" },
+    method: "PUT",
+  });
+}
+
+export async function callE2EMcp(operation: E2EMcpResult["operation"]): Promise<E2EMcpResult> {
+  return request<E2EMcpResult>("/__e2e/mcp", {
+    body: JSON.stringify({ operation }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
 export async function selectProfile(profileId: string): Promise<AppState> {
   return request("/v1/profile/select", {
     body: JSON.stringify({ profileId }),
@@ -390,6 +841,111 @@ export async function updateProfile(
     method: "PATCH",
   });
   return response.profile;
+}
+
+export async function getMemorySettings(profileId: string): Promise<MemorySettings> {
+  const response = await request<{ settings: MemorySettings }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/settings`,
+    { method: "GET" },
+  );
+  return response.settings;
+}
+
+export async function updateMemorySettings(
+  profileId: string,
+  input: {
+    acceptDisclosure?: boolean;
+    automaticEnabled: boolean;
+    disclosureVersion?: string;
+    maxDailyJobs?: number;
+  },
+): Promise<MemorySettings> {
+  const response = await request<{ settings: MemorySettings }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/settings`,
+    { body: JSON.stringify(input), headers: { "content-type": "application/json" }, method: "PUT" },
+  );
+  return response.settings;
+}
+
+export async function listProfileMemories(
+  profileId: string,
+  status?: string,
+): Promise<{ items: ProfileMemory[]; total: number }> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const response = await request<{ memories: { items: ProfileMemory[]; total: number } }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memories${query}`,
+    { method: "GET" },
+  );
+  return response.memories;
+}
+
+export async function updateProfileMemory(
+  profileId: string,
+  memoryId: string,
+  input: {
+    expectedHash: string;
+    pinned?: boolean;
+    statement?: string;
+    status?: ProfileMemory["status"];
+  },
+): Promise<ProfileMemory> {
+  const response = await request<{ memory: ProfileMemory }>(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memories/${encodeURIComponent(memoryId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return response.memory;
+}
+
+export async function deleteProfileMemory(
+  profileId: string,
+  memoryId: string,
+  expectedHash: string,
+): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memories/${encodeURIComponent(memoryId)}`,
+    {
+      body: JSON.stringify({ confirm: true, expectedHash }),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function getMemoryActivity(profileId: string): Promise<MemoryActivity> {
+  return request<MemoryActivity>(`/v1/profiles/${encodeURIComponent(profileId)}/memory/activity`, {
+    method: "GET",
+  });
+}
+
+export async function retryMemoryJob(profileId: string, jobId: string): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/jobs/${encodeURIComponent(jobId)}/retry`,
+    { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+  );
+}
+
+export async function approveMemoryCandidate(
+  profileId: string,
+  candidateId: string,
+): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/candidates/${encodeURIComponent(candidateId)}/approve`,
+    { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+  );
+}
+
+export async function discardMemoryCandidate(
+  profileId: string,
+  candidateId: string,
+): Promise<void> {
+  await request(
+    `/v1/profiles/${encodeURIComponent(profileId)}/memory/candidates/${encodeURIComponent(candidateId)}/discard`,
+    { body: "{}", headers: { "content-type": "application/json" }, method: "POST" },
+  );
 }
 
 export async function deleteProfile(profileId: string): Promise<AppState> {
@@ -456,6 +1012,141 @@ export async function setWorkspaceSoul(workspaceId: string, soul: string): Promi
   return response.workspace;
 }
 
+export async function listMcpServers(workspaceId: string): Promise<McpServer[]> {
+  const response = await request<{ servers: McpServer[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers`,
+    { method: "GET" },
+  );
+  return response.servers;
+}
+
+export async function createMcpServer(
+  workspaceId: string,
+  input: McpServerInput,
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.server;
+}
+
+export async function updateMcpServer(
+  workspaceId: string,
+  serverId: string,
+  input: McpServerInput | { enabled: boolean },
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.server;
+}
+
+export async function deleteMcpServer(workspaceId: string, serverId: string): Promise<void> {
+  await request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function testMcpServer(workspaceId: string, serverId: string): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/test`,
+    {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.server;
+}
+
+export async function setMcpServerTools(
+  workspaceId: string,
+  serverId: string,
+  enabled: string[],
+): Promise<McpServer> {
+  const response = await request<{ server: McpServer }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/tools`,
+    {
+      body: JSON.stringify({ enabled }),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.server;
+}
+
+export async function disconnectMcpServer(workspaceId: string, serverId: string): Promise<void> {
+  await request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/servers/${encodeURIComponent(serverId)}/disconnect`,
+    {
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function getMcpExport(workspaceId: string): Promise<McpExport> {
+  const response = await request<{ export: McpExport }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`,
+    { method: "GET" },
+  );
+  return response.export;
+}
+
+export async function updateMcpExport(
+  workspaceId: string,
+  input: { enabled?: boolean; tools?: Array<"search_workspace"> },
+): Promise<McpExport> {
+  const response = await request<{ export: McpExport }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+    },
+  );
+  return response.export;
+}
+
+export async function rotateMcpExportToken(
+  workspaceId: string,
+): Promise<{ export: McpExport; token: string }> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export/token/rotate`, {
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function listMcpExportCalls(workspaceId: string): Promise<McpExportCall[]> {
+  const response = await request<{ calls: McpExportCall[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export/calls`,
+    { method: "GET" },
+  );
+  return response.calls;
+}
+
+export async function deleteMcpExport(workspaceId: string): Promise<void> {
+  await request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/mcp/export`, {
+    method: "DELETE",
+  });
+}
+
+export async function mcpEndpointUrl(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  const config = await sidecarConfig();
+  return config.sidecar_url ? `${config.sidecar_url}${path}` : null;
+}
+
 export async function selectSession(sessionId: string): Promise<AppState> {
   return request(`/v1/sessions/${sessionId}/select`, {
     headers: { "content-type": "application/json" },
@@ -471,7 +1162,403 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 }
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
-  return request(`/v1/workspaces/${workspaceId}/vault`, { method: "GET" });
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault`, { method: "GET" });
+}
+
+export async function listVaultTemplates(workspaceId: string): Promise<VaultTemplateSummary[]> {
+  const response = await request<{ templates: VaultTemplateSummary[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/templates`,
+    { method: "GET" },
+  );
+  return response.templates;
+}
+
+export async function createVaultTemplate(
+  workspaceId: string,
+  input: VaultTemplateCreateInput,
+): Promise<VaultTemplateSummary> {
+  const response = await request<{ template: VaultTemplateSummary }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/templates`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.template;
+}
+
+export async function applyVaultTemplate(
+  workspaceId: string,
+  templateId: string,
+  input: VaultTemplateApplyInput,
+): Promise<VaultTemplateApplyResult> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/templates/${encodeURIComponent(templateId)}/apply`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function getDatafortSettings(workspaceId: string): Promise<DatafortSettings> {
+  const response = await request<{ settings: DatafortSettings }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/settings`,
+    { method: "GET" },
+  );
+  return response.settings;
+}
+
+export async function patchDatafortSettings(
+  workspaceId: string,
+  input: Partial<Omit<DatafortSettings, "layout">> & { layout?: Record<string, unknown> },
+): Promise<DatafortSettings> {
+  const response = await request<{ settings: DatafortSettings }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/settings`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return response.settings;
+}
+
+export async function getDatafortTree(workspaceId: string): Promise<DatafortTree> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/tree`, {
+    method: "GET",
+  });
+}
+
+export async function listDatafortDocuments(
+  workspaceId: string,
+  path?: string,
+): Promise<DatafortDocument[]> {
+  const suffix = path ? `?path=${encodeURIComponent(path)}` : "";
+  const response = await request<{ documents: DatafortDocument[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/documents${suffix}`,
+    { method: "GET" },
+  );
+  return response.documents;
+}
+
+export async function createDatafortDocument(
+  workspaceId: string,
+  input: { content?: string; directory?: string; path?: string; title: string },
+): Promise<DatafortDocument> {
+  const response = await request<{ document: DatafortDocument }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/documents`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.document;
+}
+
+export async function updateDatafortDocument(
+  workspaceId: string,
+  input: { content: string; expectedHash: string; fileId: string; path: string },
+): Promise<DatafortDocument> {
+  const response = await request<{ document: DatafortDocument }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/documents`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+  return response.document;
+}
+
+export async function uploadDatafortAttachment(
+  file: File,
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<DatafortAttachment> {
+  const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+  const response = await request<{ attachment: DatafortAttachment }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/attachments`,
+    {
+      body: JSON.stringify({
+        contentBase64,
+        filename: file.name,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      signal,
+    },
+  );
+  return response.attachment;
+}
+
+export async function getDatafortAttachmentContent(
+  workspaceId: string,
+  path: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/attachments/content?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+  return { bytes: result.bytes, contentType: result.response.headers.get("content-type") ?? "" };
+}
+
+export async function moveDatafortEntry(
+  workspaceId: string,
+  input: { expectedHash: string; sourcePath: string; targetPath: string },
+) {
+  return request<{
+    filesUpdated: number;
+    linksUpdated: number;
+    sourcePath: string;
+    targetPath: string;
+  }>(`/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/entries/move`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function deleteDatafortEntry(
+  workspaceId: string,
+  input: { expectedHash: string; path: string },
+) {
+  return request<{ entryId: string; path: string }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/entries`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function listDatafortTrash(workspaceId: string): Promise<DatafortTrashEntry[]> {
+  const response = await request<{ entries: DatafortTrashEntry[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/trash`,
+    { method: "GET" },
+  );
+  return response.entries;
+}
+
+export async function restoreDatafortTrash(workspaceId: string, entryId: string, path?: string) {
+  return request<{ path: string; restored: true }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/trash/restore`,
+    {
+      body: JSON.stringify({ entryId, ...(path ? { path } : {}) }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function permanentlyDeleteDatafortTrash(workspaceId: string, entryId: string) {
+  return request<{ deleted: true }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/trash/${encodeURIComponent(entryId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function saveDatafortDraft(
+  workspaceId: string,
+  input: { content: string; fileId: string; path: string },
+) {
+  return request<{ contentHash: string; fileId: string; path: string; updatedAt: number }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/drafts`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+}
+
+export async function getDatafortDraft(workspaceId: string, fileId: string) {
+  const response = await request<{
+    draft: {
+      content: string;
+      contentHash: string;
+      fileId: string;
+      path: string;
+      updatedAt: number;
+    } | null;
+  }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/drafts/${encodeURIComponent(fileId)}`,
+    { method: "GET" },
+  );
+  return response.draft;
+}
+
+export async function deleteDatafortDraft(workspaceId: string, fileId: string) {
+  return request<{ deleted: true }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/datafort/drafts/${encodeURIComponent(fileId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function listVaultNotes(
+  workspaceId: string,
+  options: {
+    hasDiagnostic?: boolean;
+    page?: number;
+    pageSize?: number;
+    status?: VaultNoteStatus;
+    type?: VaultNoteType;
+  } = {},
+): Promise<VaultNoteListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options))
+    if (value !== undefined) params.set(key, String(value));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function getVaultNote(
+  workspaceId: string,
+  portentId: string,
+): Promise<VaultNoteDetail> {
+  const response = await request<{ note: VaultNoteDetail }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    { method: "GET" },
+  );
+  return response.note;
+}
+
+export async function createVaultNote(
+  workspaceId: string,
+  input: VaultNoteCreateInput,
+): Promise<{ note: VaultNoteDetail; operation: "create"; revisionId: string }> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes`, {
+    body: JSON.stringify(input),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function patchVaultNote(
+  workspaceId: string,
+  portentId: string,
+  input: VaultNotePatchInput,
+): Promise<{
+  note: VaultNoteDetail;
+  operation: "update" | "archive" | "restore";
+  revisionId: string;
+}> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    },
+  );
+}
+
+export async function deleteVaultNote(
+  workspaceId: string,
+  portentId: string,
+  expectedHash: string,
+): Promise<{ deleted: true; operation: "delete"; revisionId: string }> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/notes/${encodeURIComponent(portentId)}`,
+    {
+      body: JSON.stringify({ expectedHash }),
+      headers: { "content-type": "application/json" },
+      method: "DELETE",
+    },
+  );
+}
+
+export async function listVaultDiagnostics(
+  workspaceId: string,
+  options: { page?: number; pageSize?: number } = {},
+): Promise<VaultDiagnosticPage> {
+  const params = new URLSearchParams();
+  if (options.page !== undefined) params.set("page", String(options.page));
+  if (options.pageSize !== undefined) params.set("pageSize", String(options.pageSize));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/diagnostics${suffix}`, {
+    method: "GET",
+  });
+}
+
+export async function searchWorkspace(
+  workspaceId: string,
+  query: string,
+  limit = 20,
+  options: { includeLifecycle?: boolean } = {},
+): Promise<WorkspaceSearchResponse> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/search`, {
+    body: JSON.stringify({ includeLifecycle: options.includeLifecycle === true, limit, query }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function validateVaultReferences(
+  workspaceId: string,
+  references: WorkspaceSearchCitation[],
+): Promise<VaultReferenceValidationResult> {
+  return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/references/validate`, {
+    body: JSON.stringify({ references }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+}
+
+export async function getWorkspaceFileTree(
+  workspaceId: string,
+  path = ".",
+): Promise<WorkspaceFileTree> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/tree?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getWorkspaceFileContent(
+  workspaceId: string,
+  path: string,
+): Promise<WorkspaceFilePreview> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+}
+
+export async function getWorkspaceFilePdf(workspaceId: string, path: string): Promise<Uint8Array> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/files/pdf?path=${encodeURIComponent(path)}`,
+    { method: "GET" },
+  );
+  return result.bytes;
+}
+
+export async function getSessionArtifacts(
+  workspaceId: string,
+  sessionId: string,
+): Promise<SessionArtifact[]> {
+  const response = await request<{ artifacts: SessionArtifact[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/artifacts`,
+    { method: "GET" },
+  );
+  return response.artifacts;
+}
+
+export async function getAttachmentContent(
+  workspaceId: string,
+  attachmentId: string,
+): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const result = await requestBytes(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/attachments/${encodeURIComponent(attachmentId)}/content`,
+    { method: "GET" },
+  );
+  return { bytes: result.bytes, contentType: result.response.headers.get("content-type") ?? "" };
 }
 
 export async function undoVaultRevision(workspaceId: string, revisionId: string) {
@@ -590,8 +1677,15 @@ export async function searchAttachments(
   return response.results;
 }
 
-export async function removeAttachment(attachmentId: string): Promise<void> {
-  await request(`/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+export async function removeAttachment(
+  attachmentId: string,
+  workspaceId: string,
+  sessionId: string | null,
+): Promise<void> {
+  await request(
+    `/v1/attachments/${encodeURIComponent(attachmentId)}?workspaceId=${encodeURIComponent(workspaceId)}&sessionId=${encodeURIComponent(sessionId ?? "")}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function getUsageSummary(
@@ -663,7 +1757,7 @@ export type StreamHandlers = {
   /** Card resolvido sem o botão (troca de modo/stop): remove o card. */
   onApprovalResolved?: (event: { requestId?: string; status?: string }) => void;
   onToolCompleted?: (result: unknown, callId?: string) => void;
-  onToolStarted?: (tool: WorkspaceToolName, args: Record<string, unknown>, callId?: string) => void;
+  onToolStarted?: (tool: string, args: Record<string, unknown>, callId?: string) => void;
   onToolFailed?: (
     message: string,
     callId?: string,
@@ -724,18 +1818,24 @@ export async function streamMessage(
     },
   };
   socket.addEventListener("open", () => {
-    socket.send(
-      JSON.stringify({
-        messages,
-        model,
-        profileId,
-        providerId,
-        requestId,
-        sessionId,
-        type: "chat.start",
-        workspaceId: workspaceId === "default" ? undefined : workspaceId,
-      }),
-    );
+    const send = () => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      socket.send(
+        JSON.stringify({
+          messages,
+          model,
+          profileId,
+          providerId,
+          requestId,
+          sessionId,
+          type: "chat.start",
+          workspaceId: workspaceId === "default" ? undefined : workspaceId,
+        }),
+      );
+    };
+    const latency = qaLatencyMs("streaming");
+    if (latency) window.setTimeout(send, latency);
+    else send();
   });
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(String(event.data)) as {
@@ -750,7 +1850,10 @@ export async function streamMessage(
       id?: string;
       result?: unknown;
       sessionId?: string;
-      tool?: WorkspaceToolName;
+      tool?: string;
+      remoteName?: string;
+      serverId?: string;
+      serverName?: string;
       type?: string;
       providerId?: string;
       model?: string;
@@ -784,7 +1887,10 @@ export async function streamMessage(
         {
           args: message.args ?? {},
           id: message.id ?? crypto.randomUUID(),
+          remoteName: message.remoteName,
           requestId: message.requestId ?? requestId,
+          serverId: message.serverId,
+          serverName: message.serverName,
           sessionId: message.sessionId ?? sessionId ?? null,
           tool: message.tool,
           workspaceId,

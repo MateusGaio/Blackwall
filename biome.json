@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
   "files": {
-    "includes": ["src/**", "sidecar/src/**", "*.{json,ts,tsx,cjs,mjs}"]
+    "includes": ["src/**", "sidecar/src/**", "scripts/run-*-harness.mjs", "*.{json,ts,tsx,cjs,mjs}"]
   },
   "formatter": {
     "indentStyle": "space",

@@ -1,10 +1,11 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { dataDirectory, openSharedDatabase } from "./db/database.js";
 import { approvals, workspaces } from "./db/schema.js";
+import { type ArtifactCounts, recordSessionArtifacts } from "./session-artifacts.js";
 import {
   type LegacyCommandSpec,
   legacyCommandSpec,
@@ -18,6 +19,7 @@ import {
   type PolicyDecision,
 } from "./tool-policy.js";
 import { createVaultNote } from "./vault-capture.js";
+import { inventoryWorkspace, safeWorkspacePath, WorkspaceFilesError } from "./workspace-files.js";
 
 const maxReadBytes = 128_000;
 const maxCommandOutput = 64_000;
@@ -85,13 +87,14 @@ export type ToolName =
   | "execute_command"
   | "list_directory"
   | "read_file"
-  | "search_text";
+  | "search_text"
+  | "search_workspace";
 
 type ToolInput = {
   args: Record<string, unknown>;
   requestId?: string;
   sessionId?: string | null;
-  tool: ToolName;
+  tool: string;
   workspaceId: string;
 };
 
@@ -101,8 +104,12 @@ export type ApprovalRequest = {
   id: string;
   requestId: string;
   sessionId: string | null;
-  tool: ToolName;
+  tool: string;
   workspaceId: string;
+  /** MCP sempre informa o destino real no card, sem inferi-lo pelo nome público. */
+  serverId?: string;
+  serverName?: string;
+  remoteName?: string;
 };
 
 type ToolExecutionOptions = {
@@ -111,6 +118,12 @@ type ToolExecutionOptions = {
   onApproval?: (approval: ApprovalRequest) => void;
   /** Evento para o cliente remover o ApprovalCard mesmo sem ação do botão. */
   onApprovalResolved?: (event: { requestId: string; status: string }) => void;
+  /** Atualização sem conteúdo para o grupo de artefatos do workbench. */
+  onArtifactsUpdated?: (counts: ArtifactCounts) => void;
+  /** Marca a escrita antes do evento nativo do filesystem chegar ao watcher. */
+  onVaultWrite?: (path: string) => void;
+  /** Busca híbrida já aberta pelo sidecar; mantém o executor agnóstico ao índice. */
+  searchWorkspace?: (workspaceId: string, query: string, limit: number) => Promise<unknown>;
   signal?: AbortSignal;
 };
 
@@ -127,6 +140,7 @@ export class ToolPolicyDenied extends Error {
 
 type Workspace = typeof workspaces.$inferSelect;
 type PendingApproval = {
+  grantKey?: string;
   resolve: (decision: ApprovalDecision) => void;
   timer: NodeJS.Timeout;
   workspaceId: string;
@@ -254,6 +268,60 @@ function clipped(value: string) {
     : value;
 }
 
+function artifactCountTotal(counts: ArtifactCounts) {
+  return counts.created + counts.modified + counts.deleted;
+}
+
+function persistArtifacts(
+  input: ToolInput,
+  storageDirectory: string,
+  options: ToolExecutionOptions,
+  artifacts: Array<{ operation: "created" | "modified" | "deleted"; path: string }>,
+) {
+  if (!input.sessionId || artifacts.length === 0) return;
+  try {
+    const database = openSharedDatabase(storageDirectory);
+    try {
+      const counts = recordSessionArtifacts(database.client, {
+        artifacts,
+        sessionId: input.sessionId,
+        workspaceId: input.workspaceId,
+      });
+      if (artifactCountTotal(counts) > 0) options.onArtifactsUpdated?.(counts);
+    } finally {
+      database.close();
+    }
+  } catch {
+    // Tracking is observability for the workbench; a database hiccup must not
+    // turn a completed user-authorized write into a failed tool call.
+  }
+}
+
+async function persistBashArtifacts(
+  input: ToolInput,
+  storageDirectory: string,
+  options: ToolExecutionOptions,
+  before: Awaited<ReturnType<typeof inventoryWorkspace>>,
+  root: string,
+) {
+  const after = await inventoryWorkspace(root).catch(() => ({ entries: new Map(), limited: true }));
+  if (before.limited || after.limited) {
+    return { code: "ARTIFACT_TRACKING_LIMITED", limited: true } as const;
+  }
+  const artifacts: Array<{ operation: "created" | "modified" | "deleted"; path: string }> = [];
+  for (const [path, entry] of after.entries) {
+    const previous = before.entries.get(path);
+    if (!previous) artifacts.push({ operation: "created", path });
+    else if (previous.size !== entry.size || previous.mtimeMs !== entry.mtimeMs)
+      artifacts.push({ operation: "modified", path });
+  }
+  for (const path of before.entries.keys()) {
+    if (!after.entries.has(path)) artifacts.push({ operation: "deleted", path });
+  }
+  persistArtifacts(input, storageDirectory, options, artifacts);
+  return { code: null, limited: false } as const;
+}
+
 function isInside(root: string, candidate: string) {
   const path = relative(root, candidate);
   return path === "" || (!path.startsWith("..") && !isAbsolute(path));
@@ -281,27 +349,27 @@ async function workspaceRoot(workspace: Workspace) {
 }
 
 async function safePath(root: string, requested: string, allowMissing = false) {
-  if (!requested.trim()) throw new Error("Informe um caminho dentro do workspace.");
-  const candidate = resolve(root, requested);
-  if (!isInside(root, candidate)) throw new Error("O caminho está fora da pasta do workspace.");
-  const existing = await realpath(candidate).catch(() => null);
-  if (existing) {
-    if (!isInside(root, existing))
-      throw new Error("Links simbólicos fora do workspace são bloqueados.");
-    return existing;
+  try {
+    return await safeWorkspacePath(root, requested, allowMissing);
+  } catch (error) {
+    if (
+      error instanceof WorkspaceFilesError &&
+      ["WORKSPACE_PATH_INVALID", "WORKSPACE_PATH_OUTSIDE"].includes(error.code)
+    ) {
+      throw new ToolPolicyDenied(
+        "PATH_OUTSIDE_WORKSPACE",
+        "O caminho solicitado está fora da pasta do workspace.",
+      );
+    }
+    throw error;
   }
-  if (!allowMissing) throw new Error("O caminho solicitado não existe.");
-  const parent = await realpath(dirname(candidate)).catch(() => null);
-  if (!parent || !isInside(root, parent)) {
-    throw new Error("A pasta de destino precisa existir dentro do workspace.");
-  }
-  return candidate;
 }
 
 async function requestApproval(
   input: ToolInput,
   storageDirectory: string,
   approval: ApprovalRequest,
+  grantKey?: string,
 ): Promise<ApprovalDecision> {
   const requestId = approval.requestId;
   const database = openSharedDatabase(storageDirectory);
@@ -327,6 +395,7 @@ async function requestApproval(
       resolveDecision("deny");
     }, 5 * 60_000);
     pendingApprovals.set(requestId, {
+      grantKey,
       resolve: resolveDecision,
       timer,
       workspaceId: input.workspaceId,
@@ -363,12 +432,14 @@ export async function resolveApproval(
     .where(eq(approvals.id, approval.id))
     .run();
   database.close();
-  // Grant de sessão limitado a leitura (capacidade explicitada): nunca
-  // cobre mutação/comando e jamais supera um deny reavaliado depois.
-  if (decision === "allow_session" && classifyTool(approval.tool) === "read") {
-    sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
-  }
   const pending = pendingApprovals.get(requestId);
+  // Local permanece limitado a leitura. Para MCP, grantKey inclui workspace,
+  // sessão, servidor e ferramenta e é criado somente no fluxo específico.
+  if (decision === "allow_session") {
+    if (pending?.grantKey) sessionApprovals.add(pending.grantKey);
+    else if (classifyTool(approval.tool) === "read")
+      sessionApprovals.add(`${approval.workspaceId}:${approval.sessionId ?? ""}:${approval.tool}`);
+  }
   if (pending) {
     clearTimeout(pending.timer);
     pendingApprovals.delete(requestId);
@@ -514,11 +585,13 @@ export async function executeTool(
       : ((input.args as Record<PropertyKey, unknown>)[legacyCommandSpec] as
           | LegacyCommandSpec
           | undefined);
-  const canonicalTool = input.tool === "execute_command" ? "bash" : input.tool;
+  const canonicalTool = (input.tool === "execute_command" ? "bash" : input.tool) as ToolName;
   const executionArgs =
     input.tool === "execute_command"
       ? normalizeToolArguments("execute_command", input.args)
-      : input.args;
+      : input.tool === "search_workspace"
+        ? normalizeToolArguments("search_workspace", input.args)
+        : input.args;
   const canonicalInput = { ...input, args: executionArgs, tool: canonicalTool } as ToolInput;
   // Commit point da política (Issue #209): o modo é RELIDO imediatamente
   // antes do efeito — nem o modo em cache, nem o modo de cinco minutos atrás.
@@ -534,7 +607,10 @@ export async function executeTool(
 
   const explicitlyAuthorizedVaultCapture =
     options.explicitVaultCapture === true && canonicalTool === "create_vault_note";
-  if (decision.kind === "prompt" && !explicitlyAuthorizedVaultCapture) {
+  // Recuperação local é uma leitura sem efeito externo: mesmo em `ask`, o
+  // modelo pode consultar o contexto sem abrir uma aprovação de mutação.
+  const searchWorkspaceRead = canonicalTool === "search_workspace";
+  if (decision.kind === "prompt" && !explicitlyAuthorizedVaultCapture && !searchWorkspaceRead) {
     const key = `${workspace.id}:${input.sessionId ?? ""}:${canonicalTool}`;
     if (!sessionApprovals.has(key)) {
       const requestId = input.requestId ?? randomUUID();
@@ -661,12 +737,38 @@ export async function executeTool(
         await walk(start);
         return { matches };
       }
+      case "search_workspace": {
+        if (!options.searchWorkspace) {
+          const error = new Error("Não foi possível consultar o índice local.");
+          (error as Error & { code?: string }).code = "SEARCH_UNAVAILABLE";
+          throw error;
+        }
+        const query = String(executionArgs.query ?? "").trim();
+        const limit = Number(executionArgs.limit);
+        try {
+          return await options.searchWorkspace(input.workspaceId, query, limit);
+        } catch {
+          const error = new Error("Não foi possível consultar o índice local.");
+          (error as Error & { code?: string }).code = "SEARCH_UNAVAILABLE";
+          throw error;
+        }
+      }
       case "create_or_update_file": {
+        const requestedPath = String(input.args.path ?? "");
+        const existing = await safePath(root, requestedPath, true).then((path) =>
+          stat(path).catch(() => null),
+        );
         const written = await atomicWriteWithin(
           root,
-          String(input.args.path ?? ""),
+          requestedPath,
           String(input.args.content ?? ""),
         );
+        persistArtifacts(input, storageDirectory, options, [
+          {
+            operation: existing?.isFile() ? "modified" : "created",
+            path: relative(root, written),
+          },
+        ]);
         return {
           path: relative(root, written),
           bytes: Buffer.byteLength(String(input.args.content ?? "")),
@@ -675,16 +777,21 @@ export async function executeTool(
       case "create_vault_note": {
         const database = openSharedDatabase(storageDirectory);
         try {
-          return await createVaultNote({
+          const result = await createVaultNote({
             belongsTo: input.args.belongsTo === null ? null : String(input.args.belongsTo ?? ""),
             body: String(input.args.body ?? ""),
             client: database.client,
             relatedTo: Array.isArray(input.args.relatedTo) ? input.args.relatedTo.map(String) : [],
             title: String(input.args.title ?? ""),
             type: input.args.type as "Project" | "Event" | "Note" | "Topic",
+            onWrite: options.onVaultWrite,
             workspaceId: input.workspaceId,
             workspaceRoot: root,
           });
+          persistArtifacts(input, storageDirectory, options, [
+            { operation: result.created ? "created" : "modified", path: result.path },
+          ]);
+          return result;
         } finally {
           database.close();
         }
@@ -698,17 +805,24 @@ export async function executeTool(
           throw new Error("O trecho original não foi encontrado.");
         if (current.indexOf(oldText) !== current.lastIndexOf(oldText))
           throw new Error("O trecho original aparece mais de uma vez.");
-        await atomicWriteWithin(
+        const written = await atomicWriteWithin(
           root,
           String(input.args.path ?? ""),
           current.replace(oldText, newText),
         );
+        persistArtifacts(input, storageDirectory, options, [
+          { operation: "modified", path: relative(root, written) },
+        ]);
         return { path: relative(root, path) };
       }
       case "bash": {
         const command = String(executionArgs.command ?? "").trim();
         if (!command) throw new Error("Informe um comando estruturado.");
         const cwd = await safePath(root, String(executionArgs.workdir ?? executionArgs.cwd ?? "."));
+        const inventoryBefore = await inventoryWorkspace(root).catch(() => ({
+          entries: new Map(),
+          limited: true,
+        }));
         const { spawn } = await import("node:child_process");
         const env = Object.fromEntries(
           commandEnvironmentKeys.flatMap((key) =>
@@ -738,6 +852,7 @@ export async function executeTool(
           truncated: boolean;
           durationMs: number;
           outputBytes: number;
+          artifactTracking: { code: string | null; limited: boolean };
         }>((resolveCommand, reject) => {
           const startedAt = Date.now();
           // Comandos legados com argumentos usam spawn estruturado, evitando
@@ -827,13 +942,20 @@ export async function executeTool(
               reject(wrapped);
             }
           });
-          child.on("close", (code) => {
+          child.on("close", async (code) => {
             clearTimeout(timer);
             if (killTimer) clearTimeout(killTimer);
             options.signal?.removeEventListener("abort", abort);
             if (settled) return;
             settled = true;
             const exitCode = code ?? (options.signal?.aborted || timedOut ? null : 1);
+            const artifactTracking = await persistBashArtifacts(
+              input,
+              storageDirectory,
+              options,
+              inventoryBefore,
+              root,
+            );
             resolveCommand({
               code: exitCode,
               exitCode,
@@ -845,6 +967,7 @@ export async function executeTool(
               timedOut,
               truncated,
               durationMs: Date.now() - startedAt,
+              artifactTracking,
             });
           });
         });
@@ -881,5 +1004,90 @@ export async function executeTool(
     if (commitBarrierHook) await commitBarrierHook(input.workspaceId);
     const root = await workspaceRoot(fresh);
     return runEffect(root);
+  });
+}
+
+type McpToolExecutionInput = {
+  args: Record<string, unknown>;
+  publicName: string;
+  remoteName: string;
+  requestId?: string;
+  serverId: string;
+  serverName: string;
+  sessionId?: string | null;
+  workspaceId: string;
+};
+
+type McpToolExecutionOptions = {
+  execute: () => Promise<unknown>;
+  onApproval?: (approval: ApprovalRequest) => void;
+  onApprovalResolved?: (event: { requestId: string; status: string }) => void;
+};
+
+/**
+ * MCP é sempre tratado como comando: grants de sessão têm escopo explícito
+ * workspace+sessão+servidor+ferramenta e nunca afrouxam a política local.
+ */
+export async function executeMcpTool(
+  input: McpToolExecutionInput,
+  storageDirectory = dataDirectory(),
+  options: McpToolExecutionOptions,
+) {
+  const workspace = await workspaceFor(input.workspaceId, storageDirectory);
+  const toolClass = "command" as const;
+  let decision = evaluateToolPolicy(workspace.permissionMode as PermissionMode, toolClass);
+  if (decision.kind === "deny")
+    throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
+  const grantKey = `${input.workspaceId}:${input.sessionId ?? ""}:mcp:${input.serverId}:${input.publicName}`;
+  if (decision.kind === "prompt" && !sessionApprovals.has(grantKey)) {
+    const requestId = input.requestId ?? randomUUID();
+    const approval: ApprovalRequest = {
+      id: randomUUID(),
+      remoteName: input.remoteName,
+      requestId,
+      serverId: input.serverId,
+      serverName: input.serverName,
+      sessionId: input.sessionId ?? null,
+      tool: input.publicName,
+      workspaceId: input.workspaceId,
+    };
+    options.onApproval?.(approval);
+    const decided = await requestApproval(
+      {
+        args: input.args,
+        requestId,
+        sessionId: input.sessionId,
+        tool: input.publicName,
+        workspaceId: input.workspaceId,
+      },
+      storageDirectory,
+      approval,
+      grantKey,
+    );
+    if (decided === "deny") {
+      const policyMessage = policyDeniedMessages.get(requestId);
+      policyDeniedMessages.delete(requestId);
+      throw policyMessage
+        ? new ToolPolicyDenied("POLICY_CHANGED_DURING_APPROVAL", policyMessage)
+        : new ToolPolicyDenied("APPROVAL_DENIED", "A ação foi negada pelo usuário.");
+    }
+    const fresh = await workspaceFor(input.workspaceId, storageDirectory);
+    decision = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+    if (decision.kind === "deny")
+      throw new ToolPolicyDenied(decision.reasonCode, decision.userMessage);
+  }
+  const snapshotEpoch = gateFor(input.workspaceId).epoch;
+  return withWorkspaceGate(input.workspaceId, async (gate) => {
+    const fresh = await workspaceFor(input.workspaceId, storageDirectory);
+    const committed = evaluateToolPolicy(fresh.permissionMode as PermissionMode, toolClass);
+    if (gate.epoch !== snapshotEpoch)
+      throw new ToolPolicyDenied(
+        "POLICY_EPOCH_CHANGED",
+        "O modo de permissão mudou durante a operação; a ação foi cancelada antes do efeito.",
+      );
+    if (committed.kind === "deny")
+      throw new ToolPolicyDenied(committed.reasonCode, committed.userMessage);
+    if (commitBarrierHook) await commitBarrierHook(input.workspaceId);
+    return options.execute();
   });
 }
