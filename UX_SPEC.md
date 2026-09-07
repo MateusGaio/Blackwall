@@ -190,3 +190,21 @@ Configurações inclui a seção lazy `Memória` entre `Perfil` e `Workspaces`. 
 A seção mostra limite diário de 1–100, status pausado/ativo/limite/erro, filtros de memórias e activity. Memórias permitem editar com hash de revisão, fixar, arquivar/restaurar e excluir com confirmação definitiva. Candidatos mostram apenas a versão redigida, scope, tipo e motivo, com ações de aprovar/descartar/tentar novamente. Jobs continuam fora do caminho do chat e atualizações são notificações discretas acionáveis.
 
 O carregamento usa skeleton e lazy loading; entradas e saídas ocasionais usam motion funcional de 120–180 ms, sem pulse, loop, stagger, scale(0), layout animation ou `transition: all`. Toggle, filtro, pin e ações de teclado são instantâneos e todo deslocamento é removido por `prefers-reduced-motion`.
+
+## 17. Templates Markdown do Datafort (F2.10)
+
+Templates são arquivos Markdown comuns em `Blackwall Vault/Templates`, com
+frontmatter próprio marcado por `template: blackwall/v1`, `id`, `name`, `type` e
+`status`. Eles aparecem na coleção **Templates** e na árvore do workspace, mas
+não entram no índice comum, no RAG, no grafo ou na lista geral de notas.
+
+O comando **Criar template** fica disponível na command palette. O editor de
+template edita somente o body Markdown: um segundo frontmatter é rejeitado. Ao
+aplicar um template, `{{title}}`, `{{date}}` (`YYYY-MM-DD`) e `{{time}}`
+(`HH:mm`, horário local) são substituídos e o resultado é salvo como uma nota
+com exatamente um frontmatter serializado pelo serializer canônico do Vault.
+
+Listagem e criação usam skeleton, operações assíncronas mostram progresso e
+entradas/saídas usam motion funcional de 120–180 ms, instantânea para teclado e
+`prefers-reduced-motion`. Templates continuam sendo Markdown em disco; não há
+uma nova tabela SQLite.

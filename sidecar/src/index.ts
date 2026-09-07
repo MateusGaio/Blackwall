@@ -167,6 +167,7 @@ import {
 } from "./vault-editor.js";
 import { EmbeddingServiceError, VaultEmbeddingService } from "./vault-embeddings.js";
 import { rebuildVaultIndex, syncVaultIndexChanges } from "./vault-index.js";
+import { VaultTemplateService } from "./vault-templates.js";
 import { createVaultWatcher } from "./vault-watcher.js";
 import {
   listWorkspaceDirectory,
@@ -383,6 +384,7 @@ export async function createSidecar(
   terminateStaleApprovals(storageDirectory);
   const store = createStore(database, storageDirectory);
   const datafort = new DatafortService(database.client);
+  const vaultTemplates = new VaultTemplateService(database.client);
   const embeddings = new VaultEmbeddingService(database.client, storageDirectory);
   const attachmentEmbeddings = new AttachmentEmbeddingService(database.client, embeddings);
   // Registro de sockets para eventos push globais (ex.: approval.resolved).
@@ -853,6 +855,43 @@ export async function createSidecar(
         const state = await store.bootstrap(input);
         if (state.activeWorkspaceId) await ensureVaultWorkspace(state.activeWorkspaceId);
         writeJson(response, 200, state);
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/templates$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 200, { templates: await vaultTemplates.list(workspaceId) });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/templates$/.test(pathname)
+      ) {
+        const workspaceId = pathname.split("/")[3];
+        writeJson(response, 201, {
+          template: await vaultTemplates.create(
+            workspaceId,
+            (await requestBody(request, MAX_VAULT_FILE_SIZE + 256_000)) as Record<string, unknown>,
+          ),
+        });
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        /^\/v1\/workspaces\/[^/]+\/vault\/templates\/[^/]+\/apply$/.test(pathname)
+      ) {
+        const parts = pathname.split("/");
+        const workspaceId = parts[3];
+        const templateId = decodeURIComponent(parts[5] ?? "");
+        const result = await vaultTemplates.apply(
+          workspaceId,
+          templateId,
+          (await requestBody(request, MAX_VAULT_FILE_SIZE + 256_000)) as Record<string, unknown>,
+        );
+        await syncWorkspaceVault(workspaceId, [result.note.path]);
+        writeJson(response, 201, result);
         return;
       }
       if (

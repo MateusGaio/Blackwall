@@ -11,7 +11,12 @@ import {
   scanVault,
   type VaultFile,
 } from "./vault.js";
-import { contentHash, parseMarkdownObject, type VaultDiagnostic } from "./vault-portent.js";
+import {
+  contentHash,
+  isBlackwallTemplate,
+  parseMarkdownObject,
+  type VaultDiagnostic,
+} from "./vault-portent.js";
 
 type RebuildVaultIndexInput = {
   rootPath: string;
@@ -311,6 +316,11 @@ export async function syncVaultIndexChanges(
         continue;
       }
       const parsed = parseMarkdownObject(change.content, change.path);
+      if (isBlackwallTemplate(parsed.frontmatter)) {
+        deleteFts.run(input.workspaceId, id);
+        deleteObject.run(input.workspaceId, change.path);
+        continue;
+      }
       insertObject.run({
         body: parsed.object.body,
         contentHash: contentHash(change.content),

@@ -86,6 +86,7 @@ type CommandSurfaceProps = {
   onClose: () => void;
   onNewSession: () => void;
   onOpenNote?: () => void;
+  onOpenTemplate?: () => void;
   onOpenProfileChooser?: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSettings: () => void;
@@ -106,6 +107,7 @@ export function CommandSurface({
   onClose,
   onNewSession,
   onOpenNote,
+  onOpenTemplate,
   onOpenProfileChooser,
   onOpenSession,
   onOpenSettings,
@@ -165,6 +167,9 @@ export function CommandSurface({
               </span>
             )}
           </CommandItem>
+          <CommandItem onSelect={onOpenTemplate ? () => run(onOpenTemplate) : undefined}>
+            Criar template
+          </CommandItem>
           <CommandItem
             onSelect={() => run(onOpenSettings)}
             value={`${t("sessions.openSettings")} ${t("sessions.settings")}`}
@@ -205,6 +210,7 @@ type CommandPaletteProps = {
   onClose: () => void;
   onNewSession?: () => void;
   onOpenNote?: () => void;
+  onOpenTemplate?: () => void;
   onOpenProfileChooser?: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSettings: () => void;
@@ -225,6 +231,7 @@ export function CommandPalette({
   onClose,
   onNewSession = () => undefined,
   onOpenNote,
+  onOpenTemplate,
   onOpenProfileChooser,
   onOpenSession,
   onOpenSettings,
@@ -257,6 +264,7 @@ export function CommandPalette({
         onFocusModelSelector={onFocusModelSelector}
         onNewSession={onNewSession}
         onOpenNote={onOpenNote}
+        onOpenTemplate={onOpenTemplate}
         onOpenProfileChooser={onOpenProfileChooser}
         onOpenSession={onOpenSession}
         onOpenProviders={onOpenProviders}

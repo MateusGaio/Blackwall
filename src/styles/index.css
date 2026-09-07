@@ -1074,6 +1074,32 @@ button:disabled {
   color: #a9a9b0;
 }
 
+.datafort-template-create {
+  display: grid;
+  gap: 7px;
+  margin: 0 2px 10px;
+}
+
+.datafort-template-create input,
+.datafort-template-create select,
+.datafort-template-create textarea {
+  background: #17171b;
+  border: 1px solid #29292f;
+  border-radius: 6px;
+  color: #e5e5e8;
+  font-size: 0.71rem;
+  min-width: 0;
+  outline: none;
+  padding: 7px 8px;
+  width: 100%;
+}
+
+.datafort-template-create textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 .datafort-tree-row {
   align-items: center;
   display: flex;

@@ -43,7 +43,9 @@ import {
 import { useTranslation } from "react-i18next";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import {
+  applyVaultTemplate,
   createDatafortDocument,
+  createVaultTemplate,
   type DatafortDocument,
   type DatafortSettings,
   type DatafortTrashEntry,
@@ -57,6 +59,7 @@ import {
   getVault,
   listDatafortDocuments,
   listDatafortTrash,
+  listVaultTemplates,
   moveDatafortEntry,
   patchDatafortSettings,
   permanentlyDeleteDatafortTrash,
@@ -66,6 +69,7 @@ import {
   searchWorkspace,
   updateDatafortDocument,
   uploadDatafortAttachment,
+  type VaultTemplateSummary,
 } from "@/shared/api/sidecar";
 import { EnterExit } from "@/shared/components/motion/EnterExit";
 import { ProgressIndicator } from "@/shared/components/motion/ProgressIndicator";
@@ -88,6 +92,7 @@ const PdfPreview = lazy(() =>
 
 type DatafortShellProps = {
   initialPath?: string | null;
+  initialSection?: "files" | "templates";
   onExitToChat: () => void;
   workspaceId: string;
 };
@@ -617,11 +622,12 @@ function ModeTransition({
 
 export default function DatafortShell({
   initialPath,
+  initialSection = "files",
   onExitToChat,
   workspaceId,
 }: DatafortShellProps) {
   const { t } = useTranslation();
-  const [section, setSection] = useState<RailSection>("files");
+  const [section, setSection] = useState<RailSection>(initialSection);
   const [tree, setTree] = useState<DatafortTreeEntry[]>([]);
   const [settings, setSettings] = useState<DatafortSettings | null>(null);
   const [catalog, setCatalog] = useState<DatafortDocument[]>([]);
@@ -659,6 +665,14 @@ export default function DatafortShell({
   } | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [creating, setCreating] = useState(false);
+  const [templates, setTemplates] = useState<VaultTemplateSummary[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateType, setTemplateType] = useState("Note");
+  const [templateBody, setTemplateBody] = useState(
+    "# {{title}}\n\nData: {{date}}\nHora: {{time}}\n",
+  );
+  const [templateBusy, setTemplateBusy] = useState(false);
   const [showProperties, setShowProperties] = useState(true);
   const [conflictHash, setConflictHash] = useState<string | null>(null);
   const [documentReloadToken, setDocumentReloadToken] = useState(0);
@@ -742,9 +756,26 @@ export default function DatafortShell({
     }
   }, [initialPath, t, workspaceId]);
 
+  const reloadTemplates = useCallback(async () => {
+    setTemplatesLoading(true);
+    try {
+      setTemplates(await listVaultTemplates(workspaceId));
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Não foi possível carregar os templates.",
+      );
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, [workspaceId]);
+
   useEffect(() => {
     void reloadWorkspace();
   }, [reloadWorkspace]);
+
+  useEffect(() => {
+    if (section === "templates") void reloadTemplates();
+  }, [reloadTemplates, section]);
 
   const openPath = useCallback(
     (path: string, group?: 0 | 1) => {
@@ -886,6 +917,40 @@ export default function DatafortShell({
       setError(reason instanceof Error ? reason.message : t("datafort.loadFailed"));
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function createTemplate() {
+    if (templateBusy || !templateName.trim() || !templateBody.trim()) return;
+    setTemplateBusy(true);
+    try {
+      await createVaultTemplate(workspaceId, {
+        body: templateBody,
+        name: templateName,
+        type: templateType,
+      });
+      setTemplateName("");
+      await reloadTemplates();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível criar o template.");
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
+  async function applyTemplate(template: VaultTemplateSummary) {
+    const title = window.prompt("Título da nota", template.name);
+    if (!title?.trim() || templateBusy) return;
+    setTemplateBusy(true);
+    try {
+      const result = await applyVaultTemplate(workspaceId, template.id, { title });
+      await reloadWorkspace();
+      openPath(result.note.path);
+      setSection("files");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível aplicar o template.");
+    } finally {
+      setTemplateBusy(false);
     }
   }
 
@@ -1593,7 +1658,77 @@ export default function DatafortShell({
                         </div>
                       ))}
                     </div>
-                  ) : section === "templates" || section === "daily" ? (
+                  ) : section === "templates" ? (
+                    <div className="grid gap-3">
+                      <section aria-label="Criar template" className="datafort-template-create">
+                        <div className="datafort-panel-heading">
+                          <span className="datafort-eyebrow">Novo template</span>
+                          {templateBusy && <ProgressIndicator label="Salvando template" />}
+                        </div>
+                        <input
+                          aria-label="Nome do template"
+                          onChange={(event) => setTemplateName(event.target.value)}
+                          placeholder="Nome do template"
+                          value={templateName}
+                        />
+                        <select
+                          aria-label="Tipo da nota"
+                          onChange={(event) => setTemplateType(event.target.value)}
+                          value={templateType}
+                        >
+                          <option value="Note">Note</option>
+                          <option value="Project">Project</option>
+                          <option value="Event">Event</option>
+                          <option value="Topic">Topic</option>
+                        </select>
+                        <textarea
+                          aria-label="Body Markdown do template"
+                          onChange={(event) => setTemplateBody(event.target.value)}
+                          rows={6}
+                          value={templateBody}
+                        />
+                        <button
+                          className="datafort-quiet-button justify-center"
+                          disabled={templateBusy || !templateName.trim() || !templateBody.trim()}
+                          onClick={() => void createTemplate()}
+                          type="button"
+                        >
+                          <Plus size={14} /> Criar template
+                        </button>
+                      </section>
+                      {templatesLoading ? (
+                        <div aria-busy="true" className="grid gap-2">
+                          <Skeleton className="h-10" />
+                          <Skeleton className="h-10" />
+                          <ProgressIndicator label="Carregando templates" />
+                        </div>
+                      ) : templates.length === 0 ? (
+                        <p className="datafort-empty-copy">Nenhum template criado ainda.</p>
+                      ) : (
+                        <div className="grid gap-1">
+                          {templates.map((template) => (
+                            <div className="datafort-trash-row" key={template.id}>
+                              <div className="min-w-0">
+                                <strong className="truncate">{template.name}</strong>
+                                <span className="truncate">
+                                  {template.type} · {template.path}
+                                </span>
+                              </div>
+                              <button
+                                aria-label={`Aplicar template ${template.name}`}
+                                className="datafort-icon-button"
+                                disabled={templateBusy}
+                                onClick={() => void applyTemplate(template)}
+                                type="button"
+                              >
+                                <Plus size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : section === "daily" ? (
                     <>
                       {section === "daily" && (
                         <button

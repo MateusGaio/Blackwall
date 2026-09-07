@@ -110,6 +110,9 @@ export default function WorkspaceShell({
   const [showSettings, setShowSettings] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<"chat" | "datafort">("chat");
   const [datafortInitialPath, setDatafortInitialPath] = useState<string | null>(null);
+  const [datafortInitialSection, setDatafortInitialSection] = useState<"files" | "templates">(
+    "files",
+  );
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("usage");
   const [cursorAvoidanceEnabled, setCursorAvoidanceEnabled] = useState(() =>
     readBooleanPreference(cursorTextAvoidancePreference),
@@ -1314,6 +1317,7 @@ export default function WorkspaceShell({
                           >
                             <DatafortShell
                               initialPath={datafortInitialPath}
+                              initialSection={datafortInitialSection}
                               onExitToChat={() => setWorkspaceMode("chat")}
                               workspaceId={workspace.id}
                             />
@@ -1348,6 +1352,7 @@ export default function WorkspaceShell({
                                   memory={vaultMemory}
                                   onMemoryChange={setVaultMemory}
                                   onOpenDatafort={(path) => {
+                                    setDatafortInitialSection("files");
                                     setDatafortInitialPath(path);
                                     setWorkspaceMode("datafort");
                                   }}
@@ -1457,6 +1462,15 @@ export default function WorkspaceShell({
           onOpenNote={
             workspace
               ? () => {
+                  setDatafortInitialSection("files");
+                  setWorkspaceMode("datafort");
+                }
+              : undefined
+          }
+          onOpenTemplate={
+            workspace
+              ? () => {
+                  setDatafortInitialSection("templates");
                   setWorkspaceMode("datafort");
                 }
               : undefined

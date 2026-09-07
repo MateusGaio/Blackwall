@@ -350,6 +350,32 @@ export type DatafortAttachment = {
   path: string;
 };
 
+export type VaultTemplateSummary = {
+  id: string;
+  name: string;
+  path: string;
+  status: string;
+  type: string;
+};
+
+export type VaultTemplateCreateInput = {
+  body: string;
+  name: string;
+  status?: string;
+  type: string;
+};
+
+export type VaultTemplateApplyInput = {
+  title: string;
+};
+
+export type VaultTemplateApplyResult = {
+  content: string;
+  contentHash: string;
+  note: { id: string; path: string; title: string; type: string };
+  templateId: string;
+};
+
 export class SidecarApiError extends Error {
   constructor(
     message: string,
@@ -1078,6 +1104,44 @@ export async function selectWorkspace(workspaceId: string): Promise<AppState> {
 
 export async function getVault(workspaceId: string): Promise<VaultGraph> {
   return request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/vault`, { method: "GET" });
+}
+
+export async function listVaultTemplates(workspaceId: string): Promise<VaultTemplateSummary[]> {
+  const response = await request<{ templates: VaultTemplateSummary[] }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/templates`,
+    { method: "GET" },
+  );
+  return response.templates;
+}
+
+export async function createVaultTemplate(
+  workspaceId: string,
+  input: VaultTemplateCreateInput,
+): Promise<VaultTemplateSummary> {
+  const response = await request<{ template: VaultTemplateSummary }>(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/templates`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
+  return response.template;
+}
+
+export async function applyVaultTemplate(
+  workspaceId: string,
+  templateId: string,
+  input: VaultTemplateApplyInput,
+): Promise<VaultTemplateApplyResult> {
+  return request(
+    `/v1/workspaces/${encodeURIComponent(workspaceId)}/vault/templates/${encodeURIComponent(templateId)}/apply`,
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    },
+  );
 }
 
 export async function getDatafortSettings(workspaceId: string): Promise<DatafortSettings> {
