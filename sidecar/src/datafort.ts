@@ -820,6 +820,7 @@ export class DatafortService {
             (entry) =>
               entry.kind === "file" &&
               isMarkdown(entry.path) &&
+              (path !== "." || !entry.path.startsWith(`${settings.templateDirectory}/`)) &&
               (path === "." || entry.path === path || entry.path.startsWith(`${path}/`)),
           )
           .map((entry) => entry.path),

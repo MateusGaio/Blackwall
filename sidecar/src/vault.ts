@@ -3,6 +3,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import {
+  isBlackwallTemplate,
   type ParsedMarkdownObject,
   parseMarkdownObject,
   type RelationResolution,
@@ -83,6 +84,7 @@ async function collectMarkdown(rootPath: string, currentPath = rootPath, result:
     const content = await readFile(entryPath, "utf8");
     const path = relative(rootPath, entryPath).split("\\").join("/");
     const parsed = parseMarkdownObject(content, path);
+    if (isBlackwallTemplate(parsed.frontmatter)) continue;
     result.push({
       content,
       headings: markdownHeadings(parsed.body),
