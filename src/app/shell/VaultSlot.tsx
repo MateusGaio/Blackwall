@@ -84,8 +84,10 @@ export function VaultRail({ activeTab, onOpenFiles, onOpenGraph }: VaultRailProp
 
 type VaultSlotProps = {
   cursorAvoidanceEnabled: boolean;
+  currentSessionId: string | null;
   memory: VaultMemory;
   onMemoryChange: (memory: VaultMemory) => void;
+  onOpenDatafort?: (path: string) => void;
   onSelectPath: (path: string | null) => void;
   onTabChange: (tab: VaultTab) => void;
   refreshKey: number;
@@ -97,8 +99,10 @@ type VaultSlotProps = {
 /** Conteúdo do painel do Vault dentro do painel redimensionável. */
 export function VaultSlot({
   cursorAvoidanceEnabled,
+  currentSessionId,
   memory,
   onMemoryChange,
+  onOpenDatafort,
   onSelectPath,
   onTabChange,
   refreshKey,
@@ -117,8 +121,10 @@ export function VaultSlot({
       >
         <VaultPanel
           cursorAvoidanceEnabled={cursorAvoidanceEnabled}
+          currentSessionId={currentSessionId}
           memory={memory}
           onMemoryChange={onMemoryChange}
+          onOpenDatafort={onOpenDatafort}
           onSelectPath={onSelectPath}
           onTabChange={onTabChange}
           refreshKey={refreshKey}

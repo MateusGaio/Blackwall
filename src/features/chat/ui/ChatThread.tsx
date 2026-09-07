@@ -15,6 +15,7 @@ import { groupThreadItems } from "./thread/groupThreadItems";
 import { MessageActions } from "./thread/MessageActions";
 import { messageClasses, streamingMinHeight } from "./thread/messageClasses";
 import { RoleMarker } from "./thread/RoleMarker";
+import { SearchReferencesDisclosure } from "./thread/SearchReferencesDisclosure";
 import { ToolStepsDisclosure } from "./thread/ToolStepsDisclosure";
 
 type ChatThreadProps = {
@@ -29,6 +30,7 @@ type ChatThreadProps = {
   onEditSubmit: (messageId: string, draft: string) => void;
   onEditingStart: (message: ChatMessage) => void;
   regenerate: () => void;
+  runningTool?: string | null;
   streamingId: string | null;
   streamingStatus: string;
   visibleMessages: readonly ChatMessage[];
@@ -120,10 +122,12 @@ export function ChatThread({
   onEditSubmit,
   onEditingStart,
   regenerate,
+  runningTool = null,
   streamingId,
   streamingStatus,
   visibleMessages,
 }: ChatThreadProps) {
+  const { t } = useTranslation();
   const previousRef = useRef(visibleMessages);
   const ghostKey = useRef(0);
   const [ghosts, setGhosts] = useState<GhostItem[]>([]);
@@ -194,6 +198,7 @@ export function ChatThread({
               }
               const message = item.message;
               const isStreaming = message.id === streamingId;
+              const isConsultingVault = isStreaming && runningTool === "search_workspace";
               return (
                 <EnterExit
                   as="li"
@@ -212,6 +217,21 @@ export function ChatThread({
                   ) : (
                     <>
                       <RoleMarker role={message.role} />
+                      {isConsultingVault && (
+                        <p
+                          aria-live="polite"
+                          className="flex items-center gap-2 font-mono text-xs text-muted-foreground"
+                          data-testid="vault-search-loading"
+                          role="status"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="inline-block h-1.5 w-8 rounded-sm bg-muted"
+                            data-slot="vault-search-skeleton"
+                          />
+                          {t("chat.consultingVault")}
+                        </p>
+                      )}
                       {message.content.trim() ? (
                         <SafeMarkdown
                           content={message.content}
@@ -219,34 +239,38 @@ export function ChatThread({
                           streaming={isStreaming}
                         />
                       ) : (
-                        isStreaming && (
+                        isStreaming &&
+                        !isConsultingVault && (
                           <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
                             <span aria-hidden="true">▸</span>
                             {streamingStatus}
                           </p>
                         )
                       )}
-                      {isStreaming && (
+                      {isStreaming && !isConsultingVault && (
                         <span
                           aria-hidden="true"
                           className="ml-1 inline-block h-[1em] w-[0.6em] translate-y-[2px] bg-foreground align-middle animate-[motion-caret-blink_900ms_steps(2,jump-none)_infinite]"
                         />
                       )}
                       {!isStreaming && (
-                        <div className="flex items-end gap-1">
-                          <MessageActions
-                            copiedMessageId={copiedMessageId}
-                            copyMessage={copyMessage}
-                            isLastAssistant={
-                              message.role === "assistant" && message.id === lastAssistantId
-                            }
-                            message={message}
-                            onEditingStart={onEditingStart}
-                            regenerate={regenerate}
-                          />
-                          {/* Passos da resposta, na linha de ações (#218). */}
-                          <ToolStepsDisclosure steps={item.steps} />
-                        </div>
+                        <>
+                          <div className="flex items-end gap-1">
+                            <MessageActions
+                              copiedMessageId={copiedMessageId}
+                              copyMessage={copyMessage}
+                              isLastAssistant={
+                                message.role === "assistant" && message.id === lastAssistantId
+                              }
+                              message={message}
+                              onEditingStart={onEditingStart}
+                              regenerate={regenerate}
+                            />
+                            {/* Passos da resposta, na linha de ações (#218). */}
+                            <ToolStepsDisclosure steps={item.steps} />
+                          </div>
+                          <SearchReferencesDisclosure steps={item.steps} />
+                        </>
                       )}
                     </>
                   )}

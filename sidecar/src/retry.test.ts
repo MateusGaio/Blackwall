@@ -40,4 +40,51 @@ describe("retry abortável", () => {
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
     expect(calls).toBe(1);
   });
+
+  it("aplica jitter simétrico e limita o atraso sem retry-after", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    await expect(
+      withRetry(
+        async () => {
+          calls += 1;
+          throw new Error("transitório");
+        },
+        {
+          baseDelayMs: 2_000,
+          isRetryable: () => true,
+          jitter: () => (calls === 1 ? -0.25 : calls === 2 ? 0.25 : 0),
+          sleep: async (delayMs) => {
+            delays.push(delayMs);
+          },
+        },
+      ),
+    ).rejects.toThrow("transitório");
+    expect(calls).toBe(5);
+    expect(delays).toEqual([1_500, 5_000, 8_000, 16_000]);
+  });
+
+  it("respeita retry-after como piso sem aplicar o teto de 30 segundos", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    await expect(
+      withRetry(
+        async () => {
+          calls += 1;
+          throw new Error("rate limit");
+        },
+        {
+          baseDelayMs: 2_000,
+          isRetryable: () => true,
+          jitter: () => -0.25,
+          retryAfterMs: () => 45_000,
+          sleep: async (delayMs) => {
+            delays.push(delayMs);
+          },
+        },
+      ),
+    ).rejects.toThrow("rate limit");
+    expect(calls).toBe(5);
+    expect(delays).toEqual([45_000, 45_000, 45_000, 45_000]);
+  });
 });

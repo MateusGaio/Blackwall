@@ -35,3 +35,9 @@ As chaves ficam exclusivamente em `secrets.enc`; prompts, respostas e telemetria
 Observabilidade é opt-in: Sentry, Datadog e New Relic podem receber somente metadados técnicos por um endpoint configurado pelo usuário. Sem configuração explícita, nenhum exporter é iniciado.
 
 O Vault já possui uma fundação Portent read-only: Markdown é a fonte de verdade, SQLite mantém uma projeção reconstruível, links ambíguos viram diagnóstico e tipos externos são preservados. `/nota` é o único comando de barra da Fase 1 e autoriza exatamente uma captura local idempotente, com confirmação, abertura e desfazer. Captura automática permanece fora da Fase 1. RAG semântico/LanceDB e MCP vêm na segunda fase; edição avançada do Vault, orquestração de agentes e LoRA/QLoRA são capacidades posteriores.
+
+## Memória contínua (F2.9)
+
+O aprendizado automático é desligado por padrão e só pode ser ativado após um disclosure explícito. Cada turno elegível pode fazer uma segunda chamada ao mesmo provedor e modelo; antes disso, somente a mensagem atual do usuário é redigida localmente. A resposta do assistente, ferramentas, arquivos, Souls, Vault e histórico não entram nessa extração.
+
+Preferências duráveis pertencem ao perfil e podem ser revisadas, corrigidas, fixadas, arquivadas ou excluídas. Conhecimento técnico pertence ao workspace e, quando capturado automaticamente, nasce na Inbox como Markdown `captured`; a memória de perfil nunca cria arquivos ou vetores. O uso da chamada adicional aparece separado como `memory_extract`, sem conteúdo.

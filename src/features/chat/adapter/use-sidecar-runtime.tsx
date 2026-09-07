@@ -66,6 +66,7 @@ export function useSidecarChat(options: UseSidecarChatOptions) {
   const labels = useMemo(
     () => ({
       consulting: t("chat.consulting"),
+      consultingVault: t("chat.consultingVault"),
       continuing: t("errors.continuing"),
       couldNotEdit: (fallback: string) => fallback || t("chat.couldNotEditTheMessage"),
       couldNotRegenerate: (fallback: string) => fallback || t("chat.couldNotRegenerateTheResponse"),
@@ -145,6 +146,7 @@ export function useSidecarChat(options: UseSidecarChatOptions) {
     pullQueuedDraft: store.pullQueuedDraft,
     queuedCount: snapshot.queuedCount,
     queuedPreview: snapshot.queuedPreview,
+    runningTool: snapshot.runningTool,
     regenerate: () => store.reload(),
     resolveToolDecision: store.resolveToolDecision,
     runtime,

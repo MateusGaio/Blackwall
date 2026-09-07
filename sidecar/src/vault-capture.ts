@@ -43,6 +43,7 @@ type CaptureInput = {
   relatedTo: string[];
   title: string;
   type: VaultNoteType;
+  onWrite?: (path: string) => void;
   workspaceId: string;
   workspaceRoot: string;
 };
@@ -61,16 +62,6 @@ function cleanText(value: string, maxLength: number, field: string) {
   if (cleaned.length > maxLength)
     throw new VaultCaptureError("invalid_vault_note", `${field} excede o limite permitido.`);
   return cleaned;
-}
-
-function sanitizeMarkdown(value: string) {
-  return value
-    .replace(
-      /<\/?(?:script|iframe|object|embed|style)(?:\s[^>]*)?>[\s\S]*?<\/?(?:script|iframe|object|embed|style)\s*>/gi,
-      "",
-    )
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/(\]\(\s*)(?:javascript|vbscript|data):[^)]*(\))/gi, "$1#blocked$2");
 }
 
 function safeReference(value: string, field: string) {
@@ -172,7 +163,7 @@ async function atomicCreate(root: string, requestedPath: string, content: string
 
 export async function createVaultNote(input: CaptureInput): Promise<VaultNoteResult> {
   const title = cleanText(input.title, 240, "title");
-  const body = sanitizeMarkdown(cleanText(input.body, 500_000, "body"));
+  const body = cleanText(input.body, 500_000, "body");
   if (!body.trim()) throw new VaultCaptureError("invalid_vault_note", "body não pode ficar vazio.");
   const files = (await scanVault(input.workspaceRoot, { includeArchived: true })).files;
   const belongsTo = input.belongsTo ? resolveReference(files, input.belongsTo, "belongsTo") : null;
@@ -251,6 +242,7 @@ export async function createVaultNote(input: CaptureInput): Promise<VaultNoteRes
       timestamp,
     );
   try {
+    if (!existing?.path) input.onWrite?.(path);
     const writtenPath = existing?.path ?? (await atomicCreate(input.workspaceRoot, path, markdown));
     input.client
       .prepare(
@@ -271,6 +263,7 @@ export async function undoVaultRevision(
   workspaceId: string,
   workspaceRoot: string,
   revisionId: string,
+  options: { onWrite?: (path: string) => void } = {},
 ) {
   const row = client
     .prepare(
@@ -308,7 +301,10 @@ export async function undoVaultRevision(
       "vault_revision_conflict",
       "A nota mudou desde a captura; o undo foi bloqueado.",
     );
-  if (current) await unlink(safeTarget);
+  if (current) {
+    options.onWrite?.(row.path);
+    await unlink(safeTarget);
+  }
   client
     .prepare(
       "UPDATE vault_revisions SET state = 'undone', undone_at = ?, updated_at = ? WHERE revision_id = ? AND workspace_id = ?",

@@ -56,7 +56,7 @@ async function completeOnboarding(page: Page, profileName: string) {
   await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
   await page
     .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-    .fill("http://127.0.0.1:17999/v1");
+    .fill("https://mock.invalid/v1");
   await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
   await page.getByLabel(/Chave de API|API key/).fill("test-key");
   await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -87,7 +87,7 @@ async function signOutViaSettings(page: Page) {
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
       .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
+      .fill("https://mock.invalid/v1");
     await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
     await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -193,7 +193,7 @@ test.describe("feedback de UI — perfis e onboarding", () => {
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
       .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
+      .fill("https://mock.invalid/v1");
     await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
     await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -484,7 +484,7 @@ test.describe("feedback de UI — Vault", () => {
     await page.getByLabel(/Nome do provedor|Provider name/).fill("Mock provider");
     await page
       .getByLabel(/Endpoint|Endpoint compatível com OpenAI|OpenAI-compatible endpoint/)
-      .fill("http://127.0.0.1:17999/v1");
+      .fill("https://mock.invalid/v1");
     await page.getByLabel(/Modelo padrão|Default model/).fill("mock-model");
     await page.getByLabel(/Chave de API|API key/).fill("test-key");
     await page.getByRole("button", { name: /Conectar e continuar|Connect and continue/ }).click();
@@ -707,5 +707,75 @@ test.describe("feedback de UI — visibilidade no tema OLED", () => {
     await expect(settings).toHaveCount(0);
     await page.getByTestId("model-trigger").click();
     expect(await auditOledVisibility(page)).toEqual([]);
+  });
+});
+
+test.describe("Datafort — workspace local de conhecimento", () => {
+  test("abre entre Novo e Projetos, cria uma nota e retorna ao chat", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Datafort");
+    const datafortButton = page.getByRole("button", { name: /^Datafort$/i });
+    await expect(datafortButton).toBeEnabled();
+    await datafortButton.click();
+
+    const datafort = page.getByRole("main", { name: "Datafort" });
+    await expect(datafort).toBeVisible({ timeout: 10_000 });
+    await expect(datafort.getByRole("button", { name: "Live Preview" })).toBeVisible();
+    const title = datafort.getByLabel(/Título da nota|Note title/);
+    await title.fill("Nota E2E Datafort");
+    await datafort.getByRole("button", { name: /Criar nota|Create note/ }).click();
+    await expect(datafort.getByRole("tab", { name: /Nota E2E Datafort/ })).toBeVisible();
+    await expect(datafort.getByText(/Blackwall Vault\/Notes\/Nota E2E Datafort\.md/)).toBeVisible();
+
+    await datafort.getByRole("button", { name: /Voltar ao chat|Back to chat/ }).click();
+    await expect(page.getByTestId("chat-composer")).toBeVisible();
+  });
+
+  test("aceita anexo pelo seletor, paste e drop e mantém o link no editor", async ({ page }) => {
+    await shellWithWorkspace(page, "Perfil Datafort Anexos");
+    await page.getByRole("button", { name: /^Datafort$/i }).click();
+    const datafort = page.getByRole("main", { name: "Datafort" });
+    await expect(datafort).toBeVisible({ timeout: 10_000 });
+
+    const title = datafort.getByLabel(/Título da nota|Note title/);
+    await title.fill("Nota com anexos");
+    await datafort.getByRole("button", { name: /Criar nota|Create note/ }).click();
+    await expect(datafort.getByRole("tab", { name: /Nota com anexos/ })).toBeVisible();
+
+    const fileInput = datafort.locator('input[aria-label="Escolher anexo"]');
+    await fileInput.setInputFiles({
+      buffer: Buffer.from("selecionado"),
+      mimeType: "text/plain",
+      name: "selecionado.txt",
+    });
+    await expect(datafort.getByText("selecionado.txt", { exact: true })).toBeVisible();
+
+    const editor = datafort.locator(".cm-content");
+    for (const [name, eventName] of [
+      ["colado.txt", "paste"],
+      ["solto.txt", "drop"],
+    ] as const) {
+      await editor.evaluate(
+        (element, details) => {
+          const file = new File([`conteúdo ${details.name}`], details.name, {
+            type: "text/plain",
+          });
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          const event = new Event(details.eventName, { bubbles: true, cancelable: true });
+          Object.defineProperty(
+            event,
+            details.eventName === "paste" ? "clipboardData" : "dataTransfer",
+            { configurable: true, value: transfer },
+          );
+          element.dispatchEvent(event);
+        },
+        { eventName, name },
+      );
+      await expect(datafort.getByText(name, { exact: true })).toBeVisible();
+    }
+
+    await expect(editor).toContainText("![[Blackwall Vault/Attachments/selecionado.txt]]");
+    await expect(editor).toContainText("![[Blackwall Vault/Attachments/colado.txt]]");
+    await expect(editor).toContainText("![[Blackwall Vault/Attachments/solto.txt]]");
   });
 });

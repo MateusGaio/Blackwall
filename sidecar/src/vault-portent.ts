@@ -49,6 +49,10 @@ export type ParsedMarkdownObject = {
   object: PortentObject;
 };
 
+export function isBlackwallTemplate(frontmatter: Record<string, unknown>) {
+  return frontmatter.template === "blackwall/v1";
+}
+
 const maxFrontmatterSize = 256_000;
 const maxYamlDepth = 8;
 const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;

@@ -147,6 +147,13 @@ Isso resolve três pontos ao mesmo tempo:
 
 **Decisão:** cada conexão MCP configurada pelo usuário tem uma matriz de permissão própria (quais ferramentas do servidor MCP estão habilitadas, se ele pode acessar filesystem, se pode ver outras chaves de API configuradas no Blackwall). Padrão é restritivo (nada liberado até o usuário habilitar), mas o usuário tem liberdade total para abrir o que quiser — exatamente como você pediu.
 
+O **cliente MCP** consome capacidades remotas explicitamente configuradas por workspace. O
+**servidor MCP** do Blackwall é uma superfície separada: um único export local por workspace,
+desligado por padrão, preso a loopback e autenticado por token próprio guardado em
+`secrets.enc`. Nesta primeira versão ele anuncia somente `search_workspace`, em modo
+somente leitura; não encaminha ferramentas remotas nem fornece recursos, prompts, escrita,
+stdio, OAuth ou bind de rede.
+
 ### ADR-16: Política de retry do roteador
 
 **Decisão:** até **8 tentativas** na lista de fallback, com backoff exponencial curto entre elas. Durante as tentativas, o usuário vê o nome do provedor sendo tentado no momento (não um spinner genérico) — isso também resolve o ponto 15 de UX (mensagem de erro final acionável, não um stack trace).
@@ -264,3 +271,34 @@ Histórico é a conversa bruta da sessão; memória de perfil é uma preferênci
 - **Telemetria vs. privacidade** — qualquer decisão de observabilidade precisa reforçar que é opt-in e anonimizada, para não contradizer o pilar "local-first e privado" do produto.
 - **Repositório privado durante a construção** — Issues, PRs, logs de CI, fixtures e artefatos podem conter contexto operacional; o pipeline não deve tratá-los como material público antes da revisão de publicação.
 - **Publicação futura** — mudar a visibilidade, habilitar Releases públicas ou abrir a `main` exige revisão de histórico, segredos, licença, dependências, Actions e proteção de branch. Nenhuma automação deve executar esse passo implicitamente.
+
+## 6. Editor seguro do Vault (F2.8)
+
+O Markdown real permanece a autoridade. O editor da UI só aceita objetos
+Portent cujo parser confirme `managed:true`; arquivos externos, legados ou com
+frontmatter inválido continuam somente leitura. A identidade de mutação é o
+`portent_id`, enquanto o path permanece estável e não é renomeado quando o
+título muda. Relações recebidas pela API usam IDs opacos, são re-resolvidas no
+workspace no ponto de commit e são serializadas como wikilinks relativos com
+alias legível.
+
+As APIs `/v1/workspaces/:id/vault/notes` e `/diagnostics` usam o bearer do
+sidecar e retornam somente metadados sanitizados. Create/update/archive/restore
+e delete são serializados por workspace, revalidam `realpath`/`lstat`, usam
+SHA-256 esperado e escrevem em temporário exclusivo no mesmo diretório antes
+de `rename` atômico. A migração 21 cria `vault_write_operations`, que guarda
+somente hashes e metadados para recuperação determinística após crash; não é
+histórico visível nem fonte concorrente.
+
+O contexto padrão de busca inclui notas gerenciadas `organized` e Markdown
+externo. `captured` e `archived` só entram quando a busca manual solicita o
+filtro de lifecycle. Uma mutação dispara uma sincronização incremental e um
+evento seguro `vault.note.changed` sem conteúdo, título, relação ou path.
+
+## 7. Memória automática e perfil (F2.9)
+
+A migração 22 consolida o scaffolding da migração 13: jobs `automatic/v2`, lease, provider/model da fonte, disclosure por perfil, hashes de revisão, índices de fila e `purpose` de uso. Jobs `v1` são cancelados e têm o payload limpo; `automatic_enabled` continua `0` até aceite da versão atual do disclosure.
+
+O terminal normal usa uma transação tipada que grava a mensagem final do assistant, o terminal da run, o evento e, quando o opt-in e a fonte persistida são válidos, o job idempotente. O worker local tem concorrência 1, lease de 60 segundos, três tentativas transitórias, quota diária e shutdown retomável. A extração recebe apenas `system` fixo e uma mensagem `user` redigida; o parser rejeita campos extras, enums inválidos, excesso e JSON tolerante.
+
+O policy local reclassifica fatos técnicos para workspace/unassigned, exige thresholds e evidências para organizar memória de perfil e nunca permite que memória autorize ferramentas, troque provider/workspace ou vença a instrução atual. O contexto injeta no máximo 12 memórias `organized`/aproximadamente 800 tokens depois das Souls, em delimitadores marcados como dado não confiável. `memory_extract` é agrupado no uso sem prompt, resposta, segredo ou URL.

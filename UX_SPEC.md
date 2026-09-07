@@ -154,3 +154,78 @@ Secundária: todo fluxo precisa funcionar de ponta a ponta com mouse sem nenhuma
 ## 13. Streaming interrompido
 
 Se a conexão cair no meio de uma resposta sendo exibida: o texto parcial permanece na tela, e aparece um aviso inline (não um modal bloqueante) tipo "Conexão perdida durante a resposta — [Tentar novamente]". Não tenta retomar sozinho, não descarta o que já foi exibido.
+
+---
+
+## 14. Exportação MCP local
+
+Na seção lazy `MCP` das configurações, “Conectar servidores ao Blackwall” e “Expor este
+workspace via MCP” são cards distintos. A exportação mostra que o endpoint é apenas local,
+avisa que qualquer processo com o token pode consultar excertos indexados e oferece somente
+`search_workspace`, desligada por padrão. O token é mostrado uma única vez após gerar ou
+rotacionar, pode ser copiado nessa resposta imediata e é limpo ao fechar/desmontar — nunca vai
+para localStorage. Rotação e exclusão pedem confirmação; carregamento usa skeleton, ações
+assíncronas mostram progresso e mudanças de estado usam transições funcionais de 120–180 ms
+(instantâneas para teclado e reduced motion).
+
+## 15. Vault avançado (F2.8)
+
+Na aba `Arquivos`, a barra compacta oferece `Todos`, `Inbox`, `Organizadas`,
+`Arquivadas` e `Problemas`, sem criar uma terceira navegação global. A Inbox é
+uma view virtual de notas `captured`; arquivar, restaurar e excluir só aparecem
+para notas gerenciadas. Markdown externo permanece visível no explorador, com
+badge de somente leitura e sem ação de edição.
+
+O editor lazy carrega o detalhe por ID, mantém preview Markdown sanitizado,
+mostra progresso e preserva rascunho em erro. Um rascunho sujo exige escolha
+antes de fechar; conflito 409 oferece recarregar a versão do disco ou copiar o
+rascunho, sem force-save ou merge automático. Exclusão é definitiva e exige
+confirmação explícita. Entradas e saídas usam motion funcional de 120–180 ms,
+com estado instantâneo para teclado e `prefers-reduced-motion`.
+
+## 16. Memória contínua (F2.9)
+
+Configurações inclui a seção lazy `Memória` entre `Perfil` e `Workspaces`. O card de Aprendizado automático começa desligado, explica a segunda chamada potencialmente paga, a redaction da mensagem atual e a separação perfil/Inbox. A primeira ativação exige um diálogo explícito com Cancelar e Ativar aprendizado; Escape, fechamento e reduced motion não ativam o recurso.
+
+A seção mostra limite diário de 1–100, status pausado/ativo/limite/erro, filtros de memórias e activity. Memórias permitem editar com hash de revisão, fixar, arquivar/restaurar e excluir com confirmação definitiva. Candidatos mostram apenas a versão redigida, scope, tipo e motivo, com ações de aprovar/descartar/tentar novamente. Jobs continuam fora do caminho do chat e atualizações são notificações discretas acionáveis.
+
+O carregamento usa skeleton e lazy loading; entradas e saídas ocasionais usam motion funcional de 120–180 ms, sem pulse, loop, stagger, scale(0), layout animation ou `transition: all`. Toggle, filtro, pin e ações de teclado são instantâneos e todo deslocamento é removido por `prefers-reduced-motion`.
+
+## 17. Templates Markdown do Datafort (F2.10)
+
+Templates são arquivos Markdown comuns em `Blackwall Vault/Templates`, com
+frontmatter próprio marcado por `template: blackwall/v1`, `id`, `name`, `type` e
+`status`. Eles aparecem na coleção **Templates** e na árvore do workspace, mas
+não entram no índice comum, no RAG, no grafo ou na lista geral de notas.
+
+O comando **Criar template** fica disponível na command palette. O editor de
+template edita somente o body Markdown: um segundo frontmatter é rejeitado. Ao
+aplicar um template, `{{title}}`, `{{date}}` (`YYYY-MM-DD`) e `{{time}}`
+(`HH:mm`, horário local) são substituídos e o resultado é salvo como uma nota
+com exatamente um frontmatter serializado pelo serializer canônico do Vault.
+
+Listagem e criação usam skeleton, operações assíncronas mostram progresso e
+entradas/saídas usam motion funcional de 120–180 ms, instantânea para teclado e
+`prefers-reduced-motion`. Templates continuam sendo Markdown em disco; não há
+uma nova tabela SQLite.
+
+## 18. QA browser-only e motion verificável (F2.11)
+
+Quando `VITE_BLACKWALL_E2E=1`, Configurações exibe a seção lazy **QA controls**.
+Ela oferece somente cenários enum, motion normal/reduzido, texto em 100%/200% e
+latência normal/lenta para streaming, carregamento e indexação. O estado é
+temporário, sanitizado e não é persistido.
+
+Interações iniciadas por teclado são instantâneas; interações por pointer usam
+transições funcionais de 120–180 ms e nunca dependem delas para concluir uma
+ação. A modalidade de entrada fica registrada no elemento raiz. Command
+palette, dialogs, popovers, tabs, painéis e seus estados de loading respeitam
+essa regra; `prefers-reduced-motion` e o modo reduced do QA têm o mesmo
+comportamento final: uma iteração, sem bounce/pulse/loop decorativo e sem
+espera por animação. Nenhum `tabindex` positivo é permitido; Escape fecha a
+superfície ativa e devolve o foco ao acionador.
+
+O contraste computado deve atingir 4,5:1 para texto normal, 3:1 para texto
+grande e manter foco, controles e estados desabilitados distinguíveis. A
+validação browser percorre onboarding, sidebar, chat, Configurações, Vault e
+Templates com Tab/Shift+Tab, incluindo escala de texto e estados lentos.

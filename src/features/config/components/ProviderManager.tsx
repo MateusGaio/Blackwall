@@ -1,6 +1,6 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/shared/components/ui/button";
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
@@ -15,6 +15,7 @@ import {
   type Workspace,
 } from "../../../shared/api/sidecar";
 import { ConfirmDialog } from "../../../shared/components/ConfirmDialog";
+import { Skeleton } from "../../../shared/components/motion/Skeleton";
 import { type SettingsSection, settingsSections } from "../settings-sections";
 import { ProfileSettings } from "./provider-manager/ProfileSettings";
 import { ProviderFormSection } from "./provider-manager/ProviderFormSection";
@@ -25,6 +26,19 @@ import { useProfileSettingsForm } from "./provider-manager/useProfileSettingsFor
 import { useWorkspaceSettingsForm } from "./provider-manager/useWorkspaceSettingsForm";
 import { WorkspacesSection } from "./provider-manager/WorkspacesSection";
 import { UsageDashboard } from "./UsageDashboard";
+
+const McpSettingsSection = lazy(async () => {
+  const module = await import("./McpSettingsSection");
+  return { default: module.McpSettingsSection };
+});
+const MemorySettingsSection = lazy(async () => {
+  const module = await import("./MemorySettingsSection");
+  return { default: module.MemorySettingsSection };
+});
+const QaControlsSection = lazy(async () => {
+  const module = await import("./QaControlsSection");
+  return { default: module.QaControlsSection };
+});
 
 type ProviderManagerProps = {
   activeSessionId?: string | null;
@@ -74,6 +88,10 @@ export function ProviderManager({
   const [isSaving, setIsSaving] = useState(false);
   const [providerToRemove, setProviderToRemove] = useState<ConnectedProvider | null>(null);
   const runtime = currentRuntime();
+  const qaEnabled = import.meta.env.VITE_BLACKWALL_E2E === "1";
+  const visibleSettingsSections: readonly SettingsSection[] = qaEnabled
+    ? [...settingsSections, "qa"]
+    : settingsSections;
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
@@ -197,7 +215,13 @@ export function ProviderManager({
         ? t("settings.tabProfile")
         : section === "workspaces"
           ? t("settings.tabWorkspaces")
-          : t("settings.tabProviders");
+          : section === "memory"
+            ? t("settings.tabMemory")
+            : section === "providers"
+              ? t("settings.tabProviders")
+              : section === "mcp"
+                ? t("settings.tabMcp")
+                : t("settings.tabQa");
 
   return (
     <>
@@ -233,7 +257,7 @@ export function ProviderManager({
             className="flex gap-1 overflow-x-auto pb-3"
             data-testid="settings-tabs"
           >
-            {settingsSections.map((value) => (
+            {visibleSettingsSections.map((value) => (
               <button
                 aria-current={section === value ? "page" : undefined}
                 className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs transition-colors duration-[120ms] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
@@ -300,6 +324,19 @@ export function ProviderManager({
                   workspaceStatus={workspaceSettings.workspaceStatus}
                 />
               )}
+              {section === "memory" && (
+                <Suspense
+                  fallback={
+                    <div className="grid gap-3" data-testid="memory-settings-skeleton">
+                      <Skeleton className="h-7 w-52" />
+                      <Skeleton className="h-44 rounded-[var(--radius-panel)]" />
+                      <Skeleton className="h-32 rounded-[var(--radius-panel)]" />
+                    </div>
+                  }
+                >
+                  <MemorySettingsSection profileId={profileId} />
+                </Suspense>
+              )}
               {section === "providers" && (
                 <div className="grid gap-6">
                   <ProviderList
@@ -322,6 +359,19 @@ export function ProviderManager({
                   />
                 </div>
               )}
+              {section === "mcp" && (
+                <Suspense
+                  fallback={
+                    <div className="grid gap-3" data-testid="mcp-settings-skeleton">
+                      <Skeleton className="h-7 w-40" />
+                      <Skeleton className="h-36 rounded-[var(--radius-panel)]" />
+                      <Skeleton className="h-28 rounded-[var(--radius-panel)]" />
+                    </div>
+                  }
+                >
+                  <McpSettingsSection activeWorkspaceId={activeWorkspaceId} />
+                </Suspense>
+              )}
             </div>
           </ScrollArea>
         </div>
@@ -341,6 +391,18 @@ export function ProviderManager({
           headingLabel={t("settings.confirmation")}
           title={`${t("settings.remove")} ${providerToRemove.name}?`}
         />
+      )}
+      {section === "qa" && qaEnabled && (
+        <Suspense
+          fallback={
+            <div className="grid gap-3" data-testid="qa-settings-skeleton">
+              <Skeleton className="h-7 w-48" />
+              <Skeleton className="h-44 rounded-[var(--radius-panel)]" />
+            </div>
+          }
+        >
+          <QaControlsSection />
+        </Suspense>
       )}
       {profileSettings.profileToDelete && (
         <ConfirmDialog

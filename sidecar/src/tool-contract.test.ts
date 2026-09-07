@@ -1,8 +1,12 @@
 // MIT License — Copyright (c) 2026 Mateus Gaio
 import { describe, expect, it } from "vitest";
+import type { McpToolDefinition } from "./mcp.js";
 import {
+  DEFAULT_SEARCH_WORKSPACE_LIMIT,
   DEFAULT_TOOL_CALL_BUDGET,
   MAX_IDENTICAL_TOOL_CALLS_WITHOUT_PROGRESS,
+  MAX_SEARCH_WORKSPACE_CALLS_PER_TURN,
+  MAX_SEARCH_WORKSPACE_LIMIT,
   MAX_TOOL_CALL_BUDGET,
   normalizeCommandArgs,
   normalizeToolArguments,
@@ -48,6 +52,23 @@ describe("contrato de ferramentas", () => {
   it("aceita a sintaxe normal de shell no Bash canônico", () => {
     for (const command of ["ls | cat", "echo ok > file", "A=1 node", "git status && pwd"]) {
       expect(normalizeToolArguments("bash", { command })).toMatchObject({ command });
+    }
+  });
+
+  it("normaliza search_workspace com limite padrão, teto e consulta compatível", () => {
+    expect(parseToolArguments("search_workspace", '{"query":"  contexto local  "}')).toEqual({
+      limit: DEFAULT_SEARCH_WORKSPACE_LIMIT,
+      query: "contexto local",
+    });
+    expect(
+      parseCompatibilityToolCall('{"tool":"search_workspace","args":{"query":"Vault"}}')?.name,
+    ).toBe("search_workspace");
+    expect(MAX_SEARCH_WORKSPACE_LIMIT).toBe(8);
+    expect(MAX_SEARCH_WORKSPACE_CALLS_PER_TURN).toBe(3);
+    for (const limit of [0, 1.5, 9, "6"]) {
+      expect(() =>
+        parseToolArguments("search_workspace", JSON.stringify({ limit, query: "x" })),
+      ).toThrow("limit");
     }
   });
 
@@ -126,6 +147,23 @@ describe("contrato de ferramentas", () => {
       strict: true,
       type: "function",
     });
+  });
+
+  it("preserva schemas MCP não estritos sem forçar additionalProperties", () => {
+    const mcpTool: McpToolDefinition = {
+      function: {
+        description: "Schema remoto",
+        name: "mcp__filesystem__read",
+        parameters: { properties: { path: { type: "string" } }, type: "object" },
+        strict: false,
+      },
+      type: "function",
+    };
+    expect(toOpenAIChatTools([mcpTool])[0]?.function).toMatchObject({
+      parameters: { properties: { path: { type: "string" } }, type: "object" },
+      strict: false,
+    });
+    expect(toOpenAIResponsesTools([mcpTool])[0]).toMatchObject({ strict: false });
   });
 });
 

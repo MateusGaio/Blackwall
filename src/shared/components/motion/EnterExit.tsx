@@ -23,6 +23,8 @@ type EnterExitProps = {
   children: React.ReactNode;
   /** Chamado quando a saída termina e o conteúdo é desmontado. */
   onExited?: () => void;
+  /** Desliga a transição para ações iniciadas pelo teclado. */
+  instant?: boolean;
   /** Elemento host renderizado (padrão `div`; use `li` dentro de listas). */
   as?: "div" | "li";
 };
@@ -41,6 +43,7 @@ export function EnterExit({
   onExited,
   as = "div",
   children,
+  instant = false,
 }: EnterExitProps) {
   const reducedMotion = usePrefersReducedMotion();
   const [mounted, setMounted] = useState(show);
@@ -56,7 +59,7 @@ export function EnterExit({
       return;
     }
     setMounted(true);
-    if (reducedMotion) {
+    if (reducedMotion || instant) {
       setEntered(true);
       return;
     }
@@ -68,11 +71,11 @@ export function EnterExit({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [show, reducedMotion]);
+  }, [show, reducedMotion, instant]);
 
   useEffect(() => {
     if (show || !mounted || entered) return;
-    if (reducedMotion) {
+    if (reducedMotion || instant) {
       setMounted(false);
       onExitedRef.current?.();
       return;
@@ -93,11 +96,12 @@ export function EnterExit({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [show, mounted, entered, reducedMotion, duration]);
+  }, [show, mounted, entered, reducedMotion, duration, instant]);
 
   if (!mounted) return null;
 
   const state = show ? (entered ? "entered" : "entering") : "exiting";
+  const motionOffset = show ? offsetPx : -2;
 
   return (
     <Host
@@ -107,16 +111,16 @@ export function EnterExit({
       aria-hidden={show ? undefined : true}
       className={className}
       style={
-        reducedMotion
+        reducedMotion || instant
           ? { opacity: show ? 1 : 0 }
           : {
               opacity: entered ? 1 : 0,
-              transform: entered ? "translateY(0)" : `translateY(${offsetPx}px)`,
+              transform: entered ? "translateY(0)" : `translateY(${motionOffset}px)`,
               filter: entered ? "blur(0px)" : "blur(2px)",
               transitionProperty: "opacity, transform, filter",
               transitionDuration: `var(--motion-${duration})`,
               transitionTimingFunction: "var(--ease-out-quart)",
-              willChange: "opacity, transform, filter",
+              willChange: entered ? undefined : "opacity, transform, filter",
             }
       }
     >

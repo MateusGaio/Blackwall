@@ -54,7 +54,7 @@ describe("captura explícita no Vault", () => {
     expect(first.path).toMatch(/^Blackwall Vault\/Notes\/fonte-de-verdade--[a-f0-9]{8}\.md$/);
     const content = await readFile(join(root, first.path), "utf8");
     expect(content).toContain("source_kind: explicit");
-    expect(content).toContain("#blocked");
+    expect(content).toContain("[link](javascript:alert(1))");
 
     const second = await createVaultNote({
       belongsTo: null,
