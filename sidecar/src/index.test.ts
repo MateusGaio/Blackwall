@@ -828,9 +828,13 @@ describe("sidecar robustez", () => {
     const workspaceRoot = join(directory, "project");
     await mkdir(workspaceRoot);
     directories.push(directory);
+    const watchEvents = new Map<string, (event: string, filename?: string) => void>();
     const { port, server } = await createSidecar(0, directory, {
       token: "lifecycle-token",
-      watchVault: true,
+      vaultWatchFactory: (watchedDirectory, listener) => {
+        watchEvents.set(watchedDirectory, listener);
+        return { close() {} };
+      },
     });
     servers.push(server);
     const baseUrl = `http://${SIDECAR_HOST}:${port}`;
@@ -883,6 +887,7 @@ describe("sidecar robustez", () => {
       await once(client, "open");
       await waitFor("system:ready");
       await writeFile(join(workspaceRoot, "outside-edit.md"), "# Fora do app\n\nWatcher", "utf8");
+      watchEvents.get(workspaceRoot)?.("rename", "outside-edit.md");
       await expect(waitFor("vault.graph.updated")).resolves.toMatchObject({ workspaceId });
 
       const database = openDatabase(directory);
