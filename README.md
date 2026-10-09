@@ -19,8 +19,6 @@
   <sub>Fases 1 e 2 implementadas no código atual · Datafort disponível · estabilização e aceite da beta em andamento</sub>
 </p>
 
-> **Aviso de privacidade:** este repositório permanece privado durante a estabilização. Não inclua chaves, prompts, respostas, dados reais, dumps, caminhos pessoais ou conteúdo de workspaces em commits, Issues, Pull Requests, logs ou artefatos.
-
 <p align="center">
   <a href="#o-que-é">O que é</a> ·
   <a href="#o-que-já-existe">Recursos</a> ·
